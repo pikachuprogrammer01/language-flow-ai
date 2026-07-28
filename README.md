@@ -198,22 +198,35 @@ interface ContentDTO {
 
 ## 快速开始
 
-1. 安装依赖
+1. 克隆项目
+   ```bash
+   git clone git@github.com:your-org/language-flow-ai.git
+   cd language-flow-ai
+   ```
+2. 安装依赖
    ```bash
    pnpm install
    ```
-2. 生成 API 客户端类型（后端 → 前端类型同步）
+3. 启动数据库（MySQL 8.0）
    ```bash
-   pnpm --filter backend dev          # 启动后端，自动生成 openapi.json
+   docker compose up -d
+   ```
+4. 配置环境变量
+   ```bash
+   cp .env.example .env
+   # 按需编辑 .env 中的 API Key 等配置
+   ```
+5. 启动开发服务器
+   ```bash
+   pnpm dev
+   # 后端 http://localhost:3000
+   # 前端 http://localhost:5173
+   ```
+6. （后续）生成 API 客户端类型
+   ```bash
    pnpm --filter frontend gen-api     # 从 openapi.json 生成 schema.d.ts
    ```
-3. 在 Dify 中导入 `dify/` 下的 Workflow YAML 文件（详见 [SPEC.md](./SPEC.md)）
-4. 配置 LLM 节点（GPT-4o / Claude 3.5 Sonnet）
-5. 部署后端 API（详见 [SPEC.md](./SPEC.md)）：
-   - 四六级词库服务（`/api/cet/validate-words`、`/api/cet/random-words`）
-   - TTS 服务（`/api/tts/generate`）
-   - 视频渲染服务（`/api/video/render`）
-6. 通过 Dify API 传入参数调用 Workflow A，拿到 partial_dto 后自动调用 Workflow B（详见 [SPEC.md](./SPEC.md) 第六～七节）
+7. （后续）在 Dify 中导入 `dify/` 下的 Workflow YAML，配置 LLM 节点（详见 [SPEC.md](./SPEC.md)）
 
 ## 开发规范
 

@@ -9,6 +9,7 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "test": "pnpm -r test",
+    "dev": "concurrently -n be,fe -c blue,green \"pnpm --filter backend dev\" \"pnpm --filter frontend dev\"",
     "prepare": "lefthook install"
   },
   "devDependencies": {
@@ -16,11 +17,12 @@
     "@commitlint/cli": "^19.0.0",
     "@commitlint/config-conventional": "^19.0.0",
     "@commitlint/types": "^19.0.0",
+    "concurrently": "^10.0.4",
     "lefthook": "^1.11.0",
     "typescript": "^5.7.0"
   },
   "engines": {
-    "node": ">=20.0.0",
-    "pnpm": ">=9.0.0"
+    "node": ">=24.0.0",
+    "pnpm": ">=11.0.0"
   }
 }

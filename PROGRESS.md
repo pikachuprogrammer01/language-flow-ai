@@ -11,9 +11,9 @@
 设计阶段      [████████████] 100%  8 份设计文档 + PRD + SPEC + README
 工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / CI / pino
 shared 包     [█░░░░░░░░░░░]   5%  index.ts 占位 + tsconfig
-后端 API      [█░░░░░░░░░░░]   5%  骨架（Hono + 健康检查 + CORS + 限流 + Drizzle schema + logger）
+后端 API      [██░░░░░░░░░░]  15%  骨架（Hono + 中间件 + Drizzle + serve + DB 连接）
 Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
-前端          [█░░░░░░░░░░░]   5%  骨架（index.ts 占位 + tsconfig + env.d.ts）
+前端          [██░░░░░░░░░░]  15%  骨架（Vite + Vue + Tailwind + 入口文件）
 测试          [██░░░░░░░░░░]  15%  Vitest 配置就绪，待写用例
 部署          [░░░░░░░░░░░░]   0%
 ```
@@ -84,7 +84,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 
 | # | 任务 | 状态 |
 |---|------|------|
-| 25 | packages/frontend 项目骨架（Vite + Vue 3 + Tailwind + shadcn-vue） | ⬜ |
+| 25 | packages/frontend 项目骨架（Vite + Vue 3 + Tailwind） | ✅ 完成 |
 | 26 | openapi-typescript 生成 schema.d.ts | ⬜ |
 | 27 | openapi-fetch 客户端封装 | ⬜ |
 | 28 | 新建任务页（CreateTask.vue） | ⬜ |
@@ -120,6 +120,13 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 - [x] pino 日志方案集成
 - [x] 后端骨架：健康检查 + CORS + Rate Limiting
 - [x] Drizzle ORM schema 定义（contents + cet_words 表）
+- [x] Backend serve() 启动 + 错误处理 + 请求日志中间件
+- [x] db/index.ts 数据库连接初始化
+- [x] Frontend 入口文件（vite.config.ts / index.html / main.ts / App.vue）
+- [x] Tailwind CSS 4 Vite 插件接入
+- [x] .nvmrc + .node-version（Node 24）
+- [x] docker-compose.yml（MySQL 8.0）
+- [x] .editorconfig
 
 ---
 
@@ -136,8 +143,11 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 2026-07-28 | 代码检查：Biome 替代 ESLint + Prettier | 一个工具替代两个，速度快 30-50x |
 | 2026-07-28 | 日志方案：pino + pino-pretty | Node.js 最快结构化日志，Hono 原生支持 |
 | 2026-07-28 | 限流方案：hono-rate-limiter | 轻量，按 IP 限流，无需 Redis |
-| 2026-07-28 | CI/CD：GitHub Actions | push/PR 自动跑 typecheck + test + lint，Node 20/22 双版本 |
+| 2026-07-28 | CI/CD：GitHub Actions | push/PR 自动跑 typecheck + test + lint，Node 24 |
 | 2026-07-28 | 测试框架：Vitest 3 | 与 Vite 共享配置，backend=node / frontend=jsdom |
+| 2026-07-28 | Node 版本：24 | 最新 LTS，与 pnpm 11 配套 |
+| 2026-07-28 | Tailwind 4 Vite 插件 | 替代 PostCSS，零配置启动 |
+| 2026-07-28 | 本地数据库：Docker Compose | MySQL 8.0，一键启动 |
 
 ---
 
