@@ -92,6 +92,10 @@
 | AI 模型 | GPT-4o / Claude 3.5 Sonnet | 必须支持 JSON Structured Output |
 | 视频渲染 | HTML + Playwright + FFmpeg | 模板渲染 → 截图 → 合成 |
 | 文件存储 | S3 兼容对象存储 / CDN | 存储音频和视频文件 |
+| 测试框架 | Vitest 3 | backend 用 node 环境，frontend 用 jsdom |
+| 日志 | pino + pino-pretty | 结构化日志，开发环境彩色输出 |
+| 限流 | hono-rate-limiter | 按 IP 限流，无需 Redis |
+| CI/CD | GitHub Actions | push/PR 自动 typecheck + test + lint |
 
 ### 2.3 API 接口管理方案
 

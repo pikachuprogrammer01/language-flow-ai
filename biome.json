@@ -35,7 +35,7 @@
       "suspicious": {
         "noExplicitAny": "error",
         "noArrayIndexKey": "warn",
-        "noConsole": { "level": "warn", "options": { "allow": ["warn", "error"] } }
+        "noConsole": { "level": "error", "options": { "allow": [] } }
       },
       "style": {
         "noNonNullAssertion": "error",

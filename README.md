@@ -56,50 +56,74 @@
 | AI 模型 | GPT-4o / Claude 3.5 Sonnet（Structured Output） |
 | TTS | 外部 TTS API 服务 |
 | 视频渲染 | HTML 模板 + Playwright 截图 + FFmpeg 合成 |
+| 测试框架 | Vitest 3（backend=node / frontend=jsdom） |
+| 日志 | pino + pino-pretty |
+| 限流 | hono-rate-limiter（按 IP） |
+| CI/CD | GitHub Actions（typecheck + test + lint） |
 
 ## 项目结构
 
 ```
-packages/
-├── shared/                      ← 前后端 + Dify Code 节点共享
-│   └── src/
-│       ├── content.dto.ts       # ContentDTO, ContentArray, 所有子结构
-│       ├── request.dto.ts       # CreateContentRequest, EditContentRequest
-│       ├── response.dto.ts      # ContentListItem, ContentDetail, PaginatedResponse
-│       └── enums.ts             # TemplateType, ContentStatus, CefrLevel
+language-flow-ai/
+├── tsconfig.base.json            # 根 TypeScript 配置基准
+├── .gitignore
+├── .env.example                  # 环境变量模板
+├── .github/workflows/
+│   └── ci.yml                    # CI 流程
 │
-├── backend/                     ← Hono + Drizzle + Zod
-│   └── src/
-│       ├── routes/
-│       │   ├── cet.ts           # /api/cet/validate-words, /api/cet/random-words
-│       │   ├── tts.ts           # /api/tts/generate
-│       │   └── video.ts         # /api/video/render
-│       ├── services/
-│       │   ├── cet.service.ts
-│       │   ├── tts.service.ts
-│       │   └── video.service.ts
-│       ├── renderer/            # 模板渲染器（Playwright + HTML 模板）
-│       │   ├── renderer.interface.ts
-│       │   ├── scene-word.renderer.ts
-│       │   ├── word-card.renderer.ts
-│       │   └── quiz.renderer.ts
-│       ├── db/
-│       │   ├── schema.ts        # Drizzle ORM 表定义
-│       │   └── index.ts         # 数据库连接
-│       └── openapi.json         # 自动生成的 OpenAPI 3.1 规范
-│
-└── frontend/                    ← Vue 3.5 + shadcn-vue + Vite
-    └── src/
-        ├── api/
-        │   ├── client.ts        # openapi-fetch 类型安全客户端
-        │   └── schema.d.ts      # openapi-typescript 自动生成
-        ├── pages/
-        │   ├── CreateTask.vue   # 新建视频任务
-        │   ├── TaskList.vue     # 历史任务列表
-        │   └── TaskDetail.vue   # 任务详情 + 视频预览
-        ├── components/
-        │   └── ui/              # shadcn-vue 组件
-        └── router.ts
+├── packages/
+│   ├── shared/                   ← 前后端 + Dify Code 节点共享
+│   │   ├── tsconfig.json
+│   │   ├── vitest.config.ts
+│   │   └── src/
+│   │       ├── index.ts          # 导出入口
+│   │       ├── content.dto.ts    # ContentDTO, ContentArray, 所有子结构
+│   │       ├── request.dto.ts    # CreateContentRequest, EditContentRequest
+│   │       ├── response.dto.ts   # ContentListItem, ContentDetail, PaginatedResponse
+│   │       └── enums.ts          # TemplateType, ContentStatus, CefrLevel
+│   │
+│   ├── backend/                  ← Hono + Drizzle + Zod
+│   │   ├── tsconfig.json
+│   │   ├── vitest.config.ts
+│   │   ├── drizzle.config.ts     # Drizzle Kit 迁移配置
+│   │   └── src/
+│   │       ├── index.ts          # Hono app 入口（CORS / Rate Limit / 路由）
+│   │       ├── lib/
+│   │       │   └── logger.ts     # pino 结构化日志
+│   │       ├── routes/
+│   │       │   ├── health.ts     # GET /health 健康检查
+│   │       │   ├── cet.ts        # /api/cet/validate-words, /api/cet/random-words
+│   │       │   ├── tts.ts        # /api/tts/generate
+│   │       │   └── video.ts      # /api/video/render
+│   │       ├── services/
+│   │       │   ├── cet.service.ts
+│   │       │   ├── tts.service.ts
+│   │       │   └── video.service.ts
+│   │       ├── renderer/         # 模板渲染器（Playwright + HTML 模板）
+│   │       │   ├── renderer.interface.ts
+│   │       │   ├── scene-word.renderer.ts
+│   │       │   ├── word-card.renderer.ts
+│   │       │   └── quiz.renderer.ts
+│   │       ├── db/
+│   │       │   ├── schema.ts     # Drizzle ORM 表定义
+│   │       │   └── index.ts      # 数据库连接
+│   │       └── openapi.json      # 自动生成的 OpenAPI 3.1 规范
+│   │
+│   └── frontend/                 ← Vue 3.5 + shadcn-vue + Vite
+│       ├── tsconfig.json
+│       ├── vitest.config.ts
+│       ├── env.d.ts              # Vue SFC + Vite 类型声明
+│       └── src/
+│           ├── api/
+│           │   ├── client.ts     # openapi-fetch 类型安全客户端
+│           │   └── schema.d.ts   # openapi-typescript 自动生成
+│           ├── pages/
+│           │   ├── CreateTask.vue
+│           │   ├── TaskList.vue
+│           │   └── TaskDetail.vue
+│           ├── components/
+│           │   └── ui/           # shadcn-vue 组件
+│           └── router.ts
 
 dify/
 ├── content_generation/

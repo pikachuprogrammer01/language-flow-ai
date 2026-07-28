@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# pnpm
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Video / Audio outputs (local test artifacts)
+*.mp4
+*.mp3
+*.wav
+
+# OpenAPI generated (auto-generated, not committed)
+packages/frontend/src/api/schema.d.ts
+
+# Dify
+dify/**/*.env
+
+# Drizzle
+packages/backend/drizzle/

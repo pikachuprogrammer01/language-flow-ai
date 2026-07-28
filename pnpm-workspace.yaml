@@ -1,2 +1,7 @@
 packages:
   - "packages/*"
+allowBuilds:
+  '@biomejs/biome': false
+  esbuild: false
+  lefthook: false
+  vue-demi: false

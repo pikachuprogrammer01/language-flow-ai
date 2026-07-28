@@ -1,7 +1,7 @@
 # 项目进度
 
 > 最后更新：2026-07-28
-> 当前阶段：开发准备（设计完成，即将开始编码）
+> 当前阶段：开发准备（工程配置完成，进入 shared 类型包编码）
 
 ---
 
@@ -9,12 +9,12 @@
 
 ```
 设计阶段      [████████████] 100%  8 份设计文档 + PRD + SPEC + README
-工程配置      [████░░░░░░░░]  40%  AGENTS.md ✅ | PROGRESS.md ⏳ | 工程文件 ⏳
-shared 包     [░░░░░░░░░░░░]   0%  ContentDTO 类型 + 枚举
-后端 API      [░░░░░░░░░░░░]   0%  词库 + TTS + 视频渲染
+工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / CI / pino
+shared 包     [█░░░░░░░░░░░]   5%  index.ts 占位 + tsconfig
+后端 API      [█░░░░░░░░░░░]   5%  骨架（Hono + 健康检查 + CORS + 限流 + Drizzle schema + logger）
 Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
-前端          [░░░░░░░░░░░░]   0%  3 个 Vue 页面
-测试          [░░░░░░░░░░░░]   0%
+前端          [█░░░░░░░░░░░]   5%  骨架（index.ts 占位 + tsconfig + env.d.ts）
+测试          [██░░░░░░░░░░]  15%  Vitest 配置就绪，待写用例
 部署          [░░░░░░░░░░░░]   0%
 ```
 
@@ -22,7 +22,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 
 ## 二、当前在做
 
-→ 工程配置文件初始化（biome.json / lefthook.yml / commitlint / pnpm workspace）
+→ 阶段 2：shared 类型包（enums.ts → content.dto.ts → request.dto.ts → response.dto.ts）
 
 ---
 
@@ -34,10 +34,18 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 |---|------|------|
 | 1 | 创建 AGENTS.md 行为约束 | ✅ 完成 |
 | 2 | 创建 PROGRESS.md 进度文件 | ✅ 完成 |
-| 3 | 配置 biome.json | ⏳ |
-| 4 | 配置 lefthook.yml | ⏳ |
-| 5 | 配置 commitlint | ⏳ |
-| 6 | 初始化 pnpm workspace + tsconfig | ⏳ |
+| 3 | 配置 biome.json | ✅ 完成 |
+| 4 | 配置 lefthook.yml | ✅ 完成 |
+| 5 | 配置 commitlint | ✅ 完成 |
+| 6 | 初始化 pnpm workspace + tsconfig | ✅ 完成 |
+| 6a | 创建 .gitignore | ✅ 完成 |
+| 6b | 创建 .env.example | ✅ 完成 |
+| 6c | 创建 tsconfig.base.json + 3 个子包 tsconfig.json | ✅ 完成 |
+| 6d | 创建 3 个 vitest.config.ts + shared 补 test 脚本 | ✅ 完成 |
+| 6e | 创建 .github/workflows/ci.yml | ✅ 完成 |
+| 6f | 引入 pino 日志库 + logger.ts | ✅ 完成 |
+| 6g | 健康检查端点 + CORS + Rate Limiting | ✅ 完成 |
+| 6h | Drizzle ORM schema + drizzle.config.ts | ✅ 完成 |
 
 ### 阶段 2：shared 类型包
 
@@ -54,8 +62,8 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 
 | # | 任务 | 状态 |
 |---|------|------|
-| 13 | packages/backend 项目骨架（Hono + tsconfig） | ⬜ |
-| 14 | Drizzle ORM schema（cet_words + contents 表） | ⬜ |
+| 13 | packages/backend 项目骨架（Hono + tsconfig） | ✅ 完成 |
+| 14 | Drizzle ORM schema（cet_words + contents 表） | ✅ 完成 |
 | 15 | POST /api/cet/validate-words + 测试 | ⬜ |
 | 16 | POST /api/cet/random-words + 测试 | ⬜ |
 | 17 | POST /api/tts/generate + 测试 | ⬜ |
@@ -105,6 +113,13 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 - [x] AGENTS.md 行为约束
 - [x] Git 自动化方案确定（lefthook + commitlint + Biome + Vitest）
 - [x] 分支策略确定（main + feature/*，PR 自审）
+- [x] tsconfig 配置文件（base + 3 个子包）
+- [x] .gitignore + .env.example
+- [x] Vitest 测试基础设施配置
+- [x] GitHub Actions CI 流程
+- [x] pino 日志方案集成
+- [x] 后端骨架：健康检查 + CORS + Rate Limiting
+- [x] Drizzle ORM schema 定义（contents + cet_words 表）
 
 ---
 
@@ -119,6 +134,10 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 2026-07-28 | commitlint 强制 | 保证历史可读，后续自动化 changelog |
 | 2026-07-28 | 分支策略：main + feature/*，PR 自审 | solo 开发够用，不重 |
 | 2026-07-28 | 代码检查：Biome 替代 ESLint + Prettier | 一个工具替代两个，速度快 30-50x |
+| 2026-07-28 | 日志方案：pino + pino-pretty | Node.js 最快结构化日志，Hono 原生支持 |
+| 2026-07-28 | 限流方案：hono-rate-limiter | 轻量，按 IP 限流，无需 Redis |
+| 2026-07-28 | CI/CD：GitHub Actions | push/PR 自动跑 typecheck + test + lint，Node 20/22 双版本 |
+| 2026-07-28 | 测试框架：Vitest 3 | 与 Vite 共享配置，backend=node / frontend=jsdom |
 
 ---
 
