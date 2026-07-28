@@ -5,7 +5,9 @@ import { rateLimiter } from "hono-rate-limiter";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { logger } from "./lib/logger";
+import { files } from "./routes/files";
 import { health } from "./routes/health";
+import { tts } from "./routes/tts";
 
 // ── 环境变量校验 ──
 const requiredEnvVars = ["DATABASE_URL"] as const;
@@ -71,9 +73,11 @@ app.use(
 
 // 路由注册
 app.route("/", health);
+app.route("/api/tts", tts);
+app.route("/files", files);
 
 // ── 启动服务器 ──
-const port = Number.parseInt(process.env.PORT ?? "3000", 10);
+const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 const server = serve({ fetch: app.fetch, port }, (info) => {
   logger.info({ port: info.port, env: process.env.NODE_ENV ?? "development" }, "server started");
 });

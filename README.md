@@ -219,7 +219,7 @@ interface ContentDTO {
 5. 启动开发服务器
    ```bash
    pnpm dev
-   # 后端 http://localhost:3000
+   # 后端 http://localhost:8080
    # 前端 http://localhost:5173
    ```
 6. （后续）生成 API 客户端类型

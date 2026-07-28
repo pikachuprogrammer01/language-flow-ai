@@ -23,10 +23,8 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Video / Audio outputs (local test artifacts)
-*.mp4
-*.mp3
-*.wav
+# Uploads (local storage — audio + video outputs)
+packages/backend/uploads/
 
 # OpenAPI generated (auto-generated, not committed)
 packages/frontend/src/api/schema.d.ts
