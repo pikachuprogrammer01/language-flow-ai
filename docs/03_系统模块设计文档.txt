@@ -1,0 +1,509 @@
+AI英语短视频内容生产平台 系统模块设计文档 V2
+==================================================
+
+本文档定义系统的模块划分、职责边界和模块间交互关系。
+与 04（数据结构 What）和 05（Workflow 流程 How）配合阅读。
+
+
+一、整体分层架构
+
+┌─────────────────────────────────────────────────────────┐
+│                    调用入口                              │
+│  用户/前端 通过 Dify API 或 HTTP 接口提交任务             │
+└────────────────────────┬────────────────────────────────┘
+                         │
+┌────────────────────────┴────────────────────────────────┐
+│                 Dify 流程编排层                            │
+│                                                         │
+│  ┌──────────────────────┐  ┌──────────────────────┐     │
+│  │  Workflow A：内容生成  │  │  Workflow B：媒体生产  │     │
+│  │                      │  │                      │     │
+│  │  · 内容策划           │  │  · TTS 语音合成        │     │
+│  │  · AI 脚本生成        │  │  · 视频渲染            │     │
+│  │  · 词汇提取与校验      │  │                      │     │
+│  │  · ContentDTO 组装    │  │                      │     │
+│  │                      │  │                      │     │
+│  │  输出: partial_dto    │  │  输出: final_dto      │     │
+│  └──────────┬───────────┘  └──────────┬───────────┘     │
+│             └────────────┬────────────┘                  │
+│                          │ MVP 自动串联                   │
+└──────────────────────────┼──────────────────────────────┘
+                           │ HTTP Request 节点调用
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                   后端 API 服务层                          │
+│                                                         │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────┐    │
+│  │ 四六级词库  │  │  TTS 服务   │  │  视频渲染服务   │    │
+│  │ 服务        │  │             │  │                │    │
+│  └────────────┘  └────────────┘  └────────────────┘    │
+│                                                         │
+│  ┌────────────────────────────────────────────────┐    │
+│  │              数据持久化层                        │    │
+│  │  · ContentDTO 存储                              │    │
+│  │  · 四六级词库表                                  │    │
+│  └────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+
+
+二、模块总览
+
+系统共 10 个模块，按所属层次分为三类：
+
+【编排层模块 — 运行在 Dify 中】
+  模块 1 — 内容生成编排模块
+  模块 2 — 媒体生产编排模块
+
+【业务层模块 — 运行在后端 API 服务中】
+  模块 3 — 四六级词库服务模块
+  模块 4 — TTS 语音合成模块
+  模块 5 — 视频渲染模块
+
+【支撑层模块 — TypeScript 代码、跨层复用】
+  模块 6 — ContentDTO 数据模型模块
+  模块 7 — 模板渲染器模块
+  模块 8 — 内容编辑模块
+  模块 9 — 样式配置模块
+  模块 10 — 内容记录模块
+
+
+三、模块 1：内容生成编排模块
+
+所属层次：Dify 编排层
+对应实现：Workflow A（三个模板各一个：A1 scene_word / A2 word_card / A3 quiz）
+
+职责：
+  接收用户输入参数（topic, template, level, wordCount, targetDuration, voice, style），
+  根据模板类型调度 LLM 生成结构化内容，调用词库服务校验词汇，最终组装为 partial_dto。
+
+输入：
+  · topic           主题（scene_word 必填，其余模板可选，作为 LLM 出题方向提示）
+  · template        模板类型（scene_word / word_card / quiz）
+  · level           四六级等级（CET4 / CET6）
+  · wordCount       期望词汇数量（3~15，默认 10）
+  · targetDuration  目标视频时长（秒，默认按模板：60/45/30）
+  · voice           音色配置（可选，有默认值）
+  · style           视觉样式（可选，有默认值）
+
+处理过程（三个模板共用骨架，细节有差异）：
+
+  scene_word（A1）：
+    start → llm_generate_story（AI 生成中英混合故事 + 候选词）
+          → code_extract_words（去重提取候选词列表）
+          → http_query_cet_db（调词库验证接口）
+          → code_validate_words（只保留匹配成功的词，丢弃 AI 编造的词）
+          → code_assemble_dto（生成 id + createdAt，组装 partial_dto）
+          → end
+
+  word_card（A2）：
+    start → http_query_cet_db（调词库随机抽取接口）
+          → llm_generate_cards（AI 为每个词生成卡片：词性、释义、例句、例句翻译）
+          → code_assemble_dto（组装 partial_dto）
+          → end
+
+  quiz（A3）：
+    start → http_query_cet_db（调词库随机抽取接口）
+          → llm_generate_quiz（AI 为每个词生成选择题：题干 + 4 选项 + 答案 + 解析）
+          → code_assemble_dto（组装 partial_dto）
+          → end
+
+输出：
+  partial_dto — 完整的 ContentDTO 减去 audio 和 video 字段，status = "content_ready"
+
+与其他模块的关系：
+  · 调用模块 3（四六级词库服务）— 通过 HTTP Request 节点
+  · 输出给模块 2（媒体生产编排）— partial_dto 作为 Workflow B 的输入
+  · 产出的数据结构符合模块 6（ContentDTO 数据模型）
+
+详细节点设计见：05_Dify_Workflow设计文档.txt
+
+
+四、模块 2：媒体生产编排模块
+
+所属层次：Dify 编排层
+对应实现：Workflow B（三个模板共用）
+
+职责：
+  接收模块 1 输出的 partial_dto，依次调用 TTS 服务和视频渲染服务，
+  将 audio 和 video 回填到 DTO，输出完整的 final_dto。
+
+输入：
+  partial_dto（来自 Workflow A 的 end 输出，status = "content_ready"）
+
+处理过程：
+  start → http_tts（调 TTS 服务生成配音，后端根据 template 决定朗读文本拼接方式）
+        → code_merge_audio（将 audio 写入 DTO，status → "audio_ready"）
+        → http_render_video（调渲染服务，传入含 audio 的 ContentDTO）
+        → code_merge_video（将 video 写入 DTO，status → "completed"）
+        → end
+
+输出：
+  final_dto — 完整的 ContentDTO，含 audio + video，status = "completed"
+
+TTS 文本拼接规则（由模块 4 的后端实现）：
+  · scene_word → 将所有 segment.text 拼接为完整朗读文本
+  · word_card  → 拼接每个 "word. pos. example"
+  · quiz       → 拼接每个 "stem + options"
+
+与其他模块的关系：
+  · 调用模块 4（TTS 语音合成）— 通过 HTTP Request 节点
+  · 调用模块 5（视频渲染）— 通过 HTTP Request 节点
+  · 输入来自模块 1，输出 final_dto 供前端消费和模块 10 持久化
+
+详细节点设计见：05_Dify_Workflow设计文档.txt
+
+
+五、模块 3：四六级词库服务模块
+
+所属层次：后端 API 服务层
+对应实现：POST /api/cet/validate-words, POST /api/cet/random-words
+
+职责：
+  提供四六级词汇的查询和验证能力，确保 AI 生成的词汇准确、等级正确。
+
+数据模型（cet_words 表）：
+  · word      英文单词，如 "contract"
+  · level     等级（CET4 / CET6）
+  · meaning   中文释义
+  · frequency 词频（0~1，用于排序和筛选）
+
+核心接口：
+
+  接口 1 — 候选词批量验证
+    POST /api/cet/validate-words
+    输入：{ words: string[], level: "CET4"|"CET6" }
+    输出：{ matchedWords: WordInfo[], unmatchedWords: string[] }
+    用途：scene_word 模板专用，LLM 输出的候选词须经此接口验证，匹配失败的丢弃
+
+  接口 2 — 按等级随机抽取
+    POST /api/cet/random-words
+    输入：{ level: "CET4"|"CET6", count: number }
+    输出：{ words: WordInfo[] }
+    用途：word_card / quiz 模板专用，从词库中抽取词汇作为内容素材
+
+设计原则：
+  · 词汇等级由词库决定，AI 只负责语义分析和内容生成，不参与等级判定
+  · AI 输出的候选词必须经过词库校验，匹配失败的词直接丢弃，保证词汇准确率 100%
+  · 词库数据独立维护，与 AI 生成逻辑解耦
+
+与其他模块的关系：
+  · 被模块 1 调用（Workflow A 的 HTTP Request 节点）
+  · 为模块 6 提供 WordInfo 的数据来源
+
+
+六、模块 4：TTS 语音合成模块
+
+所属层次：后端 API 服务层
+对应实现：POST /api/tts/generate
+
+职责：
+  将 ContentDTO.content 转为语音文件，根据 template 类型决定文本拼接方式。
+
+输入：
+  · content   ContentArray（ContentDTO.content 字段）
+  · template  TemplateType（用于路由拼接逻辑）
+  · voice     VoiceConfig（{ id, speed }）
+
+处理逻辑（后端内部）：
+  1. 根据 template 选择拼接规则（见模块 2 中的规则表）
+  2. 将 content 转为纯文本朗读字符串
+  3. 调用外部 TTS 引擎（音色 + 语速配置）
+  4. 返回音频文件 URL
+
+输出：
+  { audio: { url: string, duration: number, format: "mp3" } }
+
+与其他模块的关系：
+  · 被模块 2 调用（Workflow B 的 HTTP Request 节点）
+  · 输出音频 URL 由模块 2 写入 ContentDTO.audio
+
+
+七、模块 5：视频渲染模块
+
+所属层次：后端 API 服务层
+对应实现：POST /api/video/render
+
+职责：
+  根据 ContentDTO 渲染视频：选择 HTML 模板 → 注入 content + style → 截图 → FFmpeg 合成 → 输出 MP4。
+
+输入：
+  完整的 ContentDTO（含 audio 字段）
+
+渲染流程（后端内部）：
+  1. 根据 ContentDTO.template 选择对应的 HTML 模板
+  2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板
+  3. 使用 Playwright/Puppeteer 打开 HTML，按 segments/items 逐帧截图
+  4. FFmpeg 将图片帧 + ContentDTO.audio + bgm 合成 MP4
+  5. 上传到 CDN，返回视频 URL
+
+输出规格：
+  · 比例      9:16
+  · 分辨率    1080 × 1920
+  · 格式      MP4
+
+输出：
+  { video: { url, duration, resolution, format, size } }
+
+与其他模块的关系：
+  · 被模块 2 调用（Workflow B 的 HTTP Request 节点）
+  · 内部使用模块 7（模板渲染器）的 HTML 模板
+  · 接收模块 4 产出的音频文件（通过 ContentDTO.audio 传入）
+  · 输出视频 URL 由模块 2 写入 ContentDTO.video
+
+
+八、模块 6：ContentDTO 数据模型模块
+
+所属层次：支撑层（TypeScript 代码）
+对应实现：src/dto/ 目录下的类型文件
+
+职责：
+  定义系统所有数据结构的 TypeScript 类型，包括枚举、子结构、核心 DTO、Request/Response DTO。
+
+核心类型：
+
+  · TemplateType      — "scene_word" | "word_card" | "quiz"
+  · ContentStatus     — draft → ai_generating → content_ready → tts_processing
+                          → audio_ready → video_rendering → completed | failed
+  · CefrLevel         — "CET4" | "CET6"
+  · WordInfo          — { word, meaning, level, wordIndex?, frequency? }
+  · VoiceConfig       — { id, speed? }
+  · StyleConfig       — { background, font?, colorScheme?, bgm? }
+  · AudioInfo         — { url, duration, format }
+  · VideoInfo         — { url, duration, resolution, format, size? }
+  · SceneWordSegment  — { text, words: WordInfo[] }
+  · WordCardItem      — { word, pos, meaning, example, exampleMeaning?, imageUrl? }
+  · QuizItem          — { stem, options, correctIndex, explanation, word }
+  · ContentArray      — SceneWordSegment[] | WordCardItem[] | QuizItem[]
+  · ContentDTO        — { id, template, title, level, targetDuration, content,
+                           words, style, voice, audio?, video?, status,
+                           createdAt, updatedAt }
+
+四层 DTO 架构：
+  · Request DTO    — 输入层：CreateContentRequest / EditContentRequest
+  · ContentDTO     — 核心流转层：Workflow 各节点统一传递
+  · Response DTO   — 输出层：ContentListItem / ContentDetail / PaginatedResponse
+  · DB Entity      — 持久层：数据库存储映射
+
+类型守卫（TypeScript discriminated union 配套）：
+  · isSceneWord(dto) — 窄化 content 为 SceneWordSegment[]
+  · isWordCard(dto)  — 窄化 content 为 WordCardItem[]
+  · isQuiz(dto)      — 窄化 content 为 QuizItem[]
+
+扩展方式：
+  新增模板时：加一个 ContentItem 子类型 → 加入 ContentArray 联合类型 →
+  加一个 TemplateType 值 → 加一个类型守卫。核心 DTO 结构不变。
+
+完整字段和示例见：04_Content_DTO设计文档.txt
+
+
+九、模块 7：模板渲染器模块
+
+所属层次：支撑层（TypeScript 代码/HTML 模板）
+对应实现：src/renderer/ 目录
+
+职责：
+  为每种视频模板提供独立的 HTML 渲染逻辑，将 ContentDTO.content 转为可视化画面。
+
+设计模式：
+  策略模式 — 定义 TemplateRenderer 接口，每种模板一个实现类。
+
+  interface TemplateRenderer {
+    render(content: ContentArray, style: StyleConfig): RenderResult;
+  }
+
+  class SceneWordRenderer implements TemplateRenderer { ... }
+  class WordCardRenderer  implements TemplateRenderer { ... }
+  class QuizRenderer      implements TemplateRenderer { ... }
+
+  通过类型守卫驱动渲染器选择：
+
+    function getRenderer(dto: ContentDTO): TemplateRenderer {
+      if (isSceneWord(dto)) return new SceneWordRenderer();
+      if (isWordCard(dto))  return new WordCardRenderer();
+      if (isQuiz(dto))      return new QuizRenderer();
+      throw new Error(`Unknown template: ${dto.template}`);
+    }
+
+当前渲染器：
+  · SceneWordRenderer  — 顶部标题 + 主体中英混合文本（词汇高亮）+ 底部词汇提示
+  · WordCardRenderer   — 卡片式布局，单词-词性-释义-例句
+  · QuizRenderer       — 题目面板，题干 + 4 选项 + 答案揭晓 + 解析
+
+扩展方式：
+  新增模板只需新增一个 Renderer 实现类，不修改接口和其他 Renderer。
+
+SceneWordRenderer 详细视觉规范见：情景词汇阅读视频模板设计规范 V1.0.txt
+
+
+十、模块 8：内容编辑模块
+
+所属层次：支撑层
+对应实现：EditContentRequest DTO + 编辑接口
+
+职责：
+  提供 AI 生成内容的人工修改入口。
+
+可编辑字段：
+  · title    标题
+  · content  正文内容（按模板类型的 ContentArray）
+  · words    词汇列表
+  · voice    音色配置
+  · style    视觉样式
+
+说明：
+  · MVP 阶段编辑为可选操作，用户可跳过直接进入视频生成
+  · 编辑操作通过 EditContentRequest DTO 提交，后端更新 ContentDTO 对应字段
+  · 编辑后重新进入 Workflow B（媒体生产），不需要重新跑 Workflow A
+  · 后续接入人工审核时，编辑模块可作为审核环节的子功能
+
+MVP 不含人工审核。后续接入时，在 Workflow A（content_ready）和 Workflow B
+之间插入审核节点，本模块作为审核的打回-修改-重提交机制。
+
+
+十一、模块 9：样式配置模块
+
+所属层次：支撑层
+对应实现：StyleConfig 类型 + 前端样式选择器 + 后端默认值
+
+职责：
+  管理系统视觉样式配置，包括背景主题、字体、配色、背景音乐。
+
+配置项：
+  · background  背景主题 ID（如 "default", "forest_01", "ocean_01", "card_clean", "quiz_dark"）
+  · font        字体（默认 "default"）
+  · colorScheme 配色方案（如 "high_contrast"）
+  · bgm         背景音乐曲目 ID（如 "bgm_calm_01"）
+
+默认值规则：
+  · scene_word → { background: "default", bgm: "bgm_calm_01" }
+  · word_card  → { background: "card_clean", bgm: "bgm_soft_01" }
+  · quiz       → { background: "quiz_dark", colorScheme: "high_contrast", bgm: "bgm_upbeat_01" }
+
+说明：
+  · 样式配置在 Workflow A 的 code_assemble_dto 节点中透传（用户传入或用默认值）
+  · 视频渲染时（模块 5）通过 ContentDTO.style 注入到 HTML 模板
+
+
+十二、模块 10：内容记录模块
+
+所属层次：支撑层（数据持久化）
+对应实现：contents 表 + 列表/详情查询接口
+
+职责：
+  保存每次生产的完整 ContentDTO 到数据库，提供列表查询和详情查询。
+
+数据表（contents）：
+  · id              VARCHAR(32) PK   — cnt_YYYYMMDD_XXXXXX
+  · template        VARCHAR(32)      — 模板类型
+  · title           VARCHAR(256)     — 视频标题
+  · level           VARCHAR(8)       — CET4/CET6
+  · target_duration INT              — 目标时长
+  · content         JSON             — ContentArray
+  · words           JSON             — WordInfo[]
+  · style           JSON             — StyleConfig
+  · voice           JSON             — VoiceConfig
+  · audio           JSON NULL        — AudioInfo（TTS 后填充）
+  · video           JSON NULL        — VideoInfo（渲染后填充）
+  · status          VARCHAR(32)      — ContentStatus
+  · created_at      DATETIME(3)      — 创建时间（ISO 8601 UTC）
+  · updated_at      DATETIME(3)      — 更新时间
+
+查询接口：
+  · 列表：ContentListItem[]（不含大段 content，只含摘要信息）
+  · 详情：ContentDetail（含完整 content）
+  · 分页：PaginatedResponse<T>
+
+用途：
+  · 复盘历史生产内容
+  · 二次编辑（从记录恢复 ContentDTO）
+  · 后续数据分析和词汇统计
+
+说明：
+  · 仅保存完整的 production-ready ContentDTO
+  · 中间态（draft/ai_generating 等）也在 Dify 执行过程中持久化
+  · 列表接口裁剪大字段以优化响应大小
+
+
+十三、模块交互关系总图
+
+                         ┌──────────────┐
+                         │   用户/前端    │
+                         └──────┬───────┘
+                                │ 输入参数
+                                ▼
+                 ┌──────────────────────────┐
+                 │    模块 1：内容生成编排     │  Dify Workflow A
+                 │                           │
+                 │  LLM → 提取 → 校验 → 组装  │
+                 └────────────┬─────────────┘
+                              │ HTTP
+                              ▼
+                 ┌──────────────────────────┐
+                 │  模块 3：四六级词库服务     │  后端 API
+                 └──────────────────────────┘
+                              │
+                              │ partial_dto
+                              ▼
+                 ┌──────────────────────────┐
+                 │    模块 2：媒体生产编排     │  Dify Workflow B
+                 │                           │
+                 │   TTS ──→ 视频渲染         │
+                 └───┬──────────┬───────────┘
+                     │ HTTP     │ HTTP
+                     ▼          ▼
+        ┌──────────────┐  ┌──────────────┐
+        │ 模块 4：TTS   │  │ 模块 5：渲染  │  后端 API
+        └──────────────┘  └──────┬───────┘
+                                 │ 内部调用
+                                 ▼
+                    ┌──────────────────────┐
+                    │ 模块 7：模板渲染器     │  TypeScript/HTML
+                    └──────────────────────┘
+
+  ┌─────────────────────────────────────────────────┐
+  │              贯穿全流程的支撑模块                    │
+  │                                                  │
+  │  模块 6：ContentDTO 数据模型（所有节点统一使用）      │
+  │  模块 8：内容编辑（content_ready 后可触发）          │
+  │  模块 9：样式配置（透传贯穿，渲染时消费）             │
+  │  模块 10：内容记录（Workflow 结束后持久化）          │
+  └─────────────────────────────────────────────────┘
+
+
+十四、模块与文档的对应关系
+
+| 模块                   | 定义位置                       | 详细设计                    |
+| ---------------------- | ----------------------------- | -------------------------- |
+| 模块 1：内容生成编排     | 05_Dify_Workflow设计文档.txt   | Workflow A 三模板节点定义    |
+| 模块 2：媒体生产编排     | 05_Dify_Workflow设计文档.txt   | Workflow B 节点定义          |
+| 模块 3：四六级词库服务   | SPEC.md §五                   | API 契约                    |
+| 模块 4：TTS 语音合成    | SPEC.md §五                   | API 契约                    |
+| 模块 5：视频渲染        | SPEC.md §五                   | API 契约 + 渲染流程          |
+| 模块 6：ContentDTO     | 04_Content_DTO设计文档.txt     | 全部类型 + 示例              |
+| 模块 7：模板渲染器       | 04 文档 §十三/§十四            | 接口 + 三个实现              |
+| 模块 8：内容编辑        | PRD.md §3.3                   | EditContentRequest          |
+| 模块 9：样式配置        | PRD.md §3.8                   | StyleConfig                 |
+| 模块 10：内容记录       | SPEC.md §十                   | 数据库表 + 查询接口          |
+
+
+十五、扩展新模块指南
+
+以未来新增"单词听写模板（dictation）"为例，涉及模块变更：
+
+  模块 1（内容生成编排）：
+    · 新增 Workflow A4（dictation）
+    · 复用模块 3（词库随机抽取）
+
+  模块 6（ContentDTO）：
+    · 新增 DictationItem 类型
+    · ContentArray 联合类型加一行
+    · TemplateType 加 "dictation"
+    · 新增 isDictation 类型守卫
+
+  模块 7（模板渲染器）：
+    · 新增 DictationRenderer 实现类
+
+  模块 2、4、5、8、9、10：
+    · 无需修改 — 核心架构和渲染流程自动适配新模板
+
+新增模板的完整步骤见：04_Content_DTO设计文档.txt 第十三节

@@ -1,0 +1,542 @@
+Content DTO 统一数据结构设计 V2
+==================================
+
+一、设计目标
+
+1. 不同视频模板共享同一套核心数据模型
+2. 内容差异化通过 TypeScript 联合类型（discriminated union）实现，而非各自建表
+3. DTO 分四层：Request（输入） → ContentDTO（流转） → Response（输出） → DB Entity（持久化）
+4. 未来新增模板只需：
+   - 新增一个 ContentItem 子类型
+   - 新增一个 TemplateRenderer
+   - 核心 DTO 和 Workflow 逻辑不变
+
+
+二、分层架构
+
+┌──────────────────────────────┐
+│  Request DTO         输入层  │  用户/前端提交
+├──────────────────────────────┤
+│  ContentDTO          核心层  │  Workflow 各节点统一流转
+├──────────────────────────────┤
+│  Response DTO        输出层  │  API 返回给前端
+├──────────────────────────────┤
+│  DB Entity           持久层  │  数据库存储（本文档暂不展开）
+└──────────────────────────────┘
+
+
+三、枚举定义
+
+// ==================== 模板类型 ====================
+
+type TemplateType = "scene_word" | "word_card" | "quiz";
+
+enum TemplateTypeEnum {
+  SCENE_WORD = "scene_word",  // 情景背词
+  WORD_CARD  = "word_card",   // 单词卡片
+  QUIZ       = "quiz",        // 选择题
+}
+
+// ==================== 内容状态 ====================
+
+type ContentStatus =
+  | "draft"              // 草稿（用户刚提交）
+  | "ai_generating"      // AI 生成中
+  | "content_ready"      // 内容已生成，待进入媒体生产
+  | "tts_processing"     // 语音合成中
+  | "audio_ready"        // 音频就绪
+  | "video_rendering"    // 视频渲染中
+  | "completed"          // 视频生成完成
+  | "failed";            // 失败
+
+// 状态流转（MVP）：
+// draft → ai_generating → content_ready → tts_processing → audio_ready → video_rendering → completed
+//                ↓                ↓              ↓                ↓              ↓
+//              failed           failed         failed           failed         failed
+//
+// 说明：MVP 不包含人工审核环节。后续接入审核时，在 content_ready 和 tts_processing 之间
+//       插入 reviewing / approved / rejected 状态即可。当前精简为 8 个实际流转状态。
+
+// ==================== 四六级等级 ====================
+
+type CefrLevel = "CET4" | "CET6";
+
+
+四、子结构定义
+
+// ==================== 词汇信息 ====================
+
+interface WordInfo {
+  /** 英文单词，如 "contract" */
+  word: string;
+  /** 中文释义，如 "合同" */
+  meaning: string;
+  /** 四六级等级 */
+  level: CefrLevel;
+  /** 在 text 中按分词后的词序号（0-based），用于前端高亮定位。scene_word 模板专用 */
+  wordIndex?: number;
+  /** 词频（来自四六级词库） */
+  frequency?: number;
+}
+
+// ==================== 音色配置 ====================
+
+interface VoiceConfig {
+  /** 音色 ID，如 "female_01", "male_01" */
+  id: string;
+  /** 语速倍率，默认 1.0，范围 0.5 ~ 2.0 */
+  speed?: number;
+}
+
+// ==================== 媒体产物 ====================
+
+interface AudioInfo {
+  /** 音频文件地址 */
+  url: string;
+  /** 音频时长（秒） */
+  duration: number;
+  /** 格式，如 "mp3", "wav" */
+  format: string;
+}
+
+interface VideoInfo {
+  /** 视频文件地址 */
+  url: string;
+  /** 视频时长（秒） */
+  duration: number;
+  /** 分辨率，如 "1080x1920" */
+  resolution: string;
+  /** 格式，如 "mp4" */
+  format: string;
+  /** 文件大小（bytes） */
+  size?: number;
+}
+
+// ==================== 视觉样式 ====================
+
+interface StyleConfig {
+  /** 背景主题 ID，如 "default", "forest_01", "ocean_01" */
+  background: string;
+  /** 字体 */
+  font?: string;
+  /** 配色方案 */
+  colorScheme?: string;
+  /** 背景音乐曲目 ID，如 "bgm_calm_01"，不传用默认值 */
+  bgm?: string;
+}
+
+
+五、模板差异化内容结构（discriminated union）
+
+// ==================== 模板一：情景背词 (scene_word) ====================
+
+interface SceneWordSegment {
+  /** 混合中英文的文本片段 */
+  text: string;
+  /** 这段文本中用到的四六级词汇 */
+  words: WordInfo[];
+}
+
+// ==================== 模板二：单词卡片 (word_card) ====================
+
+interface WordCardItem {
+  /** 英文单词 */
+  word: string;
+  /** 词性，如 "n.", "v.", "adj.", "adv." */
+  pos: string;
+  /** 中文释义 */
+  meaning: string;
+  /** 例句 */
+  example: string;
+  /** 例句翻译（可选） */
+  exampleMeaning?: string;
+  /** 配图地址（可选） */
+  imageUrl?: string;
+}
+
+// ==================== 模板三：选择题 (quiz) ====================
+
+interface QuizItem {
+  /** 题干，如 "contract 的意思是？" */
+  stem: string;
+  /** 选项列表 */
+  options: string[];
+  /** 正确答案索引（0-based） */
+  correctIndex: number;
+  /** 解析 */
+  explanation: string;
+  /** 对应的词汇信息 */
+  word: WordInfo;
+}
+
+// ==================== 联合类型 ====================
+
+type ContentArray =
+  | SceneWordSegment[]   // scene_word
+  | WordCardItem[]       // word_card
+  | QuizItem[];          // quiz
+
+
+六、核心 ContentDTO
+
+interface ContentDTO {
+  /** 唯一标识，格式 cnt_YYYYMMDD_XXXXXX（6位十六进制） */
+  id: string;
+
+  /** 模板类型（discriminator） */
+  template: TemplateType;
+
+  /** 视频标题 */
+  title: string;
+
+  /** 四六级等级 */
+  level: CefrLevel;
+
+  /** 目标时长（秒），即用户期望的视频长度 */
+  targetDuration: number;
+
+  /**
+   * 核心内容 — 根据 template 采用不同结构：
+   *   scene_word → SceneWordSegment[]
+   *   word_card  → WordCardItem[]
+   *   quiz       → QuizItem[]
+   */
+  content: ContentArray;
+
+  /** 全视频涉及的四六级词汇汇总（去重后的扁平列表，方便检索和统计） */
+  words: WordInfo[];
+
+  /** 视觉样式 */
+  style: StyleConfig;
+
+  /** 音色配置 */
+  voice: VoiceConfig;
+
+  /** 音频产物（阶段性填充，TTS 完成后写入） */
+  audio?: AudioInfo;
+
+  /** 视频产物（阶段性填充，视频渲染完成后写入） */
+  video?: VideoInfo;
+
+  /** 内容状态 */
+  status: ContentStatus;
+
+  /** 创建时间（ISO 8601 UTC） */
+  createdAt: string;
+
+  /** 最后更新时间（ISO 8601 UTC） */
+  updatedAt: string;
+}
+
+
+七、Request DTO（输入层）
+
+// ==================== 创建视频任务 ====================
+
+interface CreateContentRequest {
+  /** 主题，如 "森林探险"（scene_word 模板必填，word_card / quiz 可选，作为 LLM 出题方向） */
+  topic?: string;
+  /** 模板类型 */
+  template: TemplateType;
+  /** 四六级等级 */
+  level: CefrLevel;
+  /** 期望词汇数量，默认 10，范围 3 ~ 15 */
+  wordCount?: number;
+  /** 目标时长（秒），默认 60 */
+  targetDuration?: number;
+  /** 音色选择，不传用默认值 */
+  voice?: VoiceConfig;
+  /** 样式选择，不传用默认值 */
+  style?: StyleConfig;
+}
+
+// ==================== 编辑内容（人工审核修改） ====================
+
+interface EditContentRequest {
+  title?: string;
+  content?: ContentArray;
+  words?: WordInfo[];
+  voice?: VoiceConfig;
+  style?: StyleConfig;
+}
+
+
+八、Response DTO（输出层）
+
+// ==================== 列表项（列表接口返回，不含大段 content） ====================
+
+interface ContentListItem {
+  id: string;
+  template: TemplateType;
+  title: string;
+  level: CefrLevel;
+  targetDuration: number;
+  wordCount: number;       // 词汇总数
+  status: ContentStatus;
+  thumbnailUrl?: string;   // 缩略图地址
+  createdAt: string;
+}
+
+// ==================== 详情（详情接口返回，包含完整 content） ====================
+
+interface ContentDetail extends ContentListItem {
+  content: ContentArray;
+  words: WordInfo[];
+  style: StyleConfig;
+  voice: VoiceConfig;
+  audio?: AudioInfo;
+  video?: VideoInfo;
+  updatedAt: string;
+}
+
+// ==================== 分页响应 ====================
+
+interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+
+九、完整示例：情景背词模板
+
+用户输入 → AI 生成 → 词汇校验后的 ContentDTO：
+
+{
+  "id": "cnt_20260728_001",
+  "template": "scene_word",
+  "title": "10个四六级词汇藏在一次森林探险里",
+  "level": "CET4",
+  "targetDuration": 60,
+
+  "content": [
+    {
+      "text": "Leo接到一份contract，任务是前往未知的continent寻找文明遗迹。",
+      "words": [
+        { "word": "contract",  "meaning": "合同",   "level": "CET4", "wordIndex": 3 },
+        { "word": "continent", "meaning": "大陆",   "level": "CET4", "wordIndex": 10 }
+      ]
+    },
+    {
+      "text": "他与队友consult路线后出发，穿越dense丛林。",
+      "words": [
+        { "word": "consult", "meaning": "咨询",   "level": "CET4", "wordIndex": 3 },
+        { "word": "dense",   "meaning": "茂密的", "level": "CET4", "wordIndex": 7 }
+      ]
+    }
+  ],
+
+  "words": [
+    { "word": "contract",  "meaning": "合同",   "level": "CET4" },
+    { "word": "continent", "meaning": "大陆",   "level": "CET4" },
+    { "word": "consult",   "meaning": "咨询",   "level": "CET4" },
+    { "word": "dense",     "meaning": "茂密的", "level": "CET4" }
+  ],
+
+  "style": {
+    "background": "forest_01",
+    "font": "default",
+    "bgm": "bgm_calm_01"
+  },
+
+  "voice": {
+    "id": "female_01",
+    "speed": 1.0
+  },
+
+  "status": "content_ready",
+  "createdAt": "2026-07-28T10:30:00Z",
+  "updatedAt": "2026-07-28T10:35:00Z"
+}
+
+
+十、完整示例：单词卡片模板
+
+{
+  "id": "cnt_20260728_002",
+  "template": "word_card",
+  "title": "每日5个四六级高频词汇",
+  "level": "CET6",
+  "targetDuration": 45,
+
+  "content": [
+    {
+      "word": "elaborate",
+      "pos": "adj.",
+      "meaning": "精心制作的；详尽的",
+      "example": "She made elaborate preparations for the party.",
+      "exampleMeaning": "她为聚会做了精心的准备。"
+    },
+    {
+      "word": "predominant",
+      "pos": "adj.",
+      "meaning": "占主导地位的；显著的",
+      "example": "English is the predominant language in international business.",
+      "exampleMeaning": "英语是国际商务中的主导语言。"
+    }
+  ],
+
+  "words": [
+    { "word": "elaborate",   "meaning": "精心制作的；详尽的",      "level": "CET6" },
+    { "word": "predominant", "meaning": "占主导地位的；显著的",     "level": "CET6" }
+  ],
+
+  "style": {
+    "background": "card_clean",
+    "font": "default",
+    "bgm": "bgm_soft_01"
+  },
+
+  "voice": {
+    "id": "male_01",
+    "speed": 0.9
+  },
+
+  "status": "content_ready",
+  "createdAt": "2026-07-28T11:00:00Z",
+  "updatedAt": "2026-07-28T11:05:00Z"
+}
+
+
+十一、完整示例：选择题模板
+
+{
+  "id": "cnt_20260728_003",
+  "template": "quiz",
+  "title": "四六级词汇挑战 — 你能答对几题？",
+  "level": "CET4",
+  "targetDuration": 30,
+
+  "content": [
+    {
+      "stem": ""contract" 的意思是？",
+      "options": ["合同", "联系", "对比", "建造"],
+      "correctIndex": 0,
+      "explanation": "contract 作为名词意为"合同、契约"，作为动词意为"收缩"。",
+      "word": { "word": "contract", "meaning": "合同", "level": "CET4" }
+    },
+    {
+      "stem": ""continent" 的意思是？",
+      "options": ["内容", "大陆", "满意", "联系"],
+      "correctIndex": 1,
+      "explanation": "continent 意为"大陆、洲"，如 Asia is the largest continent.",
+      "word": { "word": "continent", "meaning": "大陆", "level": "CET4" }
+    }
+  ],
+
+  "words": [
+    { "word": "contract",  "meaning": "合同", "level": "CET4" },
+    { "word": "continent", "meaning": "大陆", "level": "CET4" }
+  ],
+
+  "style": {
+    "background": "quiz_dark",
+    "font": "default",
+    "colorScheme": "high_contrast",
+    "bgm": "bgm_upbeat_01"
+  },
+
+  "voice": {
+    "id": "female_01",
+    "speed": 1.0
+  },
+
+  "status": "content_ready",
+  "createdAt": "2026-07-28T11:10:00Z",
+  "updatedAt": "2026-07-28T11:10:00Z"
+}
+
+
+十二、命名与设计原则
+
+| 原则         | 说明                                                         |
+| ------------ | ------------------------------------------------------------ |
+| 字段命名     | 统一 camelCase，与 TypeScript/JSON/前端生态一致               |
+| 枚举值       | snake_case 字符串，可直接入库和日志阅读                       |
+| ID 格式      | 带前缀的可读 ID，如 cnt_YYYYMMDD_XXXXXX（6位hex），避免裸 UUID            |
+| 时间格式     | ISO 8601 UTC 字符串，如 2026-07-28T10:30:00Z                 |
+| 联合类型     | content 字段使用 discriminated union，由 template 字段作为判别键 |
+| 可选字段     | 阶段性填充的字段（audio/video）一律用 ? 标记 optional          |
+| 分层职责     | Request 专注输入校验，ContentDTO 专注流转，Response 专注展示裁剪 |
+| 模板扩展     | 新增模板只需：加一个 ContentItem 子类型 → 加到 ContentArray → 写一个 Renderer |
+
+
+十三、如何新增模板
+
+以未来新增"单词听写模板"（dictation）为例：
+
+步骤 1 — 定义内容结构：
+
+  interface DictationItem {
+    audioPrompt: string;   // 语音播报内容
+    answer: string;        // 正确答案
+    hint?: string;         // 提示（显示首字母等）
+  }
+
+步骤 2 — 加入联合类型：
+
+  type ContentArray =
+    | SceneWordSegment[]
+    | WordCardItem[]
+    | QuizItem[]
+    | DictationItem[];     // ← 新增
+
+步骤 3 — 加入 TemplateType：
+
+  type TemplateType = "scene_word" | "word_card" | "quiz" | "dictation";
+
+步骤 4 — 实现 DictationRenderer：
+
+  class DictationRenderer implements TemplateRenderer {
+    render(content: DictationItem[]): RenderResult { ... }
+  }
+
+ContentDTO、Request DTO、Response DTO 均无需修改结构，只需在 TemplateType 和 ContentArray 加一行。
+
+
+十四、TypeScript 类型守卫（推荐实现）
+
+实际编码时建议提供类型守卫函数，方便在各 Workflow 节点安全地处理不同模板：
+
+/**
+ * 判断当前 ContentDTO 是否为指定模板类型，
+ * 若是，则将 content 窄化为对应类型。
+ */
+function isSceneWord(dto: ContentDTO): dto is ContentDTO & { content: SceneWordSegment[] } {
+  return dto.template === "scene_word";
+}
+
+function isWordCard(dto: ContentDTO): dto is ContentDTO & { content: WordCardItem[] } {
+  return dto.template === "word_card";
+}
+
+function isQuiz(dto: ContentDTO): dto is ContentDTO & { content: QuizItem[] } {
+  return dto.template === "quiz";
+}
+
+// 使用示例：
+function getRenderer(dto: ContentDTO): TemplateRenderer {
+  if (isSceneWord(dto)) return new SceneWordRenderer();
+  if (isWordCard(dto))  return new WordCardRenderer();
+  if (isQuiz(dto))      return new QuizRenderer();
+  throw new Error(`Unknown template: ${dto.template}`);
+}
+
+
+十五、文件组织建议（供实现时参考）
+
+src/
+├── dto/
+│   ├── content.dto.ts        // ContentDTO, ContentArray, 所有子结构
+│   ├── request.dto.ts        // CreateContentRequest, EditContentRequest
+│   ├── response.dto.ts       // ContentListItem, ContentDetail, PaginatedResponse
+│   └── enums.ts              // TemplateType, ContentStatus, CefrLevel
+├── guards/
+│   └── content.guard.ts      // isSceneWord, isWordCard, isQuiz
+└── renderer/
+    ├── renderer.interface.ts // TemplateRenderer 接口
+    ├── scene-word.renderer.ts
+    ├── word-card.renderer.ts
+    └── quiz.renderer.ts

@@ -1,0 +1,956 @@
+Dify Workflow 节点设计方案 V2
+================================
+
+零、Workflow 概述
+
+本方案将内容生产拆为两个独立的 Dify Workflow：
+
+  Workflow A「内容生成」  三个模板各一个，负责 AI 生成 + 词汇校验 → 输出 partial_dto
+  Workflow B「媒体生产」  共用一个，接收 partial_dto → TTS → 视频渲染 → 输出 final_dto
+
+MVP 阶段两个 Workflow 自动串联（A 的输出直接喂给 B）。
+后续接入人工审核时，只需在 A 和 B 之间插入审核环节，Workflow 本身无需修改。
+
+┌─────────────────────────────────────────────────────────────┐
+│                        输入 (Input)                          │
+├─────────────────────────────────────────────────────────────┤
+│  用户通过 Dify API 传入：                                      │
+│                                                             │
+│  • topic      主题，如 "森林探险"（scene_word 模板必填）         │
+│  • template   视频模板类型："scene_word"｜"word_card"｜"quiz"  │
+│  • level      四六级等级："CET4"｜"CET6"                       │
+│  • wordCount  期望词汇数量（3~15，默认 10）                      │
+│  • targetDuration 目标视频时长（秒，默认 60）                       │
+│  • voice      音色配置 { id, speed }（可选，有默认值）              │
+│  • style      视觉样式 { background, font, bgm }（可选，有默认值） │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      处理过程 (Process)                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ① 内容策划       用户输入 topic + level，确定内容方向和难度      │
+│                                                             │
+│  ② 脚本生成       LLM 按模板类型生成结构化脚本：                  │
+│     · scene_word → 中英混合故事文本 + 候选词汇                   │
+│     · word_card  → 词汇卡片（词性、释义、例句）                   │
+│     · quiz       → 选择题（题干、选项、答案、解析）               │
+│                                                             │
+│  ③ 词汇提取       从 AI 输出中提取所有候选英文词汇，去重           │
+│                                                             │
+│  ④ 词库校验       调用四六级词库 API，验证每个词的等级和释义        │
+│     · 匹配成功 → 保留，填入 WordInfo                            │
+│     · 匹配失败 → 丢弃（AI 编造的词）                             │
+│                                                             │
+│  ⑤ 数据组装       将校验后的内容按 ContentDTO 格式组装为            │
+│                  partial_dto（含 id + createdAt，不含 audio/video）│
+│                  输出 status = "content_ready"                     │
+│                                                             │
+│  ─────────────  Workflow A 结束，Workflow B 开始 ─────────────  │
+│                                                             │
+│  ⑥ 语音合成       调用 TTS 服务，将 content 转为配音音频          │
+│                  → 回填 audio 字段，status → "audio_ready"       │
+│                                                             │
+│  ⑦ 视频渲染       调用渲染服务，HTML 模板 + 音频 + 背景音乐        │
+│                  → FFmpeg 合成 MP4 → 回填 video 字段            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                       输出 (Output)                           │
+├─────────────────────────────────────────────────────────────┤
+│  完整的 ContentDTO，结构符合 04_Content_DTO设计文档.txt 定义：   │
+│                                                             │
+│  {                                                          │
+│    id, template, title, level, targetDuration,                │
+│    content,    // SceneWordSegment[]｜WordCardItem[]｜QuizItem[]│
+│    words,      // WordInfo[] 四六级词汇汇总                     │
+│    style,      // { background, font, colorScheme, bgm }      │
+│    voice,      // { id, speed }                             │
+│    audio,      // { url, duration, format }  ← TTS 阶段填充  │
+│    video,      // { url, duration, resolution, format, size }│
+│    status,     // "completed"｜"failed" 等                    │
+│    createdAt, updatedAt                                     │
+│  }                                                          │
+│                                                             │
+│  该 DTO 可直接用于：                                          │
+│  · 视频渲染服务消费                                           │
+│  · Markdown 文案导出                                         │
+│  · JSON 数据持久化 / 前端展示                                  │
+└─────────────────────────────────────────────────────────────┘
+
+
+一、整体架构
+
+┌──────────────────────────────────────────────────────────────┐
+│                        Dify (流程编排层)                        │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │              Workflow A：内容生成（三个模板各一个）       │   │
+│  │                                                      │   │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐     │   │
+│  │  │ scene_word │  │ word_card  │  │   quiz     │     │   │
+│  │  │ 生成故事   │  │ 抽取词汇   │  │ 抽取词汇   │     │   │
+│  │  │ 词库校验   │  │ LLM生成卡片│  │ LLM生成题目│     │   │
+│  │  │ 组装DTO   │  │ 组装DTO   │  │ 组装DTO   │     │   │
+│  │  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘     │   │
+│  │        └────────────────┼────────────────┘           │   │
+│  │                         │                            │   │
+│  │              输出: partial_dto                        │   │
+│  │              status = "content_ready"                 │   │
+│  └─────────────────────────┬────────────────────────────┘   │
+│                            │                                │
+│          ┌─── MVP 自动串联 / 后续插入审核 ───┐               │
+│                            │                                │
+│  ┌─────────────────────────┴────────────────────────────┐   │
+│  │          Workflow B：媒体生产（三个模板共用）            │   │
+│  │                                                      │   │
+│  │         TTS 语音合成 → 视频渲染 → 输出 final_dto       │   │
+│  │                                                      │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+
+
+二、全局约定
+
+2.1 节点命名规范
+
+| 节点类型            | 命名格式              | 示例                      |
+| ------------------- | --------------------- | ------------------------- |
+| Start               | start                 | start                     |
+| LLM                 | llm_<功能>            | llm_generate_story        |
+| Code                | code_<功能>           | code_validate_words       |
+| HTTP Request        | http_<功能>           | http_query_cet_db         |
+| End                 | end                   | end                       |
+
+2.2 变量命名规范
+
+Dify 中每个节点的输出作为一个变量，下游节点通过变量名引用：
+
+| 变量名               | 所属 Workflow | 来源节点             | 说明                           |
+| -------------------- | ------------- | -------------------- | ------------------------------ |
+| user_input           | A             | start                | 用户原始输入                     |
+| story_result         | A             | llm_generate_story   | AI 生成的故事文本 + 候选词       |
+| extracted_words      | A             | code_extract_words   | 去重后的候选词列表               |
+| cet_result           | A             | http_query_cet_db    | 词库校验结果（scene_word用）      |
+| validated_content    | A             | code_validate_words  | 校验后的 content + words        |
+| cet_words            | A             | http_query_cet_db    | 词库随机抽取结果（word_card/quiz用）|
+| quiz_result          | A             | llm_generate_quiz    | AI 生成的选择题                 |
+| card_result          | A             | llm_generate_cards   | AI 生成的单词卡片               |
+| partial_dto          | A → B        | A:code_assemble_dto  | 含 id+createdAt，不含 audio/video|
+| partial_dto          | B             | B:start              | 接收自 Workflow A，透传给下游     |
+| tts_result           | B             | http_tts             | TTS 返回的音频信息              |
+| dto_with_audio       | B             | code_merge_audio     | 含 audio 的半成品 DTO           |
+| video_result         | B             | http_render_video    | 视频渲染返回的视频信息           |
+| final_dto            | B             | end                  | 完整的 ContentDTO               |
+
+2.3 状态变更时机
+
+Workflow A（内容生成）:
+  draft (start) → ai_generating (LLM) → content_ready (code_assemble_dto)
+
+  ※ draft 和 ai_generating 是 Workflow A 启动后、DTO 尚未创建时的前置状态。
+     ContentDTO 从 code_assemble_dto 节点开始承载，初始值为 "content_ready"。
+
+Workflow B（媒体生产）:
+  content_ready (start, 接收 A 的输出)
+    → tts_processing (TTS 调用中)
+    → audio_ready (TTS 完成)
+    → video_rendering (视频渲染中)
+    → completed (视频渲染完成)
+
+任何 HTTP 节点异常时 → failed（由 Dify 错误处理分支设置，本文档不展开）
+
+
+三、Workflow A1：情景背词 (scene_word) 内容生成
+
+3.1 流程图
+
+start
+  │  { topic, level, wordCount, targetDuration, voice?, style? }
+  ▼
+llm_generate_story
+  │  根据主题生成中英混合故事
+  │  输出: { title, segments: [{ text, candidateWords: [{ word, wordIndex }] }] }
+  ▼
+code_extract_words
+  │  从 segments 中提取所有候选词（去重）
+  │  输出: { candidateWords: [{ word, wordIndex, segmentIndex }] }
+  ▼
+http_query_cet_db
+  │  用候选词列表查询四六级词库
+  │  输出: { matchedWords: [{ word, level, meaning, frequency }], unmatchedWords: [string] }
+  ▼
+code_validate_words
+  │  只保留在词库中匹配成功的词，将 WordInfo 填回对应 segment
+  │  输出: { content: SceneWordSegment[], words: WordInfo[] }
+  ▼
+code_assemble_dto
+  │  生成 id + createdAt，组装 partial_dto（status="content_ready"）
+  │  输出: partial_dto
+  ▼
+end
+  │  输出 partial_dto，供 Workflow B 消费
+
+3.2 各节点详细定义
+
+-----------------------------------------------------------------
+节点 1: start
+----------------------------------------------------------------
+类型: Start
+输入: 用户通过 Dify API 传入
+
+  {
+    "topic": "森林探险",          // string, scene_word 必填，其他模板可选
+    "level": "CET4",              // string, "CET4" | "CET6"
+    "wordCount": 10,              // number, 3~15, 默认 10
+    "targetDuration": 60,         // number, 秒, 默认 60
+    "voice": {                    // object, 可选
+      "id": "female_01",
+      "speed": 1.0
+    },
+    "style": {                    // object, 可选
+      "background": "forest_01",
+      "font": "default"
+    }
+  }
+
+输出变量名: user_input
+
+-----------------------------------------------------------------
+节点 2: llm_generate_story
+----------------------------------------------------------------
+类型: LLM
+模型: GPT-4o / Claude 3.5 Sonnet（推荐支持 Structured Output 的模型）
+输入变量: {{user_input.topic}}, {{user_input.level}}, {{user_input.wordCount}}
+
+System Prompt:
+
+  你是一名英语短视频内容创作者。根据用户提供的主题，生成一个英语四六级词汇学习故事。
+
+  核心要求：
+  1. 使用中文作为主要叙述语言
+  2. 在中文文本中自然嵌入 {{user_input.wordCount}} 个 {{user_input.level}} 高频词汇
+  3. 英文词汇必须符合上下文语境
+  4. 故事情节简单易懂，适合短视频呈现
+  5. 将文本拆分为 3~5 个自然段（segments）
+  6. 每个 segment 标注英文词汇及其在文本中的位置
+
+User Prompt:
+
+  主题：{{user_input.topic}}
+  等级：{{user_input.level}}
+  词汇数量：{{user_input.wordCount}}
+
+  请生成一个完整的英语学习故事，并严格按 JSON 格式输出。
+
+输出格式（JSON，开启 Structured Output）：
+
+  {
+    "title": "10个四六级词汇藏在一次森林探险里",
+    "segments": [
+      {
+        "text": "Leo接到一份contract，任务是前往未知的continent寻找文明遗迹。",
+        "candidateWords": [
+          { "word": "contract", "wordIndex": 3 },
+          { "word": "continent", "wordIndex": 10 }
+        ]
+      },
+      {
+        "text": "他与队友consult路线后出发，穿越dense丛林。",
+        "candidateWords": [
+          { "word": "consult", "wordIndex": 3 },
+          { "word": "dense", "wordIndex": 7 }
+        ]
+      }
+    ]
+  }
+
+输出变量名: story_result
+
+-----------------------------------------------------------------
+节点 3: code_extract_words
+----------------------------------------------------------------
+类型: Code (TypeScript)
+输入变量: story_result
+作用: 遍历所有 segments，提取 candidateWords 并去重，为下一步词库查询做准备
+
+代码:
+
+  interface SegmentInput {
+    text: string;
+    candidateWords: { word: string; wordIndex: number }[];
+  }
+
+  function main(story_result: { title: string; segments: SegmentInput[] }) {
+      const seen = new Set<string>();
+      const candidates: { word: string; wordIndex: number; segmentIndex: number }[] = [];
+      (story_result.segments || []).forEach((seg, si) => {
+          (seg.candidateWords || []).forEach(cw => {
+              const w = (cw.word || "").toLowerCase().trim();
+              if (w && !seen.has(w)) {
+                  seen.add(w);
+                  candidates.push({
+                      word: w,
+                      wordIndex: cw.wordIndex || 0,
+                      segmentIndex: si
+                  });
+              }
+          });
+      });
+      return {
+          candidateWords: candidates,
+          title: story_result.title || ""
+      };
+  }
+
+输出变量名: extracted_words（包含 candidateWords 数组和 title）
+
+-----------------------------------------------------------------
+节点 4: http_query_cet_db
+----------------------------------------------------------------
+类型: HTTP Request
+方法: POST
+URL: https://your-api.com/api/cet/validate-words
+输入变量: {{extracted_words.candidateWords}}
+
+请求体:
+
+  {
+    "words": ["contract", "continent", "consult", "dense"],
+    "level": "{{user_input.level}}"
+  }
+
+响应体（期望的后端 API 格式）:
+
+  {
+    "matchedWords": [
+      { "word": "contract", "level": "CET4", "meaning": "合同；契约", "frequency": 85 },
+      { "word": "continent", "level": "CET4", "meaning": "大陆；洲", "frequency": 60 },
+      { "word": "consult", "level": "CET4", "meaning": "咨询；查阅", "frequency": 45 },
+      { "word": "dense", "level": "CET4", "meaning": "茂密的；密集的", "frequency": 50 }
+    ],
+    "unmatchedWords": []
+  }
+
+输出变量名: cet_result
+
+说明: 这个 HTTP 端点需要你自行实现（或使用 Dify 的 Knowledge Retrieval 节点替代，
+      但精确匹配用 HTTP API + 数据库更可靠）。
+
+-----------------------------------------------------------------
+节点 5: code_validate_words
+----------------------------------------------------------------
+类型: Code (TypeScript)
+输入变量: story_result, cet_result
+作用: 将词库校验通过的词汇回填到对应 segment，构建 SceneWordSegment[] 和汇总 WordInfo[]
+
+代码:
+
+  interface MatchedWord {
+    word: string; level: string; meaning: string; frequency?: number;
+  }
+
+  function main(story_result: { segments: SegmentInput[] },
+                cet_result: { matchedWords: MatchedWord[] }) {
+      const cetMap = new Map<string, MatchedWord>();
+      (cet_result.matchedWords || []).forEach(mw => {
+          cetMap.set(mw.word.toLowerCase(), mw);
+      });
+
+      const content: { text: string; words: Record<string, unknown>[] }[] = [];
+      const allWords: Record<string, unknown>[] = [];
+      const seenWord = new Set<string>();
+
+      (story_result.segments || []).forEach(seg => {
+          const segWords: Record<string, unknown>[] = [];
+          (seg.candidateWords || []).forEach(cw => {
+              const w = (cw.word || "").toLowerCase().trim();
+              const info = cetMap.get(w);
+              if (info) {
+                  segWords.push({
+                      word: info.word, meaning: info.meaning, level: info.level,
+                      wordIndex: cw.wordIndex || 0, frequency: info.frequency
+                  });
+                  if (!seenWord.has(w)) {
+                      seenWord.add(w);
+                      allWords.push({
+                          word: info.word, meaning: info.meaning,
+                          level: info.level, frequency: info.frequency
+                      });
+                  }
+              }
+          });
+          content.push({ text: seg.text, words: segWords });
+      });
+
+      return { content, words: allWords };
+  }
+
+输出变量名: validated_content（包含 content: SceneWordSegment[] 和 words: WordInfo[]）
+
+-----------------------------------------------------------------
+节点 6: code_assemble_dto
+----------------------------------------------------------------
+类型: Code (TypeScript)
+输入变量: user_input, story_result, validated_content
+作用: 生成 id + createdAt，组装完整的 partial_dto
+
+代码:
+
+  function main(user_input: Record<string, unknown>,
+                story_result: { title: string },
+                validated_content: { content: unknown[]; words: unknown[] }) {
+      const now = new Date().toISOString();
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const hexId = Math.random().toString(16).slice(2, 8);
+      return {
+          id: `cnt_${dateStr}_${hexId}`,
+          template: "scene_word",
+          title: story_result.title || "",
+          level: (user_input.level as string) || "",
+          targetDuration: (user_input.targetDuration as number) || 60,
+          content: validated_content.content || [],
+          words: validated_content.words || [],
+          style: user_input.style || { background: "default" },
+          voice: user_input.voice || { id: "female_01", speed: 1.0 },
+          status: "content_ready",
+          createdAt: now,
+          updatedAt: now
+      };
+  }
+
+输出变量名: partial_dto
+
+说明: id 和 createdAt 在 Dify 内部生成，保证全流程可追踪。
+      voice 和 style 有默认值，用户不传也能跑通。
+
+-----------------------------------------------------------------
+节点 7: end
+----------------------------------------------------------------
+类型: End
+输出变量: {{partial_dto}}
+
+partial_dto 即后续 Workflow B「媒体生产」的输入。
+
+
+四、Workflow A2：单词卡片 (word_card) 内容生成
+
+4.1 流程图
+
+start
+  │  { topic?, level, wordCount, targetDuration, voice?, style? }
+  ▼
+http_query_cet_db
+  │  按等级随机抽取 wordCount 个词
+  │  输出: { words: [{ word, level, meaning }] }
+  ▼
+llm_generate_cards
+  │  为每个词生成词性、例句、例句翻译
+  │  输出: { title, cards: WordCardItem[] }
+  ▼
+code_assemble_dto
+  │  生成 id + createdAt，组装 partial_dto（status="content_ready"）
+  ▼
+end
+  │  输出 partial_dto，供 Workflow B 消费
+
+-----------------------------------------------------------------
+节点 1: start
+----------------------------------------------------------------
+输入:
+
+  {
+    "level": "CET6",
+    "wordCount": 5,
+    "targetDuration": 45,
+    "voice": { "id": "male_01", "speed": 0.9 },
+    "style": { "background": "card_clean" }
+  }
+
+说明: word_card 模板 topic 可选（不传则 LLM 自行发挥标题）；词由词库随机抽取。
+
+-----------------------------------------------------------------
+节点 2: http_query_cet_db (抽取词汇)
+----------------------------------------------------------------
+类型: HTTP Request
+方法: POST
+URL: https://your-api.com/api/cet/random-words
+
+请求体:
+
+  {
+    "level": "{{user_input.level}}",
+    "count": {{user_input.wordCount}}
+  }
+
+响应体:
+
+  {
+    "words": [
+      { "word": "elaborate", "level": "CET6", "meaning": "精心制作的；详尽的" },
+      { "word": "predominant", "level": "CET6", "meaning": "占主导地位的；显著的" }
+    ]
+  }
+
+输出变量名: cet_words
+
+-----------------------------------------------------------------
+节点 3: llm_generate_cards
+----------------------------------------------------------------
+类型: LLM
+输入变量: {{cet_words.words}}
+
+System Prompt:
+
+  你是一名英语词汇教学专家。为下列每个四六级词汇生成单词卡片内容。
+
+  对每个词提供：
+  - pos: 词性（n. / v. / adj. / adv.）
+  - example: 一个自然、地道的英文例句（15 词以内）
+  - exampleMeaning: 例句的中文翻译
+
+User Prompt:
+
+  词汇列表：{{cet_words.words}}
+
+  请生成一个吸引人的标题，并为每个词生成卡片内容。严格按 JSON 格式输出。
+
+输出格式（JSON Structured Output）:
+
+  {
+    "title": "每日5个四六级高频词汇",
+    "cards": [
+      {
+        "word": "elaborate",
+        "pos": "adj.",
+        "meaning": "精心制作的；详尽的",
+        "example": "She made elaborate preparations for the party.",
+        "exampleMeaning": "她为聚会做了精心的准备。"
+      },
+      {
+        "word": "predominant",
+        "pos": "adj.",
+        "meaning": "占主导地位的；显著的",
+        "example": "English is the predominant language in international business.",
+        "exampleMeaning": "英语是国际商务中的主导语言。"
+      }
+    ]
+  }
+
+输出变量名: card_result
+
+-----------------------------------------------------------------
+节点 4: code_assemble_dto
+----------------------------------------------------------------
+类型: Code (TypeScript)
+输入变量: user_input, card_result, cet_words
+作用: 生成 id + createdAt，组装 partial_dto
+
+代码:
+
+  function main(user_input: Record<string, unknown>,
+                card_result: { title: string; cards: Record<string, unknown>[] },
+                cet_words: { words: { word: string; meaning: string; level: string }[] }) {
+      const now = new Date().toISOString();
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const hexId = Math.random().toString(16).slice(2, 8);
+      const words = (cet_words.words || []).map(w => ({
+          word: w.word, meaning: w.meaning, level: w.level
+      }));
+      return {
+          id: `cnt_${dateStr}_${hexId}`,
+          template: "word_card",
+          title: card_result.title || "",
+          level: (user_input.level as string) || "",
+          targetDuration: (user_input.targetDuration as number) || 45,
+          content: card_result.cards || [],
+          words,
+          style: user_input.style || { background: "default" },
+          voice: user_input.voice || { id: "female_01", speed: 1.0 },
+          status: "content_ready",
+          createdAt: now,
+          updatedAt: now
+      };
+  }
+
+输出变量名: partial_dto
+
+-----------------------------------------------------------------
+节点 5: end
+----------------------------------------------------------------
+类型: End
+输出变量: {{partial_dto}}，供 Workflow B 消费
+
+
+五、Workflow A3：选择题 (quiz) 内容生成
+
+5.1 流程图
+
+start
+  │  { topic?, level, wordCount, targetDuration, voice?, style? }
+  ▼
+http_query_cet_db
+  │  按等级随机抽取 wordCount 个词
+  ▼
+llm_generate_quiz
+  │  为每个词生成一道选择题（题干 + 4 选项 + 正确索引 + 解析）
+  │  输出: { title, questions: QuizItem[] }
+  ▼
+code_assemble_dto
+  │  生成 id + createdAt，组装 partial_dto（status="content_ready"）
+  ▼
+end
+  │  输出 partial_dto，供 Workflow B 消费
+
+-----------------------------------------------------------------
+节点 2: http_query_cet_db
+----------------------------------------------------------------
+与 word_card 类似，URL: /api/cet/random-words，输入 { level, count: wordCount }
+输出变量名: cet_words
+
+-----------------------------------------------------------------
+节点 3: llm_generate_quiz
+----------------------------------------------------------------
+类型: LLM
+输入变量: {{cet_words.words}}
+
+System Prompt:
+
+  你是一名英语四六级考试出题专家。为每个词汇生成一道选择题。
+
+  要求：
+  1. 题干：询问该词的中文含义，如 ""contract" 的意思是？"
+  2. 提供 4 个中文选项，其中 1 个正确答案
+  3. 干扰项应是同等级别的其他 CET 词汇释义，不能明显不相关
+  4. 提供答案解析
+  5. 标注正确答案索引（0-based）
+
+User Prompt:
+
+  词汇列表：{{cet_words.words}}
+  请生成一个吸引人的标题，并为每个词生成选择题。严格按 JSON 格式输出。
+
+输出格式（JSON Structured Output）:
+
+  {
+    "title": "四六级词汇挑战 — 你能答对几题？",
+    "questions": [
+      {
+        "word": { "word": "contract", "meaning": "合同", "level": "CET4" },
+        "stem": ""contract" 的意思是？",
+        "options": ["合同", "联系", "对比", "建造"],
+        "correctIndex": 0,
+        "explanation": "contract 作为名词意为"合同、契约"，作为动词意为"收缩"。"
+      }
+    ]
+  }
+
+输出变量名: quiz_result
+
+-----------------------------------------------------------------
+节点 4: code_assemble_dto
+----------------------------------------------------------------
+类型: Code (TypeScript)
+输入变量: user_input, quiz_result
+作用: 生成 id + createdAt，组装 partial_dto（words 从 quiz_result.questions 直接提取）
+
+代码:
+
+  function main(user_input: Record<string, unknown>,
+                quiz_result: { title: string; questions: { word: { word: string; meaning: string; level: string }; stem: string; options: string[]; correctIndex: number; explanation: string }[] }) {
+      const now = new Date().toISOString();
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const hexId = Math.random().toString(16).slice(2, 8);
+      const seen = new Set<string>();
+      const words: { word: string; meaning: string; level: string }[] = [];
+      (quiz_result.questions || []).forEach(q => {
+          const w = q.word;
+          const key = (w.word || "").toLowerCase();
+          if (key && !seen.has(key)) {
+              seen.add(key);
+              words.push({ word: w.word, meaning: w.meaning, level: w.level });
+          }
+      });
+      return {
+          id: `cnt_${dateStr}_${hexId}`,
+          template: "quiz",
+          title: quiz_result.title || "",
+          level: (user_input.level as string) || "",
+          targetDuration: (user_input.targetDuration as number) || 30,
+          content: quiz_result.questions || [],
+          words,
+          style: user_input.style || { background: "default" },
+          voice: user_input.voice || { id: "female_01", speed: 1.0 },
+          status: "content_ready",
+          createdAt: now,
+          updatedAt: now
+      };
+  }
+
+输出变量名: partial_dto
+
+-----------------------------------------------------------------
+节点 5: end
+----------------------------------------------------------------
+类型: End
+输出变量: {{partial_dto}}，供 Workflow B 消费
+
+
+六、Workflow B：媒体生产（三个模板共用）
+
+本 Workflow 接收 Workflow A 输出的 partial_dto，完成 TTS 配音和视频渲染，
+输出完整的 final_dto。
+
+6.0 流程图
+
+start
+  │  接收 partial_dto（来自 Workflow A 的 end 输出）
+  ▼
+http_tts
+  │  调用 TTS 服务，将 content 转为音频
+  ▼
+code_merge_audio
+  │  将 audio 回填到 DTO，status → "audio_ready"
+  ▼
+http_render_video
+  │  调用渲染服务，合成 MP4
+  ▼
+code_merge_video
+  │  将 video 回填到 DTO，status → "completed"
+  ▼
+end
+  │  输出 final_dto
+
+6.1 节点: start
+----------------------------------------------------------------
+类型: Start
+输入: partial_dto（由 Workflow A 的 end 节点输出，作为本 Workflow 的启动变量）
+
+说明: MVP 阶段由后端/前端自动串联两个 Workflow：
+      1. 调 Workflow A 拿到 partial_dto
+      2. 将 partial_dto 作为输入调 Workflow B
+      后续如需接入人工审核，在两次调用之间插入审核环节即可。
+
+-----------------------------------------------------------------
+6.2 节点: http_tts
+----------------------------------------------------------------
+类型: HTTP Request
+方法: POST
+URL: https://your-api.com/api/tts/generate
+输入变量: {{partial_dto}}
+
+请求体:
+
+  {
+    "content": {{partial_dto.content}},
+    "template": "{{partial_dto.template}}",
+    "voice": {{partial_dto.voice}}
+  }
+
+说明: 后端根据 template 类型决定 TTS 文本的拼接方式：
+  - scene_word: 将所有 segment.text 拼接为完整朗读文本
+  - word_card: 朗读每个 "word. pos. example"
+  - quiz: 朗读每个 "stem + options"
+
+响应体:
+
+  {
+    "audio": {
+      "url": "https://cdn.your-domain.com/audio/cnt_20260728_001.mp3",
+      "duration": 58.5,
+      "format": "mp3"
+    }
+  }
+
+输出变量名: tts_result
+
+-----------------------------------------------------------------
+6.3 节点: code_merge_audio
+----------------------------------------------------------------
+类型: Code (TypeScript)
+输入变量: partial_dto, tts_result
+作用: 将 audio 合并到 partial_dto，更新 status 和 updatedAt
+
+代码:
+
+  function main(partial_dto: Record<string, unknown>,
+                tts_result: { audio: { url: string; duration: number; format: string } }) {
+      return {
+          ...partial_dto,
+          audio: tts_result.audio,
+          status: "audio_ready",
+          updatedAt: new Date().toISOString()
+      };
+  }
+
+输出变量名: dto_with_audio
+
+-----------------------------------------------------------------
+6.4 节点: http_render_video
+----------------------------------------------------------------
+类型: HTTP Request
+方法: POST
+URL: https://your-api.com/api/video/render
+输入变量: {{dto_with_audio}}
+
+请求体: 完整的 dto_with_audio（ContentDTO + audio）
+
+说明: 后端收到 ContentDTO 后：
+  1. 根据 template 选择对应的 HTML 模板
+  2. 用 content + style 渲染 HTML 生成图片/帧
+  3. 用 audio + 背景音乐 + 图片合成 MP4（FFmpeg）
+  4. 上传到 CDN，返回视频 URL
+
+响应体:
+
+  {
+    "video": {
+      "url": "https://cdn.your-domain.com/video/cnt_20260728_001.mp4",
+      "duration": 60,
+      "resolution": "1080x1920",
+      "format": "mp4",
+      "size": 5242880
+    }
+  }
+
+输出变量名: video_result
+
+-----------------------------------------------------------------
+6.5 节点: code_merge_video
+----------------------------------------------------------------
+类型: Code (TypeScript)
+输入变量: dto_with_audio, video_result
+作用: 合并 video，最终 status 设为 completed
+
+代码:
+
+  function main(dto_with_audio: Record<string, unknown>,
+                video_result: { video: { url: string; duration: number; resolution: string; format: string; size?: number } }) {
+      return {
+          ...dto_with_audio,
+          video: video_result.video,
+          status: "completed",
+          updatedAt: new Date().toISOString()
+      };
+  }
+
+输出变量名: final_dto
+
+-----------------------------------------------------------------
+6.6 节点: end
+----------------------------------------------------------------
+类型: End
+输出变量: {{final_dto}}
+
+最终输出的完整 ContentDTO:
+
+  {
+    "id": "cnt_20260728_001",              // Workflow A 中生成
+    "template": "scene_word",
+    "title": "10个四六级词汇藏在一次森林探险里",
+    "level": "CET4",
+    "targetDuration": 60,
+    "content": [ ... SceneWordSegment[] ... ],
+    "words": [ ... WordInfo[] ... ],
+    "style": { "background": "forest_01", "font": "default", "bgm": "bgm_calm_01" },
+    "voice": { "id": "female_01", "speed": 1.0 },
+    "audio": {
+      "url": "https://cdn.your-domain.com/audio/cnt_20260728_001.mp3",
+      "duration": 58.5,
+      "format": "mp3"
+    },
+    "video": {
+      "url": "https://cdn.your-domain.com/video/cnt_20260728_001.mp4",
+      "duration": 60,
+      "resolution": "1080x1920",
+      "format": "mp4",
+      "size": 5242880
+    },
+    "status": "completed",
+    "createdAt": "2026-07-28T10:30:00Z",
+    "updatedAt": "2026-07-28T10:35:00Z"
+  }
+
+
+七、外部服务 API 契约
+
+Dify 通过 HTTP Request 节点调用的后端服务需要实现以下接口：
+
+7.1 四六级词库服务
+
+  POST /api/cet/validate-words
+    输入: { "words": ["contract", "continent"], "level": "CET4" }
+    输出: { "matchedWords": [...], "unmatchedWords": [...] }
+
+  POST /api/cet/random-words
+    输入: { "level": "CET4", "count": 10 }
+    输出: { "words": [{ "word", "level", "meaning", "frequency" }] }
+
+7.2 TTS 服务
+
+  POST /api/tts/generate
+    输入: { "content": ContentArray, "template": string, "voice": VoiceConfig }
+    输出: { "audio": { "url", "duration", "format" } }
+    说明: 后端负责将 ContentArray 转为适合朗读的纯文本
+
+7.3 视频渲染服务
+
+  POST /api/video/render
+    输入: ContentDTO (含 audio)
+    输出: { "video": { "url", "duration", "resolution", "format", "size" } }
+
+
+八、Dify 项目中的文件组织建议
+
+在 Dify 中建议按以下方式组织（Dify DSL 导出后）：
+
+  dify/
+  ├── content_generation/
+  │   ├── scene_word.yml       # Workflow A1：情景背词 内容生成
+  │   ├── word_card.yml         # Workflow A2：单词卡片 内容生成
+  │   └── quiz.yml              # Workflow A3：选择题 内容生成
+  └── media_production/
+      └── media_production.yml  # Workflow B：媒体生产（TTS + 视频）
+
+说明: 三个内容生成 Workflow 可以独立触发；媒体生产 Workflow 接收它们的输出。
+      MVP 阶段由调用方串联：先调 A，拿到 partial_dto 再调 B。
+      后续如果 Dify 支持子 Workflow 调用，可直接在 A 末尾串 B。
+
+
+九、ContentDTO 字段在各节点的填充时机
+
+| 字段          | 填充节点                           | 所属 Workflow | 填充时机               |
+| ------------- | --------------------------------- | ------------- | ---------------------- |
+| id            | code_assemble_dto                 | A             | 组装阶段（Dify 内生成）  |
+| template      | code_assemble_dto                 | A             | 组装阶段（写死）         |
+| title         | llm_generate_story/cards/quiz     | A             | AI 生成阶段            |
+| level         | code_assemble_dto                 | A             | 组装阶段（透传）         |
+| targetDuration| code_assemble_dto                 | A             | 组装阶段（透传）         |
+| content       | code_validate_words / llm         | A             | AI + 校验后            |
+| words         | code_validate_words / code        | A             | AI + 校验后            |
+| style         | code_assemble_dto                 | A             | 组装阶段（透传）         |
+| voice         | code_assemble_dto                 | A             | 组装阶段（透传+默认值）   |
+| status        | 各关键 code 节点                   | A + B         | 全流程渐进更新          |
+| createdAt     | code_assemble_dto                 | A             | 组装阶段（Dify 内生成）  |
+| updatedAt     | code_assemble_dto / code_merge_*  | A + B         | 每次写操作更新          |
+| audio         | code_merge_audio                  | B             | TTS 完成后             |
+| video         | code_merge_video                  | B             | 视频渲染完成后          |
+
+
+十、与 ContentDTO 文档的关系
+
+本文档与 04_Content_DTO设计文档.txt 的关系：
+
+  04_文档 定义数据结构（What）
+  05_文档 定义构建流程（How）
+
+  04_文档中的 ContentDTO 接口 = 本方案 Workflow B final_dto 的结构
+  04_文档中的 Request DTO  = 本方案 Workflow A start 节点的输入
+  04_文档中的 Response DTO = 本方案 Workflow B end 节点的输出
+
+  Workflow A 的输出 partial_dto 是 ContentDTO 的"半成品"（缺 audio/video），
+  Workflow B 消费它并补全为 final_dto。

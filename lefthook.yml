@@ -1,0 +1,28 @@
+# lefthook.yml — Git hooks 自动化配置
+# 文档: https://github.com/evilmartians/lefthook/blob/master/docs/configuration.md
+
+pre-commit:
+  parallel: false
+  commands:
+    biome:
+      glob: "*.{ts,vue,json,yaml,yml,md}"
+      run: npx biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+      skip:
+        - merge
+        - rebase
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx commitlint --edit {1}
+
+pre-push:
+  parallel: false
+  commands:
+    typecheck:
+      run: pnpm -r typecheck
+      fail_text: 全仓类型检查未通过，请修复类型错误后重试
+    test:
+      run: pnpm -r test
+      fail_text: 单元测试未通过，请修复后重试

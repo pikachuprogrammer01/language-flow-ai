@@ -1,0 +1,14 @@
+{
+  "name": "@ai-english/shared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "共享类型定义 — ContentDTO / Request / Response / Enums",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
