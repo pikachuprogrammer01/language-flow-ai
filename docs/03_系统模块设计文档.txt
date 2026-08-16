@@ -231,7 +231,7 @@ TTS 文本拼接规则（由模块 4 的后端实现）：
 
 渲染流程（后端内部）：
   1. 根据 ContentDTO.template 选择对应的 HTML 模板
-  2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板
+  2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板（背景当前为纯白 CSS）
   3. 使用 Playwright/Puppeteer 打开 HTML，按 segments/items 逐帧截图
   4. FFmpeg 将图片帧 + ContentDTO.audio + bgm 合成 MP4
   5. 上传到 CDN，返回视频 URL
@@ -363,25 +363,35 @@ MVP 不含人工审核。后续接入时，在 Workflow A（content_ready）和 
 十一、模块 9：样式配置模块
 
 所属层次：支撑层
-对应实现：StyleConfig 类型 + 前端样式选择器 + 后端默认值
+对应实现：StyleConfig 类型 + 前端样式选择器
 
 职责：
-  管理系统视觉样式配置，包括背景主题、字体、配色、背景音乐。
+  管理系统视觉样式配置，包括背景、字体、配色、背景音乐。
 
-配置项：
-  · background  背景主题 ID（如 "default", "forest_01", "ocean_01", "card_clean", "quiz_dark"）
+1. 背景
+
+  当前阶段统一使用纯白背景（background 固定为 "white"），
+  渲染时由 HTML 模板的 CSS 直接实现，不做图片文件读取与注入。
+
+  后续如需多套视觉，再扩展为预设背景图枚举 + 缩略图选择器。
+
+2. 样式其他配置项
+
   · font        字体（默认 "default"）
   · colorScheme 配色方案（如 "high_contrast"）
   · bgm         背景音乐曲目 ID（如 "bgm_calm_01"）
 
-默认值规则：
-  · scene_word → { background: "default", bgm: "bgm_calm_01" }
-  · word_card  → { background: "card_clean", bgm: "bgm_soft_01" }
-  · quiz       → { background: "quiz_dark", colorScheme: "high_contrast", bgm: "bgm_upbeat_01" }
+3. 默认值规则
 
-说明：
+  · scene_word → { background: "white", bgm: "bgm_calm_01" }
+  · word_card  → { background: "white", bgm: "bgm_soft_01" }
+  · quiz       → { background: "white", colorScheme: "high_contrast", bgm: "bgm_upbeat_01" }
+
+4. 说明
+
   · 样式配置在 Workflow A 的 code_assemble_dto 节点中透传（用户传入或用默认值）
-  · 视频渲染时（模块 5）通过 ContentDTO.style 注入到 HTML 模板
+  · 视频渲染时通过 ContentDTO.style 注入到 HTML 模板
+  · 背景为纯白 CSS，不依赖外部素材库或 AI 生成
 
 
 十二、模块 10：内容记录模块

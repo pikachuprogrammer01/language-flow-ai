@@ -213,7 +213,7 @@ end
       "speed": 1.0
     },
     "style": {                    // object, 可选
-      "background": "forest_01",
+      "background": "white",
       "font": "default"
     }
   }
@@ -415,7 +415,7 @@ URL: https://your-api.com/api/cet/validate-words
           targetDuration: (user_input.targetDuration as number) || 60,
           content: validated_content.content || [],
           words: validated_content.words || [],
-          style: user_input.style || { background: "default" },
+          style: user_input.style || { background: "white" },
           voice: user_input.voice || { id: "female_01", speed: 1.0 },
           status: "content_ready",
           createdAt: now,
@@ -569,7 +569,7 @@ User Prompt:
           targetDuration: (user_input.targetDuration as number) || 45,
           content: card_result.cards || [],
           words,
-          style: user_input.style || { background: "default" },
+          style: user_input.style || { background: "white" },
           voice: user_input.voice || { id: "female_01", speed: 1.0 },
           status: "content_ready",
           createdAt: now,
@@ -683,7 +683,7 @@ User Prompt:
           targetDuration: (user_input.targetDuration as number) || 30,
           content: quiz_result.questions || [],
           words,
-          style: user_input.style || { background: "default" },
+          style: user_input.style || { background: "white" },
           voice: user_input.voice || { id: "female_01", speed: 1.0 },
           status: "content_ready",
           createdAt: now,
@@ -801,7 +801,7 @@ URL: https://your-api.com/api/video/render
 
 说明: 后端收到 ContentDTO 后：
   1. 根据 template 选择对应的 HTML 模板
-  2. 用 content + style 渲染 HTML 生成图片/帧
+  2. 用 content + style 渲染 HTML 生成图片/帧（背景为纯白 CSS）
   3. 用 audio + 背景音乐 + 图片合成 MP4（FFmpeg）
   4. 上传到 CDN，返回视频 URL
 
@@ -856,7 +856,7 @@ URL: https://your-api.com/api/video/render
     "targetDuration": 60,
     "content": [ ... SceneWordSegment[] ... ],
     "words": [ ... WordInfo[] ... ],
-    "style": { "background": "forest_01", "font": "default", "bgm": "bgm_calm_01" },
+    "style": { "background": "white", "font": "default", "bgm": "bgm_calm_01" },
     "voice": { "id": "female_01", "speed": 1.0 },
     "audio": {
       "url": "https://cdn.your-domain.com/audio/cnt_20260728_001.mp3",

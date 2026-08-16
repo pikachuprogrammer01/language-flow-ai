@@ -219,7 +219,11 @@ interface VoiceConfig {
 
 // ── 视觉样式 ──
 interface StyleConfig {
-  background: string;      // 背景主题 ID
+  /**
+   * 背景。当前阶段统一使用纯白背景，固定值 "white"；
+   * 后续如需多套视觉，再扩展为预设背景图枚举。
+   */
+  background: string;
   font?: string;           // 字体
   colorScheme?: string;    // 配色方案
   bgm?: string;            // 背景音乐曲目 ID
@@ -487,7 +491,7 @@ POST /api/video/render
 
 ```
 1. 根据 ContentDTO.template 选择对应的 HTML 模板
-2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板
+2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板（背景当前为纯白 CSS，不做图片注入）
 3. Playwright/Puppeteer 打开 HTML，按 segments/items 逐帧截图
 4. FFmpeg 将图片帧 + ContentDTO.audio + bgm 合成为 MP4
 5. 上传到 CDN，返回 URL
@@ -768,7 +772,7 @@ function main(
     targetDuration: (user_input.targetDuration as number) || 60,
     content: validated_content.content,
     words: validated_content.words,
-    style: (user_input.style as StyleConfig) || { background: "default" },
+    style: (user_input.style as StyleConfig) || { background: "white" },
     voice: (user_input.voice as VoiceConfig) || { id: "female_01", speed: 1.0 },
     status: "content_ready",
     createdAt: now,
@@ -869,7 +873,7 @@ function main(
     targetDuration: (user_input.targetDuration as number) || 45,
     content: card_result.cards || [],
     words,
-    style: (user_input.style as StyleConfig) || { background: "default" },
+    style: (user_input.style as StyleConfig) || { background: "white" },
     voice: (user_input.voice as VoiceConfig) || { id: "female_01", speed: 1.0 },
     status: "content_ready",
     createdAt: now,
@@ -950,7 +954,7 @@ function main(
     targetDuration: (user_input.targetDuration as number) || 30,
     content: quiz_result.questions || [],
     words,
-    style: (user_input.style as StyleConfig) || { background: "default" },
+    style: (user_input.style as StyleConfig) || { background: "white" },
     voice: (user_input.voice as VoiceConfig) || { id: "female_01", speed: 1.0 },
     status: "content_ready",
     createdAt: now,

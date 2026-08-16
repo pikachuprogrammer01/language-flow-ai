@@ -115,7 +115,10 @@ interface VideoInfo {
 // ==================== 视觉样式 ====================
 
 interface StyleConfig {
-  /** 背景主题 ID，如 "default", "forest_01", "ocean_01" */
+  /**
+   * 背景。当前阶段统一使用纯白背景，固定值 "white"；
+   * 后续如需多套视觉，再扩展为预设背景图枚举。
+   */
   background: string;
   /** 字体 */
   font?: string;
@@ -336,7 +339,7 @@ interface PaginatedResponse<T> {
   ],
 
   "style": {
-    "background": "forest_01",
+    "background": "white",
     "font": "default",
     "bgm": "bgm_calm_01"
   },
@@ -384,7 +387,7 @@ interface PaginatedResponse<T> {
   ],
 
   "style": {
-    "background": "card_clean",
+    "background": "white",
     "font": "default",
     "bgm": "bgm_soft_01"
   },
@@ -432,7 +435,7 @@ interface PaginatedResponse<T> {
   ],
 
   "style": {
-    "background": "quiz_dark",
+    "background": "white",
     "font": "default",
     "colorScheme": "high_contrast",
     "bgm": "bgm_upbeat_01"
@@ -535,8 +538,10 @@ src/
 │   └── enums.ts              // TemplateType, ContentStatus, CefrLevel
 ├── guards/
 │   └── content.guard.ts      // isSceneWord, isWordCard, isQuiz
-└── renderer/
-    ├── renderer.interface.ts // TemplateRenderer 接口
-    ├── scene-word.renderer.ts
-    ├── word-card.renderer.ts
-    └── quiz.renderer.ts
+├── renderer/
+│   ├── renderer.interface.ts // TemplateRenderer 接口
+│   ├── scene-word.renderer.ts
+│   ├── word-card.renderer.ts
+│   └── quiz.renderer.ts
+└── assets/
+    └── backgrounds/          // 预留：预设背景图片（当前阶段统一纯白背景）
