@@ -1,4 +1,7 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
+import type { TemplateType } from "@ai-english/shared";
 import WebSocket from "ws";
 import { logger } from "../lib/logger";
 
@@ -105,4 +108,87 @@ function escapeXml(text: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+// ── 文本拼接（docs/03 模块 4 / SPEC §5.2 规则） ──
+// content 元素来自 Dify 传入的动态 JSON，用 Record<string, unknown> 防御性读取
+// （AGENTS.md §3.1：Dify 输入参数 Record<string, unknown> 例外）
+
+type JsonRecord = Record<string, unknown>;
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+/** 去除文本尾部标点（用于 word_card/quiz 的 ". " 连接） */
+function stripTrailingPunct(text: string): string {
+  return text.trim().replace(/[。.！？!?，,]+$/, "");
+}
+
+/** 保证文本以指定标点结尾（避免 join 时出现重复标点） */
+function ensureEndPunct(text: string, punct = "。"): string {
+  const t = text.trim();
+  if (!t) return "";
+  return /[。.！？!?]$/.test(t) ? t : `${t}${punct}`;
+}
+
+/**
+ * 按模板将 ContentArray 拼为朗读文本（规则见 SPEC §5.2 拼接规则表）
+ * 空 segment/空字段自动跳过（对应"空 segment 丢弃"约定，SPEC §6.2.6）
+ */
+export function buildTtsText(content: JsonRecord[], template: TemplateType): string {
+  switch (template) {
+    case "scene_word":
+      return content
+        .map((s) => {
+          const words = Array.isArray(s.words) ? (s.words as JsonRecord[]) : [];
+          const wordText = words
+            .map((w) => [str(w.word), str(w.meaning)].filter(Boolean).join("，"))
+            .map((t) => ensureEndPunct(t))
+            .join("");
+          return [ensureEndPunct(str(s.text)), wordText].join("");
+        })
+        .join("");
+    case "word_card":
+      return content
+        .map((card) => {
+          const parts = [str(card.word), str(card.pos), str(card.example)]
+            .map(stripTrailingPunct)
+            .filter(Boolean)
+            .join(". ");
+          return parts ? `${parts}.` : "";
+        })
+        .filter(Boolean)
+        .join(" ");
+    case "quiz":
+      return content
+        .map((q) => {
+          const options = Array.isArray(q.options) ? (q.options as unknown[]) : [];
+          const optionText = options
+            .map((opt, i) => `${String.fromCharCode(65 + i)}. ${stripTrailingPunct(str(opt))}`)
+            .join(". ");
+          return optionText ? `${ensureEndPunct(str(q.stem))} ${optionText}.` : "";
+        })
+        .filter(Boolean)
+        .join(" ");
+  }
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * 用 ffprobe 探测音频时长（秒，浮点）
+ * ffprobe 不可用或文件损坏时抛错 → 上层返回 500
+ */
+export async function getAudioDuration(filePath: string): Promise<number> {
+  const { stdout } = await execFileAsync("ffprobe", [
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "default=noprint_wrappers=1:nokey=1",
+    filePath,
+  ]);
+  return Number.parseFloat(stdout.trim());
 }

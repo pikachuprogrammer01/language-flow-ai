@@ -5,6 +5,7 @@ import { rateLimiter } from "hono-rate-limiter";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { logger } from "./lib/logger";
+import { cet } from "./routes/cet";
 import { files } from "./routes/files";
 import { health } from "./routes/health";
 import { tts } from "./routes/tts";
@@ -73,6 +74,7 @@ app.use(
 
 // 路由注册
 app.route("/", health);
+app.route("/api/cet", cet);
 app.route("/api/tts", tts);
 app.route("/files", files);
 
