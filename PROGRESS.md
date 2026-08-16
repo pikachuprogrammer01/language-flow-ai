@@ -1,7 +1,7 @@
 # 项目进度
 
-> 最后更新：2026-07-28
-> 当前阶段：开发准备（工程配置完成，进入 shared 类型包编码）
+> 最后更新：2026-08-16
+> 当前阶段：后端 API 开发中（shared 类型包完成，进入 validate-words / random-words 接口）
 
 ---
 
@@ -10,8 +10,8 @@
 ```
 设计阶段      [████████████] 100%  8 份设计文档 + PRD + SPEC + README
 工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / CI / pino
-shared 包     [█░░░░░░░░░░░]   5%  index.ts 占位 + tsconfig
-后端 API      [██░░░░░░░░░░]  15%  骨架（Hono + 中间件 + Drizzle + serve + DB 连接）
+shared 包     [████████████] 100%  enums + ContentDTO + Request/Response DTO + 类型守卫
+后端 API      [███░░░░░░░░░]  30%  骨架 + Edge TTS 配音 + 文件服务（测试待补）
 Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 前端          [██░░░░░░░░░░]  15%  骨架（Vite + Vue + Tailwind + 入口文件）
 测试          [██░░░░░░░░░░]  15%  Vitest 配置就绪，待写用例
@@ -22,13 +22,13 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 
 ## 二、当前在做
 
-→ 阶段 2：shared 类型包（enums.ts → content.dto.ts → request.dto.ts → response.dto.ts）
+→ 阶段 3：后端 API — POST /api/cet/validate-words + 测试（#15）
 
 ---
 
 ## 三、下一步（优先级顺序）
 
-### 阶段 1：工程地基（当前）
+### 阶段 1：工程地基（✅ 全部完成）
 
 | # | 任务 | 状态 |
 |---|------|------|
@@ -47,16 +47,16 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 6g | 健康检查端点 + CORS + Rate Limiting | ✅ 完成 |
 | 6h | Drizzle ORM schema + drizzle.config.ts | ✅ 完成 |
 
-### 阶段 2：shared 类型包
+### 阶段 2：shared 类型包（✅ 全部完成）
 
 | # | 任务 | 状态 |
 |---|------|------|
-| 7 | packages/shared/src/enums.ts | ⬜ |
-| 8 | packages/shared/src/content.dto.ts | ⬜ |
-| 9 | packages/shared/src/request.dto.ts | ⬜ |
-| 10 | packages/shared/src/response.dto.ts | ⬜ |
-| 11 | packages/shared/src/index.ts（统一导出） | ⬜ |
-| 12 | packages/shared/package.json | ⬜ |
+| 7 | packages/shared/src/enums.ts | ✅ 完成 |
+| 8 | packages/shared/src/content.dto.ts（含 isSceneWord/isWordCard/isQuiz 类型守卫） | ✅ 完成 |
+| 9 | packages/shared/src/request.dto.ts | ✅ 完成 |
+| 10 | packages/shared/src/response.dto.ts | ✅ 完成 |
+| 11 | packages/shared/src/index.ts（统一导出） | ✅ 完成 |
+| 12 | packages/shared/package.json（补 exports） | ✅ 完成 |
 
 ### 阶段 3：后端 API
 
@@ -66,7 +66,8 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 14 | Drizzle ORM schema（cet_words + contents 表） | ✅ 完成 |
 | 15 | POST /api/cet/validate-words + 测试 | ⬜ |
 | 16 | POST /api/cet/random-words + 测试 | ⬜ |
-| 17 | POST /api/tts/generate + 测试 | ⬜ |
+| 17 | POST /api/tts/generate（Edge TTS 配音 + 本地文件存储） | ✅ 完成（测试待补） |
+| 17a | GET /files/audio\|video/:filename 静态文件服务（防路径穿越） | ✅ 完成 |
 | 18 | POST /api/video/render（含 Playwright + FFmpeg 管线）+ 测试 | ⬜ |
 | 19 | @hono/zod-openapi → openapi.json 自动生成 | ⬜ |
 
@@ -122,6 +123,9 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 - [x] Drizzle ORM schema 定义（contents + cet_words 表）
 - [x] Backend serve() 启动 + 错误处理 + 请求日志中间件
 - [x] db/index.ts 数据库连接初始化
+- [x] POST /api/tts/generate：Edge TTS WebSocket 合成 MP3 + 本地文件存储（2026-07-29）
+- [x] GET /files/audio|video/:filename 静态文件服务（校验路径穿越）
+- [x] shared 类型包：enums + ContentDTO + Request/Response DTO + 类型守卫（2026-08-16）
 - [x] Frontend 入口文件（vite.config.ts / index.html / main.ts / App.vue）
 - [x] Tailwind CSS 4 Vite 插件接入
 - [x] .nvmrc + .node-version（Node 24）
@@ -148,6 +152,9 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 2026-07-28 | Node 版本：24 | 最新 LTS，与 pnpm 11 配套 |
 | 2026-07-28 | Tailwind 4 Vite 插件 | 替代 PostCSS，零配置启动 |
 | 2026-07-28 | 本地数据库：Docker Compose | MySQL 8.0，一键启动 |
+| 2026-08-16 | 背景图方案：暂用纯白背景（background 固定 "white"），不做预设图片库 | 最小可用，视觉方案后续再扩展 |
+| 2026-08-16 | shared 类型包落地：TS 字面量联合 + const 对象（satisfies）替代 TS enum | 值仍为 snake_case 字符串，编译期可穷尽检查，无 enum 运行时开销 |
+| 2026-07-29 | TTS 方案：Edge TTS（微软公开 WebSocket 接口）而非 Azure SDK / 云服务 | 零成本、零密钥，中文女声质量高；无需新依赖，ws 直连 |
 
 ---
 
