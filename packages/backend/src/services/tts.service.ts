@@ -208,7 +208,7 @@ export function buildTtsText(content: JsonRecord[], template: TemplateType): str
           const words = Array.isArray(s.words) ? (s.words as JsonRecord[]) : [];
           const wordMap = new Map(
             words
-              .map((w) => [str(w.word).toLowerCase(), str(w.meaning)])
+              .map((w): [string, string] => [str(w.word).toLowerCase(), str(w.meaning)])
               .filter(([, meaning]) => meaning),
           );
           let text = str(s.text);

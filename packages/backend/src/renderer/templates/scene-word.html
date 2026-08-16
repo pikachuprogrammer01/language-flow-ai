@@ -15,7 +15,7 @@
   }
   .title { font-size: 34px; font-weight: 700; color: #1f2937; margin-bottom: 48px; }
   .story {
-    font-size: 42px;
+    font-size: {{FONT_SIZE}}px;
     line-height: 1.8;
     color: #111827;
     white-space: pre-wrap;
@@ -25,6 +25,8 @@
     flex: 1 1 auto;
     overflow: hidden;
   }
+  .story p { margin-bottom: 0.6em; }
+  .story p:last-child { margin-bottom: 0; }
   .story mark {
     background: #fbbf24;
     font-weight: 700;
@@ -47,7 +49,7 @@
   <div class="title">{{TITLE}}</div>
   <div class="story">{{TEXT}}</div>
   <div class="summary">
-    <div class="summary-title">本段词汇</div>
+    <div class="summary-title">本期词汇</div>
     <div class="summary-words">{{SUMMARY_WORDS}}</div>
   </div>
 </body>
