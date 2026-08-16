@@ -21,6 +21,10 @@ export interface ValidationResult {
   unmatchedWords: string[];
 }
 
+export interface RandomWordsResult {
+  words: MatchedWord[];
+}
+
 // 最小查询接口：仅暴露 cet_words 查询所需方法，便于测试注入替身（无需真实 MySQL 连接）
 export interface CetWordsDb {
   select(): {
@@ -71,4 +75,40 @@ export async function validateWords(
   const unmatchedWords = uniqueWords.filter((word) => !byWord.has(word));
 
   return { matchedWords, unmatchedWords };
+}
+
+/**
+ * 按等级随机抽取词汇（SPEC §5.1.2）
+ * 策略（docs/09 §六）：该等级全部词汇按词频降序取前 200 高频池，再随机抽 count 个
+ * - 词库不足时返回少于 count 个（200）
+ * - frequency 为 null 视为 0；全为 0 时退化为纯随机
+ * - ponytail: MVP 词库 < 1 万行，全量查询毫秒级；数据量大时把排序/limit 下沉到 SQL
+ */
+export async function randomWords(
+  level: CefrLevel,
+  count: number,
+  dbInstance: CetWordsDb,
+): Promise<RandomWordsResult> {
+  const rows = await dbInstance.select().from(cetWords).where(eq(cetWords.level, level));
+
+  const pool = [...rows].sort((a, b) => (b.frequency ?? 0) - (a.frequency ?? 0)).slice(0, 200);
+
+  // Fisher-Yates 部分洗牌随机抽取，池不足时返回全部
+  const picked: CetWordRow[] = [];
+  const remaining = [...pool];
+  const n = Math.min(count, remaining.length);
+  for (let i = 0; i < n; i++) {
+    const idx = Math.floor(Math.random() * remaining.length);
+    const [row] = remaining.splice(idx, 1);
+    if (row) picked.push(row);
+  }
+
+  return {
+    words: picked.map((row) => ({
+      word: row.word,
+      level: row.level,
+      meaning: row.meaning,
+      frequency: row.frequency ?? undefined,
+    })),
+  };
 }

@@ -1,7 +1,7 @@
 # 项目进度
 
 > 最后更新：2026-08-16
-> 当前阶段：后端 API 开发中（validate-words 完成，进入 random-words 接口）
+> 当前阶段：后端 API 开发中（validate-words + random-words 完成，进入 video/render）
 
 ---
 
@@ -22,7 +22,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 
 ## 二、当前在做
 
-→ 阶段 3：后端 API — POST /api/cet/random-words + 测试（#16）
+→ 阶段 3：后端 API — POST /api/video/render（#18，Playwright + FFmpeg）
 
 ---
 
@@ -65,7 +65,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 13 | packages/backend 项目骨架（Hono + tsconfig） | ✅ 完成 |
 | 14 | Drizzle ORM schema（cet_words + contents 表） | ✅ 完成 |
 | 15 | POST /api/cet/validate-words + 测试（13 用例：service 6 + route 7） | ✅ 完成 |
-| 16 | POST /api/cet/random-words + 测试 | ⬜ |
+| 16 | POST /api/cet/random-words + 测试（11 用例：service 4 + route 7，高频池 200 随机抽样） | ✅ 完成 |
 | 17 | POST /api/tts/generate（Edge TTS 配音 + 本地文件存储） | ✅ 完成 |
 | 17a | GET /files/audio\|video/:filename 静态文件服务（防路径穿越） | ✅ 完成 |
 | 17b | POST /api/tts/from-content（ContentArray 拼接 + 合成 + ffprobe 时长，Workflow B 入口） | ✅ 完成 |
