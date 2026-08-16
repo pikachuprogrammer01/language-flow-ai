@@ -14,7 +14,7 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 后端 API      [████░░░░░░░░]  40%  骨架 + TTS 配音 + 文件服务 + validate-words（含测试）
 Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 前端          [██░░░░░░░░░░]  15%  骨架（Vite + Vue + Tailwind + 入口文件）
-测试          [██░░░░░░░░░░]  15%  Vitest 配置就绪，待写用例
+测试          [██████░░░░░░]  60%  Vitest 就绪，26 用例（cet 13 + tts 13），待补 tts service 与渲染测试
 部署          [░░░░░░░░░░░░]   0%
 ```
 

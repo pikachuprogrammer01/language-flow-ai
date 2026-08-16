@@ -178,7 +178,7 @@ MVP 阶段由 Workflow B 的 code 节点硬编码映射（`female_01 → zh-CN-X
 | quiz | `stem. A. options[0]. B. options[1]. C. options[2]. D. options[3].` | "contract 的意思是？ A. 合同. B. 联系. C. 对比. D. 建造." |
 
 > 单词朗读建议英文、释义中文，保证学习者听感。
-> 拼接为纯函数（`buildTtsText`，见 `tts.service.ts`），12 个 Vitest 用例覆盖（PROGRESS 17c）。
+> 拼接为纯函数（`buildTtsText`，见 `tts.service.ts`），13 个 Vitest 用例覆盖（PROGRESS 17c）。
 
 ---
 
