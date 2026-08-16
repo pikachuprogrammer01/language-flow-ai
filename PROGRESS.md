@@ -1,7 +1,7 @@
 # 项目进度
 
 > 最后更新：2026-08-16
-> 当前阶段：后端 API 开发中（validate-words + random-words 完成，进入 video/render）
+> 当前阶段：后端 API 开发中（词库 seed 完成 3920 词，进入 video/render）
 
 ---
 
