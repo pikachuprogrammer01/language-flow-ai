@@ -52,7 +52,7 @@ MVP 阶段两个 Workflow 自动串联（A 的输出直接喂给 B）。
 │  ⑥ 语音合成       调用 TTS 服务，将 content 转为配音音频          │
 │                  → 回填 audio 字段，status → "audio_ready"       │
 │                                                             │
-│  ⑦ 视频渲染       调用渲染服务，HTML 模板 + 音频 + 背景音乐        │
+│  ⑦ 视频渲染       调用渲染服务，HTML 模板 + 音频（MVP 静音，无 BGM）  │
 │                  → FFmpeg 合成 MP4 → 回填 video 字段            │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
@@ -765,7 +765,7 @@ URL: https://your-api.com/api/tts/from-content
 
   {
     "audio": {
-      "url": "/files/audio/cnt_20260728_001.mp3",
+      "url": "/files/audio/{uuid}.mp3",
       "duration": 58.5,
       "format": "mp3"
     }
@@ -807,7 +807,7 @@ URL: https://your-api.com/api/video/render
 说明: 后端收到 ContentDTO 后：
   1. 根据 template 选择对应的 HTML 模板
   2. 用 content + style 渲染 HTML 生成图片/帧（背景为纯白 CSS）
-  3. 用 audio + 背景音乐 + 图片合成 MP4（FFmpeg）
+  3. 用 audio + 图片合成 MP4（FFmpeg；MVP 静音，无 BGM）
   4. 上传到 CDN，返回视频 URL
 
 响应体:

@@ -51,7 +51,7 @@ docs/ 设计文档  >  SPEC.md  >  PRD.md  >  README.md  >  凭记忆猜测
 | 后端框架 | Hono | Express / Fastify / NestJS |
 | 数据校验 | Zod | Joi / Yup / class-validator |
 | ORM | Drizzle ORM query builder | Prisma / Knex / 裸 SQL |
-| 数据库 | MySQL 8.0 | PostgreSQL（后续可加，但现在不行） |
+| 数据库 | MySQL 8.4 | PostgreSQL（后续可加，但现在不行） |
 | 前端框架 | Vue 3.5 Composition API + `<script setup lang="ts">` | Options API / React |
 | UI 组件 | shadcn-vue + Tailwind CSS 4 | Element Plus / Naive UI |
 | 前端请求 | openapi-fetch（类型安全客户端） | axios / 裸 fetch |
