@@ -73,15 +73,15 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 18 | POST /api/video/render（Playwright 截图 + FFmpeg 合成，三个模板 renderer）+ 测试（时长分配 7 + 路由 9 用例） | ✅ 完成 |
 | 19 | @hono/zod-openapi → openapi.json 自动生成 | ⬜ |
 
-### 阶段 4：Dify Workflow
+### 阶段 4：AI 内容生成（2026-08-17 架构变更：去 Dify，后端直连 LLM）
 
 | # | 任务 | 状态 |
 |---|------|------|
-| 20 | Workflow A1（scene_word）YAML | ⬜ |
-| 21 | Workflow A2（word_card）YAML | ⬜ |
-| 22 | Workflow A3（quiz）YAML | ⬜ |
-| 23 | Workflow B（媒体生产）YAML | ⬜ |
-| 24 | Workflow A → B 串联测试 | ⬜ |
+| 20 | llm.service（OpenAI 兼容调用，Agnes/Ollama 环境变量切换）+ content.service（生成 story + 词库校验）+ POST /api/content/generate + 测试 | ⬜ |
+| 21 | prompt 调优：中文故事嵌入英文词、主题式标题、JSON 输出（docs/15 §五） | ⬜ |
+| 22 | 端到端：content/generate → tts/from-content → video/render 串联验证 | ⬜ |
+
+> 原 #20-24（Dify Workflow YAML）已废弃：docs/05 标注废弃，由 docs/15 取代。
 
 ### 阶段 5：Vue 前端
 

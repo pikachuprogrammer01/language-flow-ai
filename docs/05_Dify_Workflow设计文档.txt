@@ -1,6 +1,11 @@
 Dify Workflow 节点设计方案 V2
 ================================
 
+> **废弃说明（2026-08-17）**：本文件为原 Dify Workflow 节点设计。
+> 架构变更（用户决策）：**去掉 Dify**，后端直连 LLM 取代——
+> 内容生成见 docs/15_AI内容生成服务设计.md，媒体生产由后端 API 实现
+> （/api/tts/from-content + /api/video/render）。本文件保留作历史参考。
+
 零、Workflow 概述
 
 本方案将内容生产拆为两个独立的 Dify Workflow：
