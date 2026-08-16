@@ -470,7 +470,7 @@ TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-conte
 
 | template | 拼接方式 |
 |----------|----------|
-| scene_word | 各 segment.text 连接，每段后追加其 words 的「词，释义」朗读；空段跳过 |
+| scene_word | 各 `segment.text` 连接，**text 中英文词原位替换为中文释义**（全中文朗读，用户确认 2026-08-17），空段跳过 | "Leo接到一份合同，任务是前往…。" |
 | word_card | 拼接 "word. pos. example." → "elaborate. adj. She made elaborate preparations for the party." |
 | quiz | 拼接 "stem. A. options[0]. B. options[1]. C. options[2]. D. options[3]." |
 

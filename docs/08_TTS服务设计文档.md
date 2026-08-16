@@ -173,11 +173,11 @@ MVP 阶段由 Workflow B 的 code 节点硬编码映射（`female_01 → zh-CN-X
 
 | template | 拼接方式 | 示例 |
 |----------|----------|------|
-| scene_word | 各 `segment.text` 连接，每段后追加其 `words` 的「词，释义」朗读；空段跳过 | "Leo接到一份contract，任务是前往…。contract，合同。continent，大陆。" |
+| scene_word | 各 `segment.text` 连接，**text 中英文词原位替换为中文释义**（全中文朗读，用户确认 2026-08-17），空段跳过 | "Leo接到一份合同，任务是前往未知的大陆寻找文明遗迹。" |
 | word_card | `word. pos. example.` 逐卡拼接 | "elaborate. adj. She made elaborate preparations for the party." |
 | quiz | `stem. A. options[0]. B. options[1]. C. options[2]. D. options[3].` | "contract 的意思是？ A. 合同. B. 联系. C. 对比. D. 建造." |
 
-> 单词朗读建议英文、释义中文，保证学习者听感。
+> scene_word 全中文朗读（英文词替换为中文释义）；word_card/quiz 朗读英文词 + 中文释义，保证学习者听感。
 > 拼接为纯函数（`buildTtsText`，见 `tts.service.ts`），13 个 Vitest 用例覆盖（PROGRESS 17c）。
 
 ---

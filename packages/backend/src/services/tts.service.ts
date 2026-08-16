@@ -190,6 +190,11 @@ function ensureEndPunct(text: string, punct = "。"): string {
   return /[。.！？!?，,]$/.test(t) ? t : `${t}${punct}`;
 }
 
+/** 正则特殊字符转义（用于 text 中定位英文词） */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * 按模板将 ContentArray 拼为朗读文本（规则见 SPEC §5.2 拼接规则表）
  * 空 segment/空字段自动跳过（对应"空 segment 丢弃"约定，SPEC §6.2.6）
@@ -197,14 +202,22 @@ function ensureEndPunct(text: string, punct = "。"): string {
 export function buildTtsText(content: JsonRecord[], template: TemplateType): string {
   switch (template) {
     case "scene_word":
+      // 全中文朗读（用户确认 2026-08-17）：text 中英文词原位替换为中文释义，不再追加词条
       return content
         .map((s) => {
           const words = Array.isArray(s.words) ? (s.words as JsonRecord[]) : [];
-          const wordText = words
-            .map((w) => [str(w.word), str(w.meaning)].filter(Boolean).join("，"))
-            .map((t) => ensureEndPunct(t))
-            .join("");
-          return [ensureEndPunct(str(s.text)), wordText].join("");
+          const wordMap = new Map(
+            words
+              .map((w) => [str(w.word).toLowerCase(), str(w.meaning)])
+              .filter(([, meaning]) => meaning),
+          );
+          let text = str(s.text);
+          for (const [word, meaning] of wordMap) {
+            if (word) {
+              text = text.replace(new RegExp(`\\b${escapeRegExp(word)}\\b`, "gi"), meaning);
+            }
+          }
+          return ensureEndPunct(text);
         })
         .join("");
     case "word_card":

@@ -21,7 +21,7 @@ vi.mock("../services/tts.service", async (importOriginal) => {
 // ── 拼接纯函数 ──
 
 describe("buildTtsText", () => {
-  it("scene_word：各 segment 句号连接，每段后追加 words 的「词，释义」", () => {
+  it("scene_word：text 中英文词原位替换为中文释义（全中文朗读）", () => {
     const text = buildTtsText(
       [
         {
@@ -36,10 +36,10 @@ describe("buildTtsText", () => {
       "scene_word",
     );
 
-    expect(text).toBe("Leo接到一份contract。contract，合同。他穿越dense丛林。dense，茂密的。");
+    expect(text).toBe("Leo接到一份合同。他穿越茂密的丛林。");
   });
 
-  it("scene_word：words 为空的 segment 只拼 text；空字段跳过", () => {
+  it("scene_word：words 为空的 segment 只拼 text；空 text 段跳过", () => {
     const text = buildTtsText(
       [
         { text: "纯文本段。", words: [] },
@@ -49,7 +49,7 @@ describe("buildTtsText", () => {
       "scene_word",
     );
 
-    expect(text).toBe("纯文本段。contract，合同。");
+    expect(text).toBe("纯文本段。");
   });
 
   it("word_card：逐卡拼接 word. pos. example.", () => {
