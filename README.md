@@ -45,7 +45,7 @@
 | 流程编排 | Dify（Workflow A × 3 + Workflow B） |
 | 后端框架 | Hono + Zod + Drizzle ORM |
 | 后端语言 | TypeScript (Node.js) |
-| 数据库 | MySQL 8.0 |
+| 数据库 | MySQL 8.4（Docker Compose） |
 | 前端框架 | Vue 3.5 + Composition API + `<script setup lang="ts">` |
 | UI 组件 | shadcn-vue + Tailwind CSS 4 |
 | 前端路由 | Vue Router 4 |
@@ -54,7 +54,7 @@
 | API 文档 | Hono + Zod → 自动生成 OpenAPI 3.1 → Scalar 可视化 |
 | 共享类型 | pnpm workspace `packages/shared`（前后端复用 ContentDTO 类型） |
 | AI 模型 | GPT-4o / Claude 3.5 Sonnet（Structured Output） |
-| TTS | 外部 TTS API 服务 |
+| TTS | Edge TTS（微软公开 WebSocket 接口，零成本零密钥；音色映射见 SPEC §5.2） |
 | 视频渲染 | HTML 模板 + Playwright 截图 + FFmpeg 合成 |
 | 测试框架 | Vitest 3（backend=node / frontend=jsdom） |
 | 日志 | pino + pino-pretty |
@@ -91,41 +91,41 @@ language-flow-ai/
 │   │       ├── lib/
 │   │       │   └── logger.ts     # pino 结构化日志
 │   │       ├── routes/
-│   │       │   ├── health.ts     # GET /health 健康检查
-│   │       │   ├── cet.ts        # /api/cet/validate-words, /api/cet/random-words
-│   │       │   ├── tts.ts        # /api/tts/generate
-│   │       │   └── video.ts      # /api/video/render
+│   │       │   ├── health.ts     # GET /health 健康检查 ✅
+│   │       │   ├── cet.ts        # /api/cet/validate-words ✅ /api/cet/random-words ⏳
+│   │       │   ├── tts.ts        # /api/tts/generate ✅ /api/tts/from-content ✅
+│   │       │   └── video.ts      # /api/video/render ⏳ 待实现（#18）
 │   │       ├── services/
-│   │       │   ├── cet.service.ts
-│   │       │   ├── tts.service.ts
-│   │       │   └── video.service.ts
-│   │       ├── renderer/         # 模板渲染器（Playwright + HTML 模板）
+│   │       │   ├── cet.service.ts    # 词库校验 ✅
+│   │       │   ├── tts.service.ts    # Edge TTS 合成 + 拼接 + 时长探测 ✅
+│   │       │   └── video.service.ts  # ⏳ 待实现（#18）
+│   │       ├── renderer/         # 模板渲染器（Playwright + HTML 模板）⏳ 待实现（#18）
 │   │       │   ├── renderer.interface.ts
 │   │       │   ├── scene-word.renderer.ts
 │   │       │   ├── word-card.renderer.ts
 │   │       │   └── quiz.renderer.ts
 │   │       ├── db/
-│   │       │   ├── schema.ts     # Drizzle ORM 表定义
-│   │       │   └── index.ts      # 数据库连接
-│   │       └── openapi.json      # 自动生成的 OpenAPI 3.1 规范
+│   │       │   ├── schema.ts     # Drizzle ORM 表定义 ✅
+│   │       │   └── index.ts      # 数据库连接 ✅
+│   │       └── openapi.json      # 自动生成的 OpenAPI 3.1 规范 ⏳ 待实现（#19）
 │   │
 │   └── frontend/                 ← Vue 3.5 + shadcn-vue + Vite
 │       ├── tsconfig.json
 │       ├── vitest.config.ts
 │       ├── env.d.ts              # Vue SFC + Vite 类型声明
 │       └── src/
-│           ├── api/
+│           ├── api/             # ⏳ 待实现（#26）
 │           │   ├── client.ts     # openapi-fetch 类型安全客户端
 │           │   └── schema.d.ts   # openapi-typescript 自动生成
-│           ├── pages/
+│           ├── pages/           # ⏳ 待实现（#28-#30）
 │           │   ├── CreateTask.vue
 │           │   ├── TaskList.vue
 │           │   └── TaskDetail.vue
 │           ├── components/
-│           │   └── ui/           # shadcn-vue 组件
-│           └── router.ts
+│           │   └── ui/           # shadcn-vue 组件 ⏳ 待生成
+│           └── router.ts         # 当前仅 / → App，待重写（#26）
 
-dify/
+dify/                              # ⏳ 待实现（#20-#24）
 ├── content_generation/
 │   ├── scene_word.yml           # Workflow A1：情景背词
 │   ├── word_card.yml            # Workflow A2：单词卡片
@@ -195,6 +195,12 @@ interface ContentDTO {
 | [`06_视频生产SOP文档.txt`](./docs/06_视频生产SOP文档.txt) | 选题→生成→审核→制作→发布 SOP |
 | [`07_后续扩展规划文档.txt`](./docs/07_后续扩展规划文档.txt) | 批量生产、数据分析、平台化 |
 | [`情景词汇阅读视频模板设计规范 V1.0.txt`](./docs/情景词汇阅读视频模板设计规范%20V1.0.txt) | scene_word 模板视觉/内容规范 |
+| [`四级词汇情景记忆卡片设计方案.md`](./docs/四级词汇情景记忆卡片设计方案.md) | word_card 模板卡片设计方案 |
+| [`08_TTS服务设计文档.md`](./docs/08_TTS服务设计文档.md) | Edge TTS 方案、音色映射、存储与错误处理 |
+| [`09_词库数据方案.md`](./docs/09_词库数据方案.md) | cet_words 词库数据来源与 seed 方案 |
+| [`10_视频渲染设计文档.md`](./docs/10_视频渲染设计文档.md) | renderer 接口、HTML 模板、Playwright + FFmpeg 管线 |
+| [`11_前端页面设计文档.md`](./docs/11_前端页面设计文档.md) | 三个页面规格：任务创建/列表/详情 |
+| [`12_部署与运行指南.md`](./docs/12_部署与运行指南.md) | 本地开发、数据库迁移、生产部署方向 |
 
 ## 快速开始
 
@@ -207,7 +213,7 @@ interface ContentDTO {
    ```bash
    pnpm install
    ```
-3. 启动数据库（MySQL 8.0）
+3. 启动数据库（MySQL 8.4）
    ```bash
    docker compose up -d
    ```
@@ -216,17 +222,22 @@ interface ContentDTO {
    cp .env.example .env
    # 按需编辑 .env 中的 API Key 等配置
    ```
-5. 启动开发服务器
+5. 初始化数据库表结构（首次或 schema 变更后）
+   ```bash
+   DATABASE_URL="mysql://dev:dev@localhost:3306/language_flow" pnpm --filter backend db:generate
+   DATABASE_URL="mysql://dev:dev@localhost:3306/language_flow" pnpm --filter backend db:migrate
+   ```
+6. 启动开发服务器
    ```bash
    pnpm dev
    # 后端 http://localhost:8080
    # 前端 http://localhost:5173
    ```
-6. （后续）生成 API 客户端类型
+7. （后续）生成 API 客户端类型
    ```bash
    pnpm --filter frontend gen-api     # 从 openapi.json 生成 schema.d.ts
    ```
-7. （后续）在 Dify 中导入 `dify/` 下的 Workflow YAML，配置 LLM 节点（详见 [SPEC.md](./SPEC.md)）
+8. （后续）在 Dify 中导入 `dify/` 下的 Workflow YAML，配置 LLM 节点（详见 [SPEC.md](./SPEC.md)）
 
 ## 开发规范
 

@@ -79,7 +79,7 @@
 | 后端框架 | Hono | 轻量 TS-first Web 框架，原生 Zod 集成，Edge-ready |
 | 数据校验 | Zod | 运行时类型校验，与 Hono zValidator 中间件配合 |
 | 数据库 ORM | Drizzle ORM | TS 结构映射 DDL，零代码生成，类型自动推导 |
-| 数据库 | MySQL 8.0 | 词库表 + contents 表，JSON 列支持 |
+| 数据库 | MySQL 8.4 | 词库表 + contents 表，JSON 列支持 |
 | 前端框架 | Vue 3.5 + Composition API | `<script setup lang="ts">` 语法，与后端共享 TS 类型 |
 | UI 组件库 | shadcn-vue | Vue 版 shadcn/ui，Radix Vue 底座，源码归己 |
 | 前端样式 | Tailwind CSS 4 | 原子化 CSS，与 shadcn-vue 原生配合 |
@@ -213,7 +213,7 @@ interface WordInfo {
 
 // ── 音色配置 ──
 interface VoiceConfig {
-  id: string;              // 音色 ID，如 "female_01"
+  id: string;              // 业务音色 ID（如 "female_01" / "male_01"），到 Edge TTS 音色的映射见 §5.2
   speed?: number;          // 语速 0.5~2.0，默认 1.0
 }
 
@@ -419,17 +419,38 @@ POST /api/cet/random-words
 
 ### 5.2 TTS 服务
 
+TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-content`（Workflow B 使用，含拼接）。
+
+#### 5.2.1 POST /api/tts/generate — 底层文本合成
+
+**请求体**（已发布契约，保持兼容）：
+
+```typescript
+{
+  text: string;            // 待朗读的纯文本（1~500 字符）
+  voice: string;           // Edge TTS 音色名，默认 "zh-CN-XiaoxiaoNeural"
+}
 ```
-POST /api/tts/generate
+
+**响应体**：
+
+```typescript
+{
+  success: true;
+  filename: string;        // 文件名（UUID.mp3）
+  url: string;             // 音频文件 URL，如 /files/audio/xxx.mp3
+}
 ```
+
+#### 5.2.2 POST /api/tts/from-content — ContentArray 拼接合成（Workflow B 使用）
 
 **请求体**：
 
 ```typescript
 {
-  content: ContentArray;     // 同 ContentDTO.content
-  template: TemplateType;    // 用于判断文本拼接方式
-  voice: VoiceConfig;        // { id, speed? }
+  content: ContentArray;   // 同 ContentDTO.content
+  template: TemplateType;  // scene_word | word_card | quiz，决定拼接方式
+  voice: string;           // Edge TTS 音色名，默认 "zh-CN-XiaoxiaoNeural"
 }
 ```
 
@@ -438,28 +459,44 @@ POST /api/tts/generate
 ```typescript
 {
   audio: {
-    url: string;             // 音频文件 URL
-    duration: number;        // 时长（秒）
+    url: string;             // 音频文件 URL，如 /files/audio/xxx.mp3
+    duration: number;        // 时长（秒，ffprobe 探测）
     format: string;          // "mp3"
   };
 }
 ```
 
-**TTS 文本拼接规则**（后端根据 template 决定）：
+**TTS 文本拼接规则**（后端 service 实现，见 08_TTS服务设计文档.md §七）：
 
 | template | 拼接方式 |
 |----------|----------|
-| scene_word | 将所有 segment.text 用标点连接，每个 segment 后追加其 words 的朗读 |
-| word_card | 拼接 "word. pos. example" → "elaborate. adj. She made elaborate preparations for the party." |
+| scene_word | 各 segment.text 连接，每段后追加其 words 的「词，释义」朗读；空段跳过 |
+| word_card | 拼接 "word. pos. example." → "elaborate. adj. She made elaborate preparations for the party." |
 | quiz | 拼接 "stem. A. options[0]. B. options[1]. C. options[2]. D. options[3]." |
 
-**错误码**：
+**音色映射表**（业务抽象 ID → Edge TTS 音色）：
+
+| VoiceConfig.id | Edge TTS 音色 | 说明 |
+|----------------|---------------|------|
+| female_01 | zh-CN-XiaoxiaoNeural | 晓晓，默认女声 |
+| male_01 | zh-CN-YunxiNeural | 云希，男声 |
+| female_02 | zh-CN-XiaoyiNeural | 晓伊，女声 |
+| male_02 | zh-CN-YunjianNeural | 云健，男声 |
+
+> 调用方（前端 / Dify）在调用 TTS 端点前，将 VoiceConfig.id 按上表转换为 Edge TTS 音色名。
+> 后端默认值 zh-CN-XiaoxiaoNeural 与 female_01 对应。
+> 完整音色列表见 08_TTS服务设计文档.md。
+
+**错误码**（两个端点通用）：
 
 | 状态码 | 情况 |
 |--------|------|
 | 200 | 正常 |
-| 400 | content 为空或 voice 格式错误 |
+| 400 | generate：text 为空/超长，或 voice 非字符串；from-content：content 为空/拼不出朗读文本，或 template 非法 |
 | 500 | TTS 引擎错误 |
+
+> 注：后端不校验 voice 是否为合法 Edge 音色名（仅校验类型），
+> 非法音色名由 Edge TTS 服务端拒绝时返回 500。
 
 ### 5.3 视频渲染服务
 
@@ -493,7 +530,7 @@ POST /api/video/render
 1. 根据 ContentDTO.template 选择对应的 HTML 模板
 2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板（背景当前为纯白 CSS，不做图片注入）
 3. Playwright/Puppeteer 打开 HTML，按 segments/items 逐帧截图
-4. FFmpeg 将图片帧 + ContentDTO.audio + bgm 合成为 MP4
+4. FFmpeg 将图片帧 + ContentDTO.audio 合成 MP4（MVP 静音合成，bgm 后续扩展）
 5. 上传到 CDN，返回 URL
 ```
 
@@ -630,7 +667,10 @@ function main(story_result: {
     text: string;
     candidateWords: Array<{ word: string; wordIndex: number }>;
   }>;
-}): { candidateWords: Array<{ word: string; wordIndex: number; segmentIndex: number }> } {
+}): {
+  candidateWords: Array<{ word: string; wordIndex: number; segmentIndex: number }>;
+  wordList: string[]; // 纯单词数组，供 http_query_cet_db 请求体直接使用
+} {
 
   const seen = new Set<string>();
   const candidateWords: Array<{ word: string; wordIndex: number; segmentIndex: number }> = [];
@@ -649,7 +689,7 @@ function main(story_result: {
     });
   });
 
-  return { candidateWords };
+  return { candidateWords, wordList: candidateWords.map(c => c.word) };
 }
 ```
 
@@ -667,7 +707,7 @@ function main(story_result: {
 
 ```json
 {
-  "words": [{{extracted_words.candidateWords 中提取 word 字段的数组}}],
+  "words": "{{extracted_words.wordList}}",
   "level": "{{user_input.level}}"
 }
 ```
@@ -990,7 +1030,7 @@ start → http_tts → code_merge_audio → http_render_video → code_merge_vid
 | 属性 | 值 |
 |------|-----|
 | 方法 | POST |
-| URL | https://your-api.com/api/tts/generate |
+| URL | https://your-api.com/api/tts/from-content |
 | 输出变量 | tts_result |
 
 **请求体**：
@@ -999,7 +1039,19 @@ start → http_tts → code_merge_audio → http_render_video → code_merge_vid
 {
   "content": {{partial_dto.content}},
   "template": "{{partial_dto.template}}",
-  "voice": {{partial_dto.voice}}
+  "voice": "{{partial_dto.voice.id 按 §5.2 映射表转换为 Edge 音色名}}"
+}
+```
+
+**响应体**（tts_result）：
+
+```json
+{
+  "audio": {
+    "url": "/files/audio/cnt_xxx.mp3",
+    "duration": 12.4,
+    "format": "mp3"
+  }
 }
 ```
 
@@ -1192,12 +1244,13 @@ interface PaginatedResponse<T> {
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | INT PK AUTO_INCREMENT | 自增 |
-| word | VARCHAR(128) | 英文单词 |
-| level | VARCHAR(8) | CET4 / CET6 |
-| meaning | VARCHAR(512) | 中文释义 |
-| frequency | FLOAT | 词频（0~1） |
+| word | VARCHAR(100) NOT NULL | 英文单词（小写） |
+| meaning | VARCHAR(500) NOT NULL | 中文释义 |
+| level | ENUM('CET4','CET6') NOT NULL | 词汇等级 |
+| frequency | FLOAT DEFAULT 0 | 词频（0~1） |
 
-**索引**：`UNIQUE(word, level)`, `INDEX(level)`, `INDEX(frequency)`
+**索引**：`idx_level_freq(level, frequency)`
+（实现以 `db/schema.ts` 为准，与 docs/09 一致）
 
 ---
 
@@ -1232,37 +1285,37 @@ project-root/
 │   ├── backend/                   ← Hono + Drizzle + Zod
 │   │   └── src/
 │   │       ├── routes/
-│   │       │   ├── cet.ts         # /api/cet/*
-│   │       │   ├── tts.ts         # /api/tts/*
-│   │       │   └── video.ts       # /api/video/*
+│   │       │   ├── cet.ts         # /api/cet/*（validate-words ✅，random-words ⏳）
+│   │       │   ├── tts.ts         # /api/tts/*（generate + from-content ✅）
+│   │       │   └── video.ts       # /api/video/* ⏳ 待实现（#18）
 │   │       ├── services/
-│   │       │   ├── cet.service.ts
-│   │       │   ├── tts.service.ts
-│   │       │   └── video.service.ts
-│   │       ├── renderer/
+│   │       │   ├── cet.service.ts   # 词库校验 ✅
+│   │       │   ├── tts.service.ts   # Edge TTS 合成 + 拼接 + 时长 ✅
+│   │       │   └── video.service.ts # ⏳ 待实现（#18）
+│   │       ├── renderer/           # ⏳ 待实现（#18）
 │   │       │   ├── renderer.interface.ts
 │   │       │   ├── scene-word.renderer.ts
 │   │       │   ├── word-card.renderer.ts
 │   │       │   └── quiz.renderer.ts
 │   │       ├── db/
-│   │       │   ├── schema.ts      # Drizzle ORM 表定义
-│   │       │   └── index.ts       # 数据库连接
-│   │       └── openapi.json       # 自动生成的 OpenAPI 3.1 规范
+│   │       │   ├── schema.ts      # Drizzle ORM 表定义 ✅
+│   │       │   └── index.ts       # 数据库连接 ✅
+│   │       └── openapi.json       # 自动生成的 OpenAPI 3.1 规范 ⏳ 待实现（#19）
 │   │
 │   └── frontend/                  ← Vue 3.5 + shadcn-vue + Vite
 │       └── src/
-│           ├── api/
+│           ├── api/               # ⏳ 待实现（#26）
 │           │   ├── client.ts      # openapi-fetch 类型安全客户端
 │           │   └── schema.d.ts    # openapi-typescript 自动生成
-│           ├── pages/
+│           ├── pages/             # ⏳ 待实现（#28-#30）
 │           │   ├── CreateTask.vue
 │           │   ├── TaskList.vue
 │           │   └── TaskDetail.vue
 │           ├── components/
-│           │   └── ui/            # shadcn-vue 组件
+│           │   └── ui/            # shadcn-vue 组件 ⏳ 待生成
 │           └── router.ts
 │
-└── dify/
+└── dify/                           # ⏳ 待实现（#20-#24）
     ├── content_generation/
     │   ├── scene_word.yml         # Workflow A1
     │   ├── word_card.yml          # Workflow A2
@@ -1283,9 +1336,10 @@ project-root/
 
 ### 12.2 后端 API
 
-- [ ] `POST /api/cet/validate-words` — 候选词批量验证
+- [x] `POST /api/cet/validate-words` — 候选词批量验证 ✅
 - [ ] `POST /api/cet/random-words` — 按等级随机抽取
-- [ ] `POST /api/tts/generate` — 文本转语音（含 template 路由拼接逻辑）
+- [x] `POST /api/tts/generate` — 底层文本合成 ✅
+- [x] `POST /api/tts/from-content` — ContentArray 拼接合成（Workflow B 入口）✅
 - [ ] `POST /api/video/render` — HTML 模板渲染 + FFmpeg 合成
 - [ ] OpenAPI 3.1 规范自动生成（`@hono/zod-openapi`）
 

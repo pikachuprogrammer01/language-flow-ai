@@ -41,7 +41,7 @@ export interface StyleConfig {
   font?: string;
   /** 配色方案 */
   colorScheme?: string;
-  /** 背景音乐曲目 ID，如 "bgm_calm_01"，不传用默认值 */
+  /** 背景音乐曲目 ID，如 "bgm_calm_01"；MVP 不设默认值（静音合成，见 docs/03 模块 9） */
   bgm?: string;
 }
 

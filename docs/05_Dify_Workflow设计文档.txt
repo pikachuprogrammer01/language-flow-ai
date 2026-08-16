@@ -145,7 +145,7 @@ Dify 中每个节点的输出作为一个变量，下游节点通过变量名引
 | tts_result           | B             | http_tts             | TTS 返回的音频信息              |
 | dto_with_audio       | B             | code_merge_audio     | 含 audio 的半成品 DTO           |
 | video_result         | B             | http_render_video    | 视频渲染返回的视频信息           |
-| final_dto            | B             | end                  | 完整的 ContentDTO               |
+| final_dto            | B             | code_merge_video     | 完整的 ContentDTO               |
 
 2.3 状态变更时机
 
@@ -205,6 +205,7 @@ end
 
   {
     "topic": "森林探险",          // string, scene_word 必填，其他模板可选
+    "template": "scene_word",     // string, 必填: "scene_word" | "word_card" | "quiz"
     "level": "CET4",              // string, "CET4" | "CET6"
     "wordCount": 10,              // number, 3~15, 默认 10
     "targetDuration": 60,         // number, 秒, 默认 60
@@ -303,11 +304,13 @@ User Prompt:
       });
       return {
           candidateWords: candidates,
+          // 纯单词数组，供 http_query_cet_db 的请求体直接使用（validate-words 接收 string[]）
+          wordList: candidates.map(c => c.word),
           title: story_result.title || ""
       };
   }
 
-输出变量名: extracted_words（包含 candidateWords 数组和 title）
+输出变量名: extracted_words（包含 candidateWords 数组、wordList 和 title）
 
 -----------------------------------------------------------------
 节点 4: http_query_cet_db
@@ -315,12 +318,12 @@ User Prompt:
 类型: HTTP Request
 方法: POST
 URL: https://your-api.com/api/cet/validate-words
-输入变量: {{extracted_words.candidateWords}}
+输入变量: {{extracted_words.wordList}}
 
 请求体:
 
   {
-    "words": ["contract", "continent", "consult", "dense"],
+    "words": {{extracted_words.wordList}},
     "level": "{{user_input.level}}"
   }
 
@@ -328,10 +331,10 @@ URL: https://your-api.com/api/cet/validate-words
 
   {
     "matchedWords": [
-      { "word": "contract", "level": "CET4", "meaning": "合同；契约", "frequency": 85 },
-      { "word": "continent", "level": "CET4", "meaning": "大陆；洲", "frequency": 60 },
-      { "word": "consult", "level": "CET4", "meaning": "咨询；查阅", "frequency": 45 },
-      { "word": "dense", "level": "CET4", "meaning": "茂密的；密集的", "frequency": 50 }
+      { "word": "contract", "level": "CET4", "meaning": "合同；契约", "frequency": 0.85 },
+      { "word": "continent", "level": "CET4", "meaning": "大陆；洲", "frequency": 0.60 },
+      { "word": "consult", "level": "CET4", "meaning": "咨询；查阅", "frequency": 0.45 },
+      { "word": "dense", "level": "CET4", "meaning": "茂密的；密集的", "frequency": 0.50 }
     ],
     "unmatchedWords": []
   }
@@ -384,6 +387,8 @@ URL: https://your-api.com/api/cet/validate-words
                   }
               }
           });
+          // 该段所有候选词均未通过词库校验 → 整段丢弃（SPEC §6.2.6）
+          if (segWords.length === 0) return;
           content.push({ text: seg.text, words: segWords });
       });
 
@@ -468,7 +473,7 @@ end
     "wordCount": 5,
     "targetDuration": 45,
     "voice": { "id": "male_01", "speed": 0.9 },
-    "style": { "background": "card_clean" }
+    "style": { "background": "white" }
   }
 
 说明: word_card 模板 topic 可选（不传则 LLM 自行发挥标题）；词由词库随机抽取。
@@ -740,7 +745,7 @@ end
 ----------------------------------------------------------------
 类型: HTTP Request
 方法: POST
-URL: https://your-api.com/api/tts/generate
+URL: https://your-api.com/api/tts/from-content
 输入变量: {{partial_dto}}
 
 请求体:
@@ -748,11 +753,11 @@ URL: https://your-api.com/api/tts/generate
   {
     "content": {{partial_dto.content}},
     "template": "{{partial_dto.template}}",
-    "voice": {{partial_dto.voice}}
+    "voice": "{{partial_dto.voice.id 按 SPEC §5.2 映射表转为 Edge 音色名}}"
   }
 
-说明: 后端根据 template 类型决定 TTS 文本的拼接方式：
-  - scene_word: 将所有 segment.text 拼接为完整朗读文本
+说明: 后端根据 template 类型决定 TTS 文本的拼接方式（拼接在后端 service 完成，见 SPEC §5.2.2）：
+  - scene_word: 将所有 segment.text 拼接为完整朗读文本，每段后追加 words 的「词，释义」
   - word_card: 朗读每个 "word. pos. example"
   - quiz: 朗读每个 "stem + options"
 
@@ -760,7 +765,7 @@ URL: https://your-api.com/api/tts/generate
 
   {
     "audio": {
-      "url": "https://cdn.your-domain.com/audio/cnt_20260728_001.mp3",
+      "url": "/files/audio/cnt_20260728_001.mp3",
       "duration": 58.5,
       "format": "mp3"
     }
