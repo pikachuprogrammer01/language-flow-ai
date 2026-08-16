@@ -6,6 +6,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { logger } from "./lib/logger";
 import { cet } from "./routes/cet";
+import { content } from "./routes/content";
 import { files } from "./routes/files";
 import { health } from "./routes/health";
 import { tts } from "./routes/tts";
@@ -76,6 +77,7 @@ app.use(
 // 路由注册
 app.route("/", health);
 app.route("/api/cet", cet);
+app.route("/api/content", content);
 app.route("/api/tts", tts);
 app.route("/api/video", video);
 app.route("/files", files);
