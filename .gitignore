@@ -18,6 +18,8 @@ dist/
 .idea/
 *.swp
 *.swo
+.reasonix
+reasonix.toml
 
 # OS
 .DS_Store
