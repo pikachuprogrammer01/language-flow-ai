@@ -492,7 +492,7 @@ TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-conte
 | 状态码 | 情况 |
 |--------|------|
 | 200 | 正常 |
-| 400 | generate：text 为空/超长，或 voice 非字符串；from-content：content 为空/拼不出朗读文本，或 template 非法 |
+| 400 | generate：text 为空/超长（>500 字符），或 voice 非字符串；from-content：content 为空/拼不出朗读文本/拼接文本超 500 字符，或 template 非法 |
 | 500 | TTS 引擎错误 |
 
 > 注：后端不校验 voice 是否为合法 Edge 音色名（仅校验类型），
@@ -1272,7 +1272,13 @@ project-root/
 │   ├── 05_Dify_Workflow设计文档.txt
 │   ├── 06_视频生产SOP文档.txt
 │   ├── 07_后续扩展规划文档.txt
-│   └── 情景词汇阅读视频模板设计规范 V1.0.txt
+│   ├── 08_TTS服务设计文档.md
+│   ├── 09_词库数据方案.md
+│   ├── 10_视频渲染设计文档.md
+│   ├── 11_前端页面设计文档.md
+│   ├── 12_部署与运行指南.md
+│   ├── 情景词汇阅读视频模板设计规范 V1.0.txt
+│   └── 四级词汇情景记忆卡片设计方案.md
 │
 ├── packages/
 │   ├── shared/                    ← 前后端 + Dify Code 节点共享

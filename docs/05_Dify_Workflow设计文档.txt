@@ -897,10 +897,13 @@ Dify 通过 HTTP Request 节点调用的后端服务需要实现以下接口：
 
 7.2 TTS 服务
 
-  POST /api/tts/generate
-    输入: { "content": ContentArray, "template": string, "voice": VoiceConfig }
+  POST /api/tts/from-content（Workflow B 使用；拼接在后端 service 完成）
+    输入: { "content": ContentArray, "template": string, "voice": string(Edge 音色名) }
     输出: { "audio": { "url", "duration", "format" } }
-    说明: 后端负责将 ContentArray 转为适合朗读的纯文本
+
+  POST /api/tts/generate（底层文本合成，已发布契约）
+    输入: { "text": string(1~500 字符), "voice": string(Edge 音色名) }
+    输出: { "success", "filename", "url" }
 
 7.3 视频渲染服务
 

@@ -69,7 +69,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 17 | POST /api/tts/generate（Edge TTS 配音 + 本地文件存储） | ✅ 完成 |
 | 17a | GET /files/audio\|video/:filename 静态文件服务（防路径穿越） | ✅ 完成 |
 | 17b | POST /api/tts/from-content（ContentArray 拼接 + 合成 + ffprobe 时长，Workflow B 入口） | ✅ 完成 |
-| 17c | tts 测试补齐（拼接纯函数 5 + 路由 7，共 12 用例） | ✅ 完成 |
+| 17c | tts 测试补齐（拼接纯函数 5 + 路由 8，共 13 用例） | ✅ 完成 |
 | 18 | POST /api/video/render（含 Playwright + FFmpeg 管线）+ 测试 | ⬜ |
 | 19 | @hono/zod-openapi → openapi.json 自动生成 | ⬜ |
 
@@ -136,7 +136,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 - [x] Frontend 入口文件（vite.config.ts / index.html / main.ts / App.vue）
 - [x] Tailwind CSS 4 Vite 插件接入
 - [x] .nvmrc + .node-version（Node 24）
-- [x] docker-compose.yml（MySQL 8.0）
+- [x] docker-compose.yml（MySQL 8.4）
 - [x] .editorconfig
 
 ---

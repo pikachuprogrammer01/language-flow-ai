@@ -78,7 +78,7 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 
 | 状态码 | 情况 |
 |--------|------|
-| 400 | content 为空 / 拼不出朗读文本 / template 非法 |
+| 400 | content 为空 / 拼不出朗读文本 / 拼接文本超 500 字符 / template 非法 |
 | 500 | Edge TTS 连接失败或合成异常 |
 
 ### 3.2 POST /api/tts/generate — 底层文本合成（已发布契约，保持兼容）
@@ -186,13 +186,13 @@ MVP 阶段由 Workflow B 的 code 节点硬编码映射（`female_01 → zh-CN-X
 
 | 层 | 方式 |
 |----|------|
-| route 层 | Vitest：`vi.mock` tts.service 与 fs，断言 200/400/500 与响应结构（✅ 已补齐，12 用例：拼接纯函数 5 + 路由 7，见 `routes/tts.test.ts`） |
+| route 层 | Vitest：`vi.mock` tts.service 与 fs，断言 200/400/500 与响应结构（✅ 已补齐，13 用例：拼接纯函数 5 + 路由 8，见 `routes/tts.test.ts`） |
 | service 层 | 依赖真实网络，**不进 CI**；本地手动验证：调用 synthesizeSpeech 后 `ffprobe` 检查 MP3 时长 |
 | 端到端 | `pnpm dev` 后 curl 调用接口，`/files/audio/*` 可播放 |
 
 ---
 
-## 九、已知限制与升级路径（ponytail: 上限标注）
+## 九、已知限制与升级路径
 
 - Edge TTS 无 SLA、接口可能变动 → 升级路径：抽 `TtsProvider` 接口，实现 `AzureTtsProvider` 替换
 - `text` 上限 500 字符：单次合成时长约 1 分钟，超长文本由 Workflow 分段多次调用
@@ -204,5 +204,5 @@ MVP 阶段由 Workflow B 的 code 节点硬编码映射（`female_01 → zh-CN-X
 
 - [ ] `POST /api/tts/from-content` 三模板各合成 MP3 成功，返回 `audio.duration`，`/files/audio/*` 可访问
 - [ ] `POST /api/tts/generate` 保持兼容（text 合成 + `{success, filename, url}`）
-- [ ] text > 500 字符返回 400；content 拼不出文本返回 400
+- [x] text > 500 字符返回 400；content 拼不出文本返回 400（from-content 拼接文本超 500 也返回 400）
 - [ ] 音色映射表 4 个 ID 均可对应有效 Edge 音色
