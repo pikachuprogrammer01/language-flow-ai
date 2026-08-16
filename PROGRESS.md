@@ -1,7 +1,7 @@
 # 项目进度
 
 > 最后更新：2026-08-16
-> 当前阶段：后端 API 开发中（词库 seed 完成 3920 词，进入 video/render）
+> 当前阶段：后端 API 开发中（video/render 完成，进入 #19 OpenAPI 文档生成）
 
 ---
 
@@ -22,7 +22,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 
 ## 二、当前在做
 
-→ 阶段 3：后端 API — POST /api/video/render（#18，Playwright + FFmpeg）
+→ 阶段 3：后端 API — OpenAPI 3.1 自动生成（#19，@hono/zod-openapi）
 
 ---
 
@@ -70,7 +70,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 17a | GET /files/audio\|video/:filename 静态文件服务（防路径穿越） | ✅ 完成 |
 | 17b | POST /api/tts/from-content（ContentArray 拼接 + 合成 + ffprobe 时长，Workflow B 入口） | ✅ 完成 |
 | 17c | tts 测试补齐（拼接纯函数 5 + 路由 8，共 13 用例） | ✅ 完成 |
-| 18 | POST /api/video/render（含 Playwright + FFmpeg 管线）+ 测试 | ⬜ |
+| 18 | POST /api/video/render（Playwright 截图 + FFmpeg 合成，三个模板 renderer）+ 测试（时长分配 7 + 路由 9 用例） | ✅ 完成 |
 | 19 | @hono/zod-openapi → openapi.json 自动生成 | ⬜ |
 
 ### 阶段 4：Dify Workflow

@@ -9,6 +9,7 @@ import { cet } from "./routes/cet";
 import { files } from "./routes/files";
 import { health } from "./routes/health";
 import { tts } from "./routes/tts";
+import { video } from "./routes/video";
 
 // ── 环境变量校验 ──
 const requiredEnvVars = ["DATABASE_URL"] as const;
@@ -76,6 +77,7 @@ app.use(
 app.route("/", health);
 app.route("/api/cet", cet);
 app.route("/api/tts", tts);
+app.route("/api/video", video);
 app.route("/files", files);
 
 // ── 启动服务器 ──

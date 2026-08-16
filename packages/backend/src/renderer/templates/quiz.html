@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; }
+  body {
+    background: #ffffff;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 120px;
+  }
+  .stem { font-size: 46px; font-weight: 700; color: #111827; line-height: 1.5; margin-bottom: 80px; }
+  .options { display: flex; flex-direction: column; gap: 32px; }
+  .option {
+    font-size: 38px;
+    color: #374151;
+    line-height: 1.5;
+    padding: 28px 36px;
+    border: 2px solid #e5e7eb;
+    border-radius: 16px;
+  }
+  .option.correct { border-color: #16a34a; background: #f0fdf4; color: #15803d; font-weight: 700; }
+  .explanation { margin-top: 80px; font-size: 32px; color: #6b7280; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="stem">{{STEM}}</div>
+  <div class="options">{{OPTIONS}}</div>
+  <div class="explanation">{{EXPLANATION}}</div>
+</body>
+</html>

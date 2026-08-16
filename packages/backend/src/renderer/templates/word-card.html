@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; }
+  body {
+    background: #ffffff;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 120px;
+  }
+  .card {
+    width: 100%;
+    background: #ffffff;
+    border: 2px solid #e5e7eb;
+    border-radius: 32px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.08);
+    padding: 120px 100px;
+  }
+  .word { font-size: 84px; font-weight: 800; color: #111827; text-align: center; }
+  .pos { font-size: 32px; color: #6b7280; text-align: center; margin-top: 24px; }
+  .meaning { font-size: 44px; color: #374151; text-align: center; margin-top: 56px; line-height: 1.6; }
+  .example { font-size: 38px; color: #111827; margin-top: 80px; line-height: 1.6; }
+  .example-meaning { font-size: 32px; color: #6b7280; margin-top: 16px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="word">{{WORD}}</div>
+    <div class="pos">{{POS}}</div>
+    <div class="meaning">{{MEANING}}</div>
+    {{EXAMPLE_BLOCK}}
+  </div>
+</body>
+</html>

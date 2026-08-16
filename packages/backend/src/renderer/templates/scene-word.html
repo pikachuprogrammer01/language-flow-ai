@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; }
+  body {
+    background: #ffffff;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding: 100px 80px;
+  }
+  .title { font-size: 40px; font-weight: 700; color: #1f2937; margin-bottom: 60px; }
+  .text {
+    flex: 1;
+    font-size: 44px;
+    line-height: 1.6;
+    color: #111827;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .text mark { background: #fbbf24; font-weight: 700; padding: 0 6px; border-radius: 6px; }
+  .words-bar {
+    background: #111827;
+    color: #ffffff;
+    border-radius: 16px;
+    font-size: 30px;
+    padding: 28px 36px;
+    line-height: 1.5;
+  }
+  .words-bar .word { font-weight: 700; margin-right: 24px; }
+</style>
+</head>
+<body>
+  <div class="title">{{TITLE}}</div>
+  <div class="text">{{TEXT}}</div>
+  <div class="words-bar">{{WORDS_BAR}}</div>
+</body>
+</html>
