@@ -33,16 +33,16 @@ export class SceneWordRenderer implements TemplateRenderer {
 
     const template = await loadTemplate("scene-word.html");
     const htmlList = segments.map((seg) => {
-      const wordsBar = seg.words
+      const summaryWords = seg.words
         .map(
           (w) =>
-            `<span class="word">${escapeHtml(w.word)}</span><span>${escapeHtml(w.meaning)}</span>`,
+            `<span class="summary-item"><span class="word">${escapeHtml(w.word)}</span><span>${escapeHtml(w.meaning)}</span></span>`,
         )
         .join("");
       return fillTemplate(template, {
         TITLE: escapeHtml(dto.title),
         TEXT: highlightWords(seg.text, seg.words),
-        WORDS_BAR: wordsBar,
+        SUMMARY_WORDS: summaryWords,
       });
     });
 

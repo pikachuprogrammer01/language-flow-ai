@@ -10,32 +10,43 @@
     font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
     display: flex;
     flex-direction: column;
-    padding: 100px 80px;
+    padding: 90px 72px 80px;
   }
-  .title { font-size: 40px; font-weight: 700; color: #1f2937; margin-bottom: 60px; }
-  .text {
+  .title { font-size: 34px; font-weight: 700; color: #1f2937; margin-bottom: 56px; }
+  .story {
     flex: 1;
-    font-size: 44px;
-    line-height: 1.6;
+    font-size: 42px;
+    line-height: 1.8;
     color: #111827;
     white-space: pre-wrap;
     word-break: break-word;
+    letter-spacing: 0.5px;
   }
-  .text mark { background: #fbbf24; font-weight: 700; padding: 0 6px; border-radius: 6px; }
-  .words-bar {
-    background: #111827;
-    color: #ffffff;
-    border-radius: 16px;
-    font-size: 30px;
-    padding: 28px 36px;
-    line-height: 1.5;
+  .story mark {
+    background: #fbbf24;
+    font-weight: 700;
+    color: #111827;
+    padding: 0 8px;
+    border-radius: 8px;
   }
-  .words-bar .word { font-weight: 700; margin-right: 24px; }
+  .summary {
+    margin-top: 56px;
+    background: #f3f4f6;
+    border-radius: 20px;
+    padding: 36px 44px;
+  }
+  .summary-title { font-size: 28px; font-weight: 700; color: #374151; margin-bottom: 24px; }
+  .summary-words { display: flex; flex-wrap: wrap; gap: 20px 48px; }
+  .summary-item { font-size: 30px; color: #111827; line-height: 1.5; }
+  .summary-item .word { font-weight: 700; margin-right: 12px; }
 </style>
 </head>
 <body>
   <div class="title">{{TITLE}}</div>
-  <div class="text">{{TEXT}}</div>
-  <div class="words-bar">{{WORDS_BAR}}</div>
+  <div class="story">{{TEXT}}</div>
+  <div class="summary">
+    <div class="summary-title">本段词汇</div>
+    <div class="summary-words">{{SUMMARY_WORDS}}</div>
+  </div>
 </body>
 </html>
