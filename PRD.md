@@ -337,7 +337,7 @@ draft → ai_generating → content_ready → tts_processing → audio_ready
 
 ```
 ┌─────────────────────────────────────────┐
-│                Dify（流程编排层）           │
+│                后端服务层（LLM 直连）       │
 │                                          │
 │  ┌─────────────────────────────────┐    │
 │  │   Workflow A：内容生成（三个模板）  │    │
@@ -375,7 +375,7 @@ draft → ai_generating → content_ready → tts_processing → audio_ready
 
 | 层 | 技术选型 |
 |----|----------|
-| 流程编排 | Dify |
+| 流程编排 | 无（后端 service 直连 LLM，2026-08-17 去 Dify） |
 | 后端语言 | TypeScript |
 | AI 模型 | GPT-4o / Claude 3.5 Sonnet（推荐支持 Structured Output） |
 | 视频渲染 | HTML 模板 + Playwright/Puppeteer + FFmpeg |
@@ -442,7 +442,7 @@ draft → ai_generating → content_ready → tts_processing → audio_ready
 |------|------|------|
 | DTO | Data Transfer Object | 数据在各层之间流转的结构定义 |
 | ContentDTO | — | 本项目统一的视频内容数据载体 |
-| Dify | — | AI 应用开发平台，负责 Workflow 流程编排 |
+| Dify（已废弃） | — | 原 AI 编排平台，2026-08-17 起由后端直连 LLM 取代 |
 | TTS | Text-to-Speech | 文本转语音服务 |
 | CET4/CET6 | College English Test | 大学英语四六级考试 |
 | discriminated union | — | TypeScript 技巧：通过一个共有字段（如 template）区分不同子类型 |
@@ -457,7 +457,7 @@ draft → ai_generating → content_ready → tts_processing → audio_ready
 | 02_MVP需求文档.txt | MVP 功能需求与成功标准 |
 | 03_系统模块设计文档.txt | 模块划分 |
 | 04_Content_DTO设计文档.txt | 统一数据结构定义 |
-| 05_Dify_Workflow设计文档.txt | Dify Workflow 节点详细设计 |
+| 05_Dify_Workflow设计文档.txt（废弃） | Dify Workflow 节点详细设计（已被 docs/15 取代） |
 | 06_视频生产SOP文档.txt | 选题→生成→审核→制作→发布 SOP |
 | 07_后续扩展规划文档.txt | 中远期功能规划 |
 | 情景词汇阅读视频模板设计规范 V1.0.txt | scene_word 模板视觉/内容规范 |

@@ -267,8 +267,8 @@ words, style, voice, audio, video, status, createdAt, updatedAt）以
 5. 输出结构化数据。
 
 
-八、Dify Workflow设计
-Workflow流程（对应 05_Dify_Workflow设计文档.txt 的 Workflow A1）：
+八、AI 内容生成设计（原 Dify Workflow 部分已废弃，2026-08-17）
+流程（对应 docs/15_AI内容生成服务设计.md 的生成服务）：
 用户输入主题
 
         ↓
@@ -297,7 +297,7 @@ AI生成故事
 
 九、视频生成流程
 
-说明：TTS 语音合成在上游 Dify Workflow B 的 TTS 节点独立完成，音频文件通过
+说明：TTS 语音合成在上游内容生成服务的 TTS 环节独立完成，音频文件通过
 ContentDTO.audio 传入。本节只描述视频渲染阶段。
 
 输入：

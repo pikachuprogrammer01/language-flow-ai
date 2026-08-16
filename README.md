@@ -42,7 +42,7 @@
 
 | 层 | 选型 |
 |----|------|
-| 流程编排 | Dify（Workflow A × 3 + Workflow B） |
+| 流程编排 | 无（后端 service 直连 LLM：Agnes / Ollama，docs/14） |
 | 后端框架 | Hono + Zod + Drizzle ORM |
 | 后端语言 | TypeScript (Node.js) |
 | 数据库 | MySQL 8.4（Docker Compose） |
@@ -72,7 +72,7 @@ language-flow-ai/
 │   └── ci.yml                    # CI 流程
 │
 ├── packages/
-│   ├── shared/                   ← 前后端 + Dify Code 节点共享
+│   ├── shared/                   ← 前后端共享
 │   │   ├── tsconfig.json
 │   │   ├── vitest.config.ts
 │   │   └── src/
@@ -138,7 +138,7 @@ docs/                            ← 设计文档
 ├── 02_MVP需求文档.txt
 ├── 03_系统模块设计文档.txt
 ├── 04_Content_DTO设计文档.txt
-├── 05_Dify_Workflow设计文档.txt
+├── 05_Dify_Workflow设计文档.txt（废弃，参考 docs/15）
 ├── 06_视频生产SOP文档.txt
 ├── 07_后续扩展规划文档.txt
 ├── 08_TTS服务设计文档.md
@@ -197,7 +197,7 @@ interface ContentDTO {
 | [`02_MVP需求文档.txt`](./docs/02_MVP需求文档.txt) | MVP 功能需求与成功标准 |
 | [`03_系统模块设计文档.txt`](./docs/03_系统模块设计文档.txt) | 模块划分 |
 | [`04_Content_DTO设计文档.txt`](./docs/04_Content_DTO设计文档.txt) | 统一数据结构定义（What） |
-| [`05_Dify_Workflow设计文档.txt`](./docs/05_Dify_Workflow设计文档.txt) | Workflow 节点设计（How） |
+| [`05_Dify_Workflow设计文档.txt`](./docs/05_Dify_Workflow设计文档.txt) | Workflow 节点设计（原，已废弃，由 docs/15 取代） |
 | [`06_视频生产SOP文档.txt`](./docs/06_视频生产SOP文档.txt) | 选题→生成→审核→制作→发布 SOP |
 | [`07_后续扩展规划文档.txt`](./docs/07_后续扩展规划文档.txt) | 批量生产、数据分析、平台化 |
 | [`情景词汇阅读视频模板设计规范 V1.0.txt`](./docs/情景词汇阅读视频模板设计规范%20V1.0.txt) | scene_word 模板视觉/内容规范 |
@@ -243,7 +243,7 @@ interface ContentDTO {
    ```bash
    pnpm --filter frontend gen-api     # 从 openapi.json 生成 schema.d.ts
    ```
-8. （后续）在 Dify 中导入 `dify/` 下的 Workflow YAML，配置 LLM 节点（详见 [SPEC.md](./SPEC.md)）
+8. （后续）配置 LLM 环境变量（`LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`，Agnes 或 Ollama，详见 [docs/14](./docs/14_模型层设计方案.md)）
 
 ## 开发规范
 

@@ -22,8 +22,8 @@
 ## 二、调用链
 
 ```
-Dify Workflow B（http_tts 节点：传 ContentDTO.content + template）
-        │  POST /api/tts/from-content { content, template, voice }
+内容生成/前端 → POST /api/tts/from-content { content, template, voice }
+        │
         ▼
 packages/backend/src/routes/tts.ts      ← Zod 校验（template 枚举、content 非空）
         │
@@ -44,7 +44,7 @@ packages/backend/src/services/tts.service.ts
 GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频）
 ```
 
-> 拼接完全在后端完成，Dify 侧无需任何文本处理逻辑（code_merge_audio 仅做 audio 回填）。
+> 拼接完全在后端完成，调用方无需任何文本处理逻辑。
 
 ---
 
@@ -153,8 +153,8 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 | `male_02` | `zh-CN-YunjianNeural` | 男 | 云健，沉稳男声 |
 
 **转换位置**：前端在选择音色时展示业务 ID（如「晓晓（女）」），
-提交 `VoiceConfig.id`；Dify Workflow 或后端在调用 tts 前按上表转换。
-MVP 阶段由 Workflow B 的 code 节点硬编码映射（`female_01 → zh-CN-XiaoxiaoNeural`），
+提交 `VoiceConfig.id`；调用方在调用 tts 前按上表转换。
+MVP 阶段由后端 service 硬编码映射（`female_01 → zh-CN-XiaoxiaoNeural`），
 后续可在后端增加 `/api/tts/voices` 查询接口统一管理。
 
 ---
