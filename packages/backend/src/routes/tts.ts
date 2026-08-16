@@ -68,6 +68,10 @@ export const tts = new Hono()
       if (text.length === 0) {
         return c.json({ error: "content 无法拼出朗读文本" }, 400);
       }
+      // 与 generate 契约对齐：单次合成文本上限 500 字符（content 最多 100 段，拼接可能超限）
+      if (text.length > 500) {
+        return c.json({ error: "拼接文本超过 500 字符上限" }, 400);
+      }
 
       const audio = await synthesizeSpeech(text, voice);
       const { url, duration, format } = await saveAudio(audio);

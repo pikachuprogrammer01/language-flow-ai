@@ -125,11 +125,11 @@ function stripTrailingPunct(text: string): string {
   return text.trim().replace(/[。.！？!?，,]+$/, "");
 }
 
-/** 保证文本以指定标点结尾（避免 join 时出现重复标点） */
+/** 保证文本以指定标点结尾（避免 join 时出现重复标点；逗号视为已结尾） */
 function ensureEndPunct(text: string, punct = "。"): string {
   const t = text.trim();
   if (!t) return "";
-  return /[。.！？!?]$/.test(t) ? t : `${t}${punct}`;
+  return /[。.！？!?，,]$/.test(t) ? t : `${t}${punct}`;
 }
 
 /**
@@ -164,10 +164,14 @@ export function buildTtsText(content: JsonRecord[], template: TemplateType): str
       return content
         .map((q) => {
           const options = Array.isArray(q.options) ? (q.options as unknown[]) : [];
+          // 选项上限 4 个（QuizItem 契约），超出截断避免字母越界（A-D）
           const optionText = options
+            .slice(0, 4)
             .map((opt, i) => `${String.fromCharCode(65 + i)}. ${stripTrailingPunct(str(opt))}`)
             .join(". ");
-          return optionText ? `${ensureEndPunct(str(q.stem))} ${optionText}.` : "";
+          if (!optionText) return "";
+          const stem = ensureEndPunct(str(q.stem));
+          return stem ? `${stem} ${optionText}.` : `${optionText}.`;
         })
         .filter(Boolean)
         .join(" ");
@@ -178,17 +182,25 @@ const execFileAsync = promisify(execFile);
 
 /**
  * 用 ffprobe 探测音频时长（秒，浮点）
- * ffprobe 不可用或文件损坏时抛错 → 上层返回 500
+ * ffprobe 不可用、输出无法解析或文件损坏时抛错 → 上层返回 500
  */
 export async function getAudioDuration(filePath: string): Promise<number> {
-  const { stdout } = await execFileAsync("ffprobe", [
-    "-v",
-    "error",
-    "-show_entries",
-    "format=duration",
-    "-of",
-    "default=noprint_wrappers=1:nokey=1",
-    filePath,
-  ]);
-  return Number.parseFloat(stdout.trim());
+  const { stdout } = await execFileAsync(
+    "ffprobe",
+    [
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
+      filePath,
+    ],
+    { timeout: 10_000 },
+  );
+  const duration = Number.parseFloat(stdout.trim());
+  if (Number.isNaN(duration)) {
+    throw new Error(`无法解析 ffprobe 输出的时长: "${stdout.trim()}"`);
+  }
+  return duration;
 }

@@ -91,7 +91,9 @@ describe("buildTtsText", () => {
 
 describe("POST /api/tts", () => {
   beforeEach(() => {
-    // 本文件所有 mock 均为 vi.fn()（无 spyOn），无需 restoreAllMocks
+    // 本文件所有 mock 均为 vi.fn()（无 spyOn），无需 restoreAllMocks；但要清调用记录
+    vi.mocked(ttsService.synthesizeSpeech).mockReset();
+    vi.mocked(ttsService.getAudioDuration).mockReset();
     vi.mocked(ttsService.synthesizeSpeech).mockResolvedValue(Buffer.from("fake-mp3"));
     vi.mocked(ttsService.getAudioDuration).mockResolvedValue(3.2);
   });
@@ -153,6 +155,16 @@ describe("POST /api/tts", () => {
     });
 
     expect(res.status).toBe(400);
+  });
+
+  it("from-content 400：拼接文本超过 500 字符上限", async () => {
+    const res = await postJson("/from-content", {
+      content: Array.from({ length: 10 }, () => ({ text: "长".repeat(60) })),
+      template: "scene_word",
+    });
+
+    expect(res.status).toBe(400);
+    expect(ttsService.synthesizeSpeech).not.toHaveBeenCalled();
   });
 
   it("from-content 500：合成失败返回错误", async () => {
