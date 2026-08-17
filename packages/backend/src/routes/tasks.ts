@@ -63,12 +63,26 @@ const patchBodySchema = z.object({
 
 const idParamSchema = z.object({ id: z.string().min(1).max(32) });
 
+/** 正文摘要：取第一段的 text 字段，截断 60 字 */
+function summarizeContent(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  const first = content.find(
+    (seg): seg is { text?: unknown } => typeof seg === "object" && seg !== null && "text" in seg,
+  );
+  const text = typeof first?.text === "string" ? first.text : "";
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+}
+
 const taskSummarySchema = z.object({
   id: z.string(),
   template: z.enum(["scene_word", "word_card", "quiz"]),
   title: z.string(),
   level: z.enum(["CET4", "CET6"]),
   status: z.string(),
+  /** 词汇总数（列表即见内容，免进详情） */
+  wordsCount: z.number(),
+  /** 正文摘要：首段前 60 字 */
+  textPreview: z.string(),
   audio: z.any().optional(),
   video: z.any().optional(),
   createdAt: z.string(),
@@ -122,6 +136,8 @@ tasks.openapi(listRoute, async (c) => {
         title: r.title,
         level: r.level,
         status: r.status,
+        wordsCount: Array.isArray(r.words) ? r.words.length : 0,
+        textPreview: summarizeContent(r.content),
         audio: r.audio ?? undefined,
         video: r.video ?? undefined,
         createdAt: r.createdAt.toISOString(),

@@ -67,7 +67,16 @@ describe("GET /api/tasks", () => {
 
     const res = await app.request("/");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { tasks: unknown[]; total: number };
+    const body = (await res.json()) as {
+      tasks: {
+        id: string;
+        title: string;
+        status: string;
+        wordsCount: number;
+        textPreview: string;
+      }[];
+      total: number;
+    };
     expect(body.tasks).toHaveLength(1);
     expect(body.total).toBe(1);
     expect(body.tasks[0]).toMatchObject({
@@ -75,6 +84,8 @@ describe("GET /api/tasks", () => {
       title: "科技创业故事",
       status: "content_ready",
     });
+    expect(body.tasks[0].wordsCount).toBe(0);
+    expect(body.tasks[0].textPreview).toBe("x");
   });
 
   it("支持 status 过滤", async () => {

@@ -16,6 +16,8 @@ const tasks = ref<
     level: string;
     status: string;
     createdAt: string;
+    wordsCount?: number;
+    textPreview?: string;
     video?: unknown;
   }[]
 >([]);
@@ -91,11 +93,13 @@ onMounted(load);
       >
         <div class="min-w-0 cursor-pointer flex-1" @click="router.push(`/tasks/${t.id}`)">
           <div class="truncate font-medium">{{ t.title }}</div>
+          <p v-if="t.textPreview" class="mt-1 truncate text-sm text-gray-600">{{ t.textPreview }}</p>
           <div class="mt-1 flex items-center gap-3 text-xs text-gray-500">
             <span class="rounded bg-gray-100 px-1.5 py-0.5">{{ t.level }}</span>
             <span>{{ STATUS_LABEL[t.status] ?? t.status }}</span>
             <span>{{ new Date(t.createdAt).toLocaleString("zh-CN") }}</span>
             <span v-if="t.video" class="text-green-600">▶ 有视频</span>
+            <span v-else class="text-gray-400">暂无视频</span>
           </div>
         </div>
         <div class="ml-4 flex shrink-0 gap-2">
