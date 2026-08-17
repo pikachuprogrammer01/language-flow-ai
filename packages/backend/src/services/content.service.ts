@@ -69,7 +69,9 @@ async function fetchTopicWords(topic: string, level: string): Promise<string[]> 
   try {
     const raw = await chatCompletion([{ role: "user", content: prompt }]);
     const out = topicWordsSchema.safeParse(extractJson<unknown>(raw));
-    return out.success ? out.data.words : [];
+    return out.success
+      ? out.data.words.map((w) => w.trim().toLowerCase()).filter((w) => w.length >= 2)
+      : [];
   } catch (err) {
     logger.warn({ err, topic }, "topic words fetch failed");
     return [];
@@ -185,10 +187,11 @@ function injectSegments(
   candidates: { word: string; meaning: string; level: "CET4" | "CET6" }[],
 ): DictFilteredSegment[] {
   const result: DictFilteredSegment[] = [];
+  // 无命中段的文本也保留（文案完整性优先，词汇标签可为空）
   for (const seg of segments) {
     const text = seg.text ?? "";
     const { text: injectedText, injected } = injectFromDict(text, candidates);
-    if (injectedText && injected.length > 0) {
+    if (injectedText) {
       result.push({ text: injectedText, words: injected });
     }
   }
@@ -197,8 +200,17 @@ function injectSegments(
 
 // ── 代码验收 ──
 
-/** 主题相关度：输入主题的字符在模型回显 topic 中至少覆盖 50%（防"完全对不上"） */
+/** 主题相关度：输入主题的字符在模型回显 topic 中至少覆盖 50%（防"完全对不上"）；英文主题降级为包含匹配 */
 function topicMatch(expected: string, actual: string): boolean {
+  const expectedNorm = expected.trim().toLowerCase();
+  const actualNorm = actual.trim().toLowerCase();
+  // 英文/数字主题：LLM 通常原样回显 → 包含匹配即可
+  if (/[a-z0-9]/.test(expectedNorm)) {
+    if (!actualNorm) return false;
+    return expectedNorm.length >= 3
+      ? actualNorm.includes(expectedNorm) || expectedNorm.includes(actualNorm)
+      : actualNorm.includes(expectedNorm);
+  }
   const chars = [...new Set(expected.replace(/\s/g, ""))];
   if (chars.length === 0) return true;
   const hit = chars.filter((ch) => actual.includes(ch)).length;
@@ -222,7 +234,8 @@ function acceptOutput(
       reason: `主题偏离：要求围绕「${input.topic}」，你输出的主题是「${llmOutput.topic}」。请重新围绕「${input.topic}」编写故事。`,
     };
   }
-  const minWords = Math.min(2, input.wordCount ?? 8);
+  // 至少 1 词兜底（wordCount 可能 < 2）
+  const minWords = Math.max(1, Math.min(2, input.wordCount ?? 8));
   const total = filtered.reduce((n, s) => n + s.words.length, 0);
   if (total < minWords) {
     return {

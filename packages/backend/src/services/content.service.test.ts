@@ -93,6 +93,16 @@ describe("extractJson", () => {
   it("无 JSON 对象时抛错", () => {
     expect(() => extractJson("没有任何 JSON")).toThrow();
   });
+
+  it("JSON 后带尾部杂质（多余 } 或文字）时回溯解析", () => {
+    const out = extractJson<{ a: number }>('{"a": 1} 这是说明文字 } 更多');
+    expect(out.a).toBe(1);
+  });
+
+  it("JSON 后带未闭合围栏时解析成功", () => {
+    const out = extractJson<{ a: number }>('```json\n{"a": 3}');
+    expect(out.a).toBe(3);
+  });
 });
 
 describe("generateSceneWordContent", () => {
