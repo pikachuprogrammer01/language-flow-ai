@@ -119,6 +119,19 @@ describe("GET /api/tasks", () => {
     expect(body.tasks[0].title).toBe("科技创业故事");
   });
 
+  it("hasVideo=true 过滤出有成片的记录", async () => {
+    const list = fakeDb([ROW]);
+    const count = fakeDb([{ count: 1 }]);
+    vi.mocked(db)
+      .select.mockReturnValueOnce(list.select() as never)
+      .mockReturnValueOnce(count.select() as never);
+
+    const res = await app.request("/?hasVideo=true");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { total: number };
+    expect(body.total).toBe(1);
+  });
+
   it("支持 status 过滤", async () => {
     vi.mocked(db).select.mockImplementation(fakeDb([]).select);
     const res = await app.request("/?status=completed");

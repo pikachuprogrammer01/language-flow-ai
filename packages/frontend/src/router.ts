@@ -4,6 +4,7 @@ import CreateTask from "./views/CreateTask.vue";
 import Files from "./views/Files.vue";
 import TaskDetail from "./views/TaskDetail.vue";
 import TaskList from "./views/TaskList.vue";
+import VideoList from "./views/VideoList.vue";
 
 const routes = [
   { path: "/", name: "create", component: CreateTask },
@@ -11,6 +12,7 @@ const routes = [
   { path: "/tasks/:id", name: "task-detail", component: TaskDetail },
   { path: "/files", name: "files", component: Files },
   { path: "/audit", name: "audit", component: AuditList },
+  { path: "/videos", name: "videos", component: VideoList },
 ];
 
 const router = createRouter({

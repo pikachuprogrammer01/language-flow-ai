@@ -30,6 +30,8 @@ const listQuerySchema = z.object({
     .optional(),
   /** 关键词搜索：标题/正文摘要模糊匹配 */
   keyword: z.string().max(100).optional(),
+  /** 视频资产过滤：仅返回已有成片的记录（PRD 10.1.5） */
+  hasVideo: z.enum(["true", "false"]).optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
@@ -174,11 +176,13 @@ const listRoute = createRoute({
 });
 
 tasks.openapi(listRoute, async (c) => {
-  const { status, keyword, page, pageSize } = c.req.valid("query");
+  const { status, keyword, hasVideo, page, pageSize } = c.req.valid("query");
   try {
     const conds = [
       status ? eq(contents.status, status) : undefined,
       keyword ? sql`${contents.title} like ${`%${keyword}%`}` : undefined,
+      hasVideo === "true" ? sql`${contents.video} is not null` : undefined,
+      hasVideo === "false" ? sql`${contents.video} is null` : undefined,
     ].filter((v) => v !== undefined);
     const where = conds.length > 0 ? and(...conds) : undefined;
     const rows = await db

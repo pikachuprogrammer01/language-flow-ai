@@ -106,6 +106,8 @@ export async function listTasks(
       | "completed"
       | "failed";
     keyword?: string;
+    /** 视频资产过滤（PRD 10.1.5）：仅返回已有成片的记录 */
+    hasVideo?: "true" | "false";
     page?: number;
     pageSize?: number;
   } = {},
