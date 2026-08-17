@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { toast } from "sonner";
 /**
  * 任务列表页 — 生成记录管理（列表 / 查看详情 / 删除 / 新建入口）
  * 数据源：GET /api/tasks（status 过滤 + 分页）
  */
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { toast } from "vue-sonner";
 import { deleteTask, listTasks } from "../api/client";
 
 const router = useRouter();

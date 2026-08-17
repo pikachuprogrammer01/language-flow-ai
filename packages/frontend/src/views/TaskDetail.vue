@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { toast } from "sonner";
 /**
  * 任务详情页 — 生成记录详情 + 视频播放（完整链路产物回溯）
  * 数据源：GET /api/tasks/:id（ContentDTO 全量）
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { toast } from "vue-sonner";
 import {
   type RenderVideoInput,
   deleteTask,

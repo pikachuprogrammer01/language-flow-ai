@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { toast } from "sonner";
 /**
  * 文件管理页 — 分类管理（视频=成片 / 配音=生成的音频 / BGM=背景音乐素材）
  * 数据源：GET /api/files（分类 + inUse 标记）+ DELETE /api/files/:filename?type=
  */
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { toast } from "vue-sonner";
 import { batchDeleteFiles, deleteFile, listFiles } from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 

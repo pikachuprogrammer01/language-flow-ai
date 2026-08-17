@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Language Flow AI — 入口组件（全局导航栏 + Toast）
-import { Toaster } from "sonner";
+import { Toaster } from "vue-sonner";
 </script>
 
 <template>
