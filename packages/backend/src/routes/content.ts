@@ -1,13 +1,14 @@
 /**
  * AI 内容生成路由
  * POST /api/content/generate — 主题 → LLM 生成情景故事 → 词库校验 → ContentDTO
- * 契约详见 SPEC.md §六 + docs/15_AI内容生成服务设计.md
+ * 契约详见 SPEC.md §六 + docs/15_AI内容生成服务设计.md（@hono/zod-openapi）
  */
-import { Hono } from "hono";
-import { z } from "zod";
+import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { logger } from "../lib/logger";
 import { generateSceneWordContent } from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
+
+// ── Zod schema ──
 
 const generateSchema = z.object({
   topic: z.string().min(1).max(50),
@@ -16,21 +17,91 @@ const generateSchema = z.object({
   targetDuration: z.number().int().min(15).max(300).optional(),
 });
 
-export const content = new Hono().post("/generate", async (c) => {
-  let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    return c.json({ error: "请求体不是合法 JSON" }, 400);
-  }
+/** ContentDTO（scene_word 全量，docs/04）— 供 content/tts/video 路由共用 */
+export const wordInfoSchema = z.object({
+  word: z.string(),
+  meaning: z.string(),
+  level: z.enum(["CET4", "CET6"]),
+  wordIndex: z.number().int().optional(),
+  frequency: z.number().optional(),
+});
 
-  const parsed = generateSchema.safeParse(raw);
-  if (!parsed.success) {
-    return c.json({ success: false, error: parsed.error }, 400);
-  }
+const sceneWordSegmentSchema = z.object({
+  text: z.string(),
+  words: z.array(wordInfoSchema),
+});
 
+const styleSchema = z.object({
+  background: z.string(),
+  font: z.string().optional(),
+  colorScheme: z.string().optional(),
+  bgm: z.string().optional(),
+});
+
+const voiceSchema = z.object({
+  id: z.string(),
+  speed: z.number().optional(),
+});
+
+const audioSchema = z.object({
+  url: z.string(),
+  duration: z.number(),
+  format: z.string(),
+});
+
+export const contentDtoSchema = z.object({
+  id: z.string(),
+  template: z.enum(["scene_word", "word_card", "quiz"]),
+  title: z.string(),
+  level: z.enum(["CET4", "CET6"]),
+  targetDuration: z.number(),
+  content: z.array(sceneWordSegmentSchema),
+  words: z.array(wordInfoSchema),
+  style: styleSchema,
+  voice: voiceSchema,
+  audio: audioSchema.optional(),
+  status: z.enum([
+    "draft",
+    "ai_generating",
+    "content_ready",
+    "tts_processing",
+    "audio_ready",
+    "video_rendering",
+    "completed",
+    "failed",
+  ]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const generateResponseSchema = z.object({ content: contentDtoSchema });
+
+// ── 路由定义 ──
+
+const generateRoute = createRoute({
+  method: "post",
+  path: "/generate",
+  summary: "AI 生成情景故事内容（ContentDTO）",
+  request: {
+    body: { content: { "application/json": { schema: generateSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: generateResponseSchema } },
+      description: "生成成功（词库校验后的 ContentDTO）",
+    },
+    400: { description: "参数不合法" },
+    503: { description: "LLM 未配置" },
+    500: { description: "生成失败" },
+  },
+});
+
+// ── 路由注册 ──
+
+export const content = new OpenAPIHono().openapi(generateRoute, async (c): Promise<Response> => {
+  const input = c.req.valid("json");
   try {
-    const dto = await generateSceneWordContent(parsed.data);
+    const dto = await generateSceneWordContent(input);
     logger.info(
       { template: dto.template, title: dto.title, segments: dto.content.length },
       "content generated",

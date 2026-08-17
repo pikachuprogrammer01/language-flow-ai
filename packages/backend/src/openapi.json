@@ -1,0 +1,1278 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Language Flow AI API",
+    "version": "0.1.0"
+  },
+  "components": {
+    "schemas": {},
+    "parameters": {}
+  },
+  "paths": {
+    "/api/cet/validate-words": {
+      "post": {
+        "summary": "词库精确校验",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "words": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "CET4",
+                      "CET6"
+                    ]
+                  }
+                },
+                "required": [
+                  "words",
+                  "level"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "校验结果（词义以词库为准）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "matchedWords": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "word": {
+                            "type": "string"
+                          },
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "CET4",
+                              "CET6"
+                            ]
+                          },
+                          "meaning": {
+                            "type": "string"
+                          },
+                          "frequency": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "word",
+                          "level",
+                          "meaning"
+                        ]
+                      }
+                    },
+                    "unmatchedWords": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "matchedWords",
+                    "unmatchedWords"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "500": {
+            "description": "词库查询失败"
+          }
+        }
+      }
+    },
+    "/api/cet/random-words": {
+      "post": {
+        "summary": "随机抽取高频词",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "CET4",
+                      "CET6"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 15
+                  }
+                },
+                "required": [
+                  "level",
+                  "count"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "高频池随机抽样结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "words": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "word": {
+                            "type": "string"
+                          },
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "CET4",
+                              "CET6"
+                            ]
+                          },
+                          "meaning": {
+                            "type": "string"
+                          },
+                          "frequency": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "word",
+                          "level",
+                          "meaning"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "words"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "500": {
+            "description": "词库查询失败"
+          }
+        }
+      }
+    },
+    "/api/content/generate": {
+      "post": {
+        "summary": "AI 生成情景故事内容（ContentDTO）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "topic": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "CET4",
+                      "CET6"
+                    ]
+                  },
+                  "wordCount": {
+                    "type": "integer",
+                    "minimum": 3,
+                    "maximum": 15
+                  },
+                  "targetDuration": {
+                    "type": "integer",
+                    "minimum": 15,
+                    "maximum": 300
+                  }
+                },
+                "required": [
+                  "topic",
+                  "level"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "生成成功（词库校验后的 ContentDTO）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "content": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "template": {
+                          "type": "string",
+                          "enum": [
+                            "scene_word",
+                            "word_card",
+                            "quiz"
+                          ]
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "level": {
+                          "type": "string",
+                          "enum": [
+                            "CET4",
+                            "CET6"
+                          ]
+                        },
+                        "targetDuration": {
+                          "type": "number"
+                        },
+                        "content": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "text": {
+                                "type": "string"
+                              },
+                              "words": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "word": {
+                                      "type": "string"
+                                    },
+                                    "meaning": {
+                                      "type": "string"
+                                    },
+                                    "level": {
+                                      "type": "string",
+                                      "enum": [
+                                        "CET4",
+                                        "CET6"
+                                      ]
+                                    },
+                                    "wordIndex": {
+                                      "type": "integer"
+                                    },
+                                    "frequency": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "word",
+                                    "meaning",
+                                    "level"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "text",
+                              "words"
+                            ]
+                          }
+                        },
+                        "words": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "word": {
+                                "type": "string"
+                              },
+                              "meaning": {
+                                "type": "string"
+                              },
+                              "level": {
+                                "type": "string",
+                                "enum": [
+                                  "CET4",
+                                  "CET6"
+                                ]
+                              },
+                              "wordIndex": {
+                                "type": "integer"
+                              },
+                              "frequency": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "word",
+                              "meaning",
+                              "level"
+                            ]
+                          }
+                        },
+                        "style": {
+                          "type": "object",
+                          "properties": {
+                            "background": {
+                              "type": "string"
+                            },
+                            "font": {
+                              "type": "string"
+                            },
+                            "colorScheme": {
+                              "type": "string"
+                            },
+                            "bgm": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "background"
+                          ]
+                        },
+                        "voice": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "speed": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "id"
+                          ]
+                        },
+                        "audio": {
+                          "type": "object",
+                          "properties": {
+                            "url": {
+                              "type": "string"
+                            },
+                            "duration": {
+                              "type": "number"
+                            },
+                            "format": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "url",
+                            "duration",
+                            "format"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "draft",
+                            "ai_generating",
+                            "content_ready",
+                            "tts_processing",
+                            "audio_ready",
+                            "video_rendering",
+                            "completed",
+                            "failed"
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        },
+                        "updatedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "template",
+                        "title",
+                        "level",
+                        "targetDuration",
+                        "content",
+                        "words",
+                        "style",
+                        "voice",
+                        "status",
+                        "createdAt",
+                        "updatedAt"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "content"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "500": {
+            "description": "生成失败"
+          },
+          "503": {
+            "description": "LLM 未配置"
+          }
+        }
+      }
+    },
+    "/api/tts/generate": {
+      "post": {
+        "summary": "TTS 底层接口（纯文本合成，已发布契约）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "voice": {
+                    "type": "string",
+                    "default": "zh-CN-XiaoxiaoNeural"
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "合成成功，返回音频文件信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "filename",
+                    "url"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "500": {
+            "description": "TTS 引擎错误"
+          }
+        }
+      }
+    },
+    "/api/tts/from-content": {
+      "post": {
+        "summary": "按模板拼接朗读文本并合成（返回音频元数据）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "nullable": true
+                      }
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  },
+                  "template": {
+                    "type": "string",
+                    "enum": [
+                      "scene_word",
+                      "word_card",
+                      "quiz"
+                    ]
+                  },
+                  "voice": {
+                    "type": "string",
+                    "default": "zh-CN-XiaoxiaoNeural"
+                  }
+                },
+                "required": [
+                  "content",
+                  "template"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "合成成功（url/duration/format）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "audio": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        },
+                        "duration": {
+                          "type": "number"
+                        },
+                        "format": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url",
+                        "duration",
+                        "format"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "audio"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "content 无法拼出文本 / 超 500 字符"
+          },
+          "500": {
+            "description": "TTS 引擎错误"
+          }
+        }
+      }
+    },
+    "/api/video/render": {
+      "post": {
+        "summary": "渲染 9:16 短视频（按 template 判别结构）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "CET4",
+                          "CET6"
+                        ]
+                      },
+                      "targetDuration": {
+                        "type": "number",
+                        "minimum": 0,
+                        "exclusiveMinimum": true
+                      },
+                      "words": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "word": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "meaning": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "level": {
+                              "type": "string",
+                              "enum": [
+                                "CET4",
+                                "CET6"
+                              ]
+                            },
+                            "wordIndex": {
+                              "type": "integer"
+                            },
+                            "frequency": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "word",
+                            "meaning",
+                            "level"
+                          ]
+                        }
+                      },
+                      "style": {
+                        "type": "object",
+                        "properties": {
+                          "background": {
+                            "type": "string"
+                          },
+                          "font": {
+                            "type": "string"
+                          },
+                          "colorScheme": {
+                            "type": "string"
+                          },
+                          "bgm": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "background"
+                        ]
+                      },
+                      "voice": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "speed": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "audio": {
+                        "type": "object",
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "duration": {
+                            "type": "number",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "format": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "url",
+                          "duration",
+                          "format"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "draft",
+                          "ai_generating",
+                          "content_ready",
+                          "tts_processing",
+                          "audio_ready",
+                          "video_rendering",
+                          "completed",
+                          "failed"
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "string",
+                        "enum": [
+                          "scene_word"
+                        ]
+                      },
+                      "content": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "words": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "word": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "meaning": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "level": {
+                                    "type": "string",
+                                    "enum": [
+                                      "CET4",
+                                      "CET6"
+                                    ]
+                                  },
+                                  "wordIndex": {
+                                    "type": "integer"
+                                  },
+                                  "frequency": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "word",
+                                  "meaning",
+                                  "level"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "text",
+                            "words"
+                          ]
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "level",
+                      "targetDuration",
+                      "words",
+                      "style",
+                      "voice",
+                      "audio",
+                      "status",
+                      "createdAt",
+                      "updatedAt",
+                      "template",
+                      "content"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "CET4",
+                          "CET6"
+                        ]
+                      },
+                      "targetDuration": {
+                        "type": "number",
+                        "minimum": 0,
+                        "exclusiveMinimum": true
+                      },
+                      "words": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "word": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "meaning": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "level": {
+                              "type": "string",
+                              "enum": [
+                                "CET4",
+                                "CET6"
+                              ]
+                            },
+                            "wordIndex": {
+                              "type": "integer"
+                            },
+                            "frequency": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "word",
+                            "meaning",
+                            "level"
+                          ]
+                        }
+                      },
+                      "style": {
+                        "type": "object",
+                        "properties": {
+                          "background": {
+                            "type": "string"
+                          },
+                          "font": {
+                            "type": "string"
+                          },
+                          "colorScheme": {
+                            "type": "string"
+                          },
+                          "bgm": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "background"
+                        ]
+                      },
+                      "voice": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "speed": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "audio": {
+                        "type": "object",
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "duration": {
+                            "type": "number",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "format": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "url",
+                          "duration",
+                          "format"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "draft",
+                          "ai_generating",
+                          "content_ready",
+                          "tts_processing",
+                          "audio_ready",
+                          "video_rendering",
+                          "completed",
+                          "failed"
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "string",
+                        "enum": [
+                          "word_card"
+                        ]
+                      },
+                      "content": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "word": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "pos": {
+                              "type": "string"
+                            },
+                            "meaning": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "example": {
+                              "type": "string"
+                            },
+                            "exampleMeaning": {
+                              "type": "string"
+                            },
+                            "imageUrl": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "word",
+                            "pos",
+                            "meaning",
+                            "example"
+                          ]
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "level",
+                      "targetDuration",
+                      "words",
+                      "style",
+                      "voice",
+                      "audio",
+                      "status",
+                      "createdAt",
+                      "updatedAt",
+                      "template",
+                      "content"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "CET4",
+                          "CET6"
+                        ]
+                      },
+                      "targetDuration": {
+                        "type": "number",
+                        "minimum": 0,
+                        "exclusiveMinimum": true
+                      },
+                      "words": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "word": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "meaning": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "level": {
+                              "type": "string",
+                              "enum": [
+                                "CET4",
+                                "CET6"
+                              ]
+                            },
+                            "wordIndex": {
+                              "type": "integer"
+                            },
+                            "frequency": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "word",
+                            "meaning",
+                            "level"
+                          ]
+                        }
+                      },
+                      "style": {
+                        "type": "object",
+                        "properties": {
+                          "background": {
+                            "type": "string"
+                          },
+                          "font": {
+                            "type": "string"
+                          },
+                          "colorScheme": {
+                            "type": "string"
+                          },
+                          "bgm": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "background"
+                        ]
+                      },
+                      "voice": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "speed": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "audio": {
+                        "type": "object",
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "duration": {
+                            "type": "number",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "format": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": [
+                          "url",
+                          "duration",
+                          "format"
+                        ]
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "draft",
+                          "ai_generating",
+                          "content_ready",
+                          "tts_processing",
+                          "audio_ready",
+                          "video_rendering",
+                          "completed",
+                          "failed"
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "string",
+                        "enum": [
+                          "quiz"
+                        ]
+                      },
+                      "content": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "stem": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "options": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "minItems": 2,
+                              "maxItems": 4
+                            },
+                            "correctIndex": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "explanation": {
+                              "type": "string"
+                            },
+                            "word": {
+                              "type": "object",
+                              "properties": {
+                                "word": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "meaning": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "level": {
+                                  "type": "string",
+                                  "enum": [
+                                    "CET4",
+                                    "CET6"
+                                  ]
+                                },
+                                "wordIndex": {
+                                  "type": "integer"
+                                },
+                                "frequency": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "word",
+                                "meaning",
+                                "level"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "stem",
+                            "options",
+                            "correctIndex",
+                            "explanation",
+                            "word"
+                          ]
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "level",
+                      "targetDuration",
+                      "words",
+                      "style",
+                      "voice",
+                      "audio",
+                      "status",
+                      "createdAt",
+                      "updatedAt",
+                      "template",
+                      "content"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "渲染成功，返回视频 URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "video": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "video"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "ContentDTO 结构不合法"
+          },
+          "500": {
+            "description": "渲染失败（Playwright/FFmpeg）"
+          }
+        }
+      }
+    }
+  }
+}

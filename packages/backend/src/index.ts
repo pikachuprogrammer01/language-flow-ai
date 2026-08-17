@@ -1,5 +1,7 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { rateLimiter } from "hono-rate-limiter";
 import { bodyLimit } from "hono/body-limit";
@@ -27,7 +29,7 @@ const keyGenerator = (c: Context): string => {
   );
 };
 
-const app = new Hono();
+const app = new OpenAPIHono();
 
 // 请求日志中间件
 app.use("*", async (c, next) => {
@@ -81,6 +83,28 @@ app.route("/api/content", content);
 app.route("/api/tts", tts);
 app.route("/api/video", video);
 app.route("/files", files);
+
+// ── OpenAPI 文档（#19）：/doc Scalar UI + openapi.json 自动生成 ──
+app.doc("/doc", {
+  openapi: "3.1.0",
+  info: {
+    title: "Language Flow AI API",
+    version: "0.1.0",
+    description: "四级词汇情景记忆短视频平台 API",
+  },
+});
+writeFileSync(
+  join(import.meta.dirname, "openapi.json"),
+  JSON.stringify(
+    app.getOpenAPIDocument({
+      openapi: "3.1.0",
+      info: { title: "Language Flow AI API", version: "0.1.0" },
+    }),
+    null,
+    2,
+  ),
+);
+logger.info({}, "openapi.json generated");
 
 // ── 启动服务器 ──
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);

@@ -1,15 +1,14 @@
 /**
  * 视频渲染路由
  * POST /api/video/render — 接收完整 ContentDTO（含 audio），渲染 9:16 MP4
- * 契约详见 SPEC.md §5.3 + docs/10_视频渲染设计文档.md
+ * 契约详见 SPEC.md §5.3 + docs/10_视频渲染设计文档.md（@hono/zod-openapi）
  */
 import type { ContentDTO } from "@ai-english/shared";
-import { Hono } from "hono";
-import { z } from "zod";
+import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { logger } from "../lib/logger";
 import { renderVideo } from "../services/video.service";
 
-// ── Zod schema（与 handler 相邻，类型与 shared ContentDTO 结构对齐） ──
+// ── Zod schema（与 shared ContentDTO 结构对齐） ──
 
 const wordInfoSchema = z.object({
   word: z.string().min(1),
@@ -41,17 +40,9 @@ const quizItemSchema = z.object({
   word: wordInfoSchema,
 });
 
-/** content 结构按 template 判别（与 ContentArray 联合一一对应） */
-const contentSchemaByTemplate = {
-  scene_word: z.array(sceneWordSegmentSchema).min(1),
-  word_card: z.array(wordCardItemSchema).min(1),
-  quiz: z.array(quizItemSchema).min(1),
-} as const;
-
-/** ContentDTO 除 content 外的字段（content 按 template 单独校验） */
-const baseSchema = z.object({
+/** ContentDTO 公共字段（audio 必填：渲染前置条件） */
+const baseFields = {
   id: z.string().min(1),
-  template: z.enum(["scene_word", "word_card", "quiz"]),
   title: z.string().min(1).max(100),
   level: z.enum(["CET4", "CET6"]),
   targetDuration: z.number().positive(),
@@ -83,37 +74,49 @@ const baseSchema = z.object({
   ]),
   createdAt: z.string(),
   updatedAt: z.string(),
+} as const;
+
+/** content 结构按 template 判别（与 ContentArray 联合一一对应） */
+const renderRequestSchema = z.discriminatedUnion("template", [
+  z.object({
+    ...baseFields,
+    template: z.literal("scene_word"),
+    content: z.array(sceneWordSegmentSchema).min(1),
+  }),
+  z.object({
+    ...baseFields,
+    template: z.literal("word_card"),
+    content: z.array(wordCardItemSchema).min(1),
+  }),
+  z.object({ ...baseFields, template: z.literal("quiz"), content: z.array(quizItemSchema).min(1) }),
+]);
+
+const videoResultSchema = z.object({ url: z.string() });
+const renderResponseSchema = z.object({ video: videoResultSchema });
+
+// ── 路由定义 ──
+
+const renderRoute = createRoute({
+  method: "post",
+  path: "/render",
+  summary: "渲染 9:16 短视频（按 template 判别结构）",
+  request: {
+    body: { content: { "application/json": { schema: renderRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: renderResponseSchema } },
+      description: "渲染成功，返回视频 URL",
+    },
+    400: { description: "ContentDTO 结构不合法" },
+    500: { description: "渲染失败（Playwright/FFmpeg）" },
+  },
 });
 
-// ── 路由 ──
+// ── 路由注册 ──
 
-export const video = new Hono().post("/render", async (c) => {
-  let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    return c.json({ error: "请求体不是合法 JSON" }, 400);
-  }
-
-  const base = baseSchema.safeParse(raw);
-  if (!base.success) {
-    return c.json({ success: false, error: base.error }, 400);
-  }
-
-  // content 按 template 对应的结构校验（无 as：z.record 提取 + 模板判别 schema）
-  const rawRecord = z.record(z.string(), z.unknown()).safeParse(raw);
-  if (!rawRecord.success) {
-    return c.json({ success: false, error: rawRecord.error }, 400);
-  }
-  const contentResult = contentSchemaByTemplate[base.data.template].safeParse(
-    rawRecord.data.content,
-  );
-  if (!contentResult.success) {
-    return c.json({ success: false, error: contentResult.error }, 400);
-  }
-
-  const dto: ContentDTO = { ...base.data, content: contentResult.data };
-
+export const video = new OpenAPIHono().openapi(renderRoute, async (c): Promise<Response> => {
+  const dto = c.req.valid("json") as unknown as ContentDTO;
   try {
     const videoResult = await renderVideo(dto);
     return c.json({ video: videoResult });
