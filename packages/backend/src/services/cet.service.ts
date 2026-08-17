@@ -77,11 +77,15 @@ export async function validateWords(
   return { matchedWords, unmatchedWords };
 }
 
+/** 功能词词性前缀（基础词补齐后排除出生成候选：a/the/of 不适合做讲解词） */
+const FUNCTIONAL_PREFIXES = ["art.", "prep.", "conj.", "pron.", "aux.", "num.", "int.", "interj."];
+
 /**
  * 按等级随机抽取词汇（SPEC §5.1.2）
  * 策略（docs/09 §六）：该等级全部词汇按词频降序取前 200 高频池，再随机抽 count 个
- * - 词库不足时返回少于 count 个（200）
- * - frequency 为 null 视为 0；全为 0 时退化为纯随机
+ * - 词库不足时返回少于 count 个
+ * - frequency 为 null 视为 0；全为 0 时退化为纯随机（全表洗牌，不固定前 200）
+ * - 功能词（art./prep./conj./pron./aux./num./int. 开头）排除出候选池
  * - ponytail: MVP 词库 < 1 万行，全量查询毫秒级；数据量大时把排序/limit 下沉到 SQL
  */
 export async function randomWords(
@@ -91,7 +95,11 @@ export async function randomWords(
 ): Promise<RandomWordsResult> {
   const rows = await dbInstance.select().from(cetWords).where(eq(cetWords.level, level));
 
-  const pool = [...rows].sort((a, b) => (b.frequency ?? 0) - (a.frequency ?? 0)).slice(0, 200);
+  const candidates = rows.filter((r) => !FUNCTIONAL_PREFIXES.some((p) => r.meaning.startsWith(p)));
+  const hasFreq = candidates.some((r) => (r.frequency ?? 0) > 0);
+  const pool = hasFreq
+    ? [...candidates].sort((a, b) => (b.frequency ?? 0) - (a.frequency ?? 0)).slice(0, 200)
+    : candidates;
 
   // Fisher-Yates 部分洗牌随机抽取，池不足时返回全部
   const picked: CetWordRow[] = [];

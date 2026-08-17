@@ -142,6 +142,29 @@ describe("randomWords", () => {
     }
   });
 
+  it("功能词（art./prep./conj. 等词性开头）排除出候选池", async () => {
+    const rows = [
+      { ...makeWordRow(1, "a", null), meaning: "art.一(个)；每一(个)" },
+      { ...makeWordRow(2, "about", null), meaning: "prep.关于；在…周围" },
+      { ...makeWordRow(3, "come", null), meaning: "vi.来，来到；出现" },
+      { ...makeWordRow(4, "school", null), meaning: "n.学校；学院；学派" },
+    ];
+    const result = await cetService.randomWords("CET4", 10, fakeDb(rows));
+
+    expect(result.words).toHaveLength(2);
+    expect(new Set(result.words.map((w) => w.word))).toEqual(new Set(["come", "school"]));
+  });
+
+  it("frequency 全 0 时全表洗牌抽取（不固定前 200）", async () => {
+    const rows = Array.from({ length: 250 }, (_, i) => makeWordRow(i, `word${i}`, null));
+    const result = await cetService.randomWords("CET4", 10, fakeDb(rows));
+
+    expect(result.words).toHaveLength(10);
+    // 全表洗牌：抽中的词可以出现在前 200 之外（池=全表）
+    const pickedBeyond200 = result.words.some((w) => Number(w.word.slice(4)) >= 200);
+    expect(pickedBeyond200).toBe(true);
+  });
+
   it("空词库返回空 words", async () => {
     const result = await cetService.randomWords("CET4", 5, fakeDb([]));
 
