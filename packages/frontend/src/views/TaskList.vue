@@ -141,15 +141,6 @@ onMounted(load);
     </div>
 
     <p v-if="errorMsg" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
-    <p v-if="loading" class="py-8 text-center text-gray-500">加载中…</p>
-    <p v-else-if="tasks.length > 0 && visibleTasks.length === 0" class="py-12 text-center text-gray-400">
-      当前分类无记录
-    </p>
-
-    <div v-else-if="tasks.length === 0" class="py-12 text-center text-gray-400">
-      暂无生成记录，去<button class="text-blue-600 underline" @click="router.push('/')">新建视频</button>
-    </div>
-
     <!-- 模板分类 tab + 全选 -->
     <div v-if="tasks.length > 0" class="mb-3 flex items-center justify-between">
       <div class="flex gap-2">
@@ -167,6 +158,15 @@ onMounted(load);
         <input type="checkbox" :checked="allChecked" @change="toggleAll" />
         全选
       </label>
+    </div>
+
+    <p v-if="loading" class="py-8 text-center text-gray-500">加载中…</p>
+    <p v-else-if="tasks.length > 0 && visibleTasks.length === 0" class="py-12 text-center text-gray-400">
+      当前分类无记录
+    </p>
+
+    <div v-else-if="tasks.length === 0" class="py-12 text-center text-gray-400">
+      暂无生成记录，去<button class="text-blue-600 underline" @click="router.push('/')">新建视频</button>
     </div>
 
     <ul v-else class="space-y-3">
