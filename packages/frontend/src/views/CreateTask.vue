@@ -56,8 +56,8 @@ async function run(): Promise<void> {
     step.value = "tts";
     const audio = await synthesizeFromContent("scene_word", dto.content);
     audioDuration.value = audio.duration;
-    // audio 挂回 DTO 供渲染（render 的 audio 字段为必填）
-    const dtoWithAudio: RenderInput = { ...dto, audio };
+    // audio 挂回 DTO 供渲染（render 的 audio 字段为必填；generate 固定返回 scene_word）
+    const dtoWithAudio: RenderInput = { ...dto, template: "scene_word", audio };
 
     step.value = "rendering";
     const video = await renderVideo(dtoWithAudio);

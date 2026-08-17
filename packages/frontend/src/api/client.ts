@@ -43,13 +43,15 @@ export async function synthesizeFromContent(
 export type GeneratedContent = Awaited<ReturnType<typeof generateContent>>;
 
 export interface RenderInput extends GeneratedContent {
+  /** 收窄为 scene_word：render 判别联合的 scene_word 分支（单页流程固定此模板） */
+  template: "scene_word";
   audio: { url: string; duration: number; format: string };
 }
 
 /** 渲染视频（完整 ContentDTO → 视频 URL） */
 export async function renderVideo(dto: RenderInput) {
   const { data, error, response } = await client.POST("/api/video/render", {
-    body: dto as never,
+    body: dto,
   });
   if (error || !response.ok) throw new Error(`渲染失败（HTTP ${response.status}）`);
   if (!data) throw new Error("渲染失败：空响应");
