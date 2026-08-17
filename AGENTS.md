@@ -1,8 +1,25 @@
 # AGENTS.md — AI 辅助开发行为约束
 
-> 版本：V1.0
+> 版本：V1.1
 > 本文件在每次会话启动时自动加载，定义 AI Agent 的行为边界。
 > 违反任何 MUST 规则视为严重错误。
+
+---
+
+## 零、环境与版本信息（长期不变，会话启动即用）
+
+```
+项目        四级词汇情景记忆短视频平台（language-flow-ai）
+运行环境    macOS arm64 + OrbStack（Docker）/ Node v24（支持 --env-file）/ pnpm workspace
+服务端口    backend 8080 · MySQL 3306 · Ollama 11434
+数据库      mysql://dev:dev@localhost:3306/language_flow（表：cet_words / contents / __drizzle_migrations）
+技术栈      Hono 4 · Drizzle ORM · MySQL 8.4 · Vue 3.5 + Tailwind CSS 4 · Playwright + FFmpeg 8 · Biome · Vitest 3 · zod
+LLM 配置    Agnes AI 主力 + Ollama(qwen2.5:7b) 兜底，切换走 packages/backend/.env 环境变量
+            （LLM_BASE_URL/LLM_API_KEY/LLM_MODEL；.env 已被 gitignore，密钥不入库）
+文档版本    SPEC V2.0 · docs/ 01-15（05 已废弃由 15 取代）· PROGRESS 持续更新
+常用命令    pnpm dev（backend 8080）· pnpm test / pnpm lint / pnpm typecheck
+            pnpm db:generate / pnpm db:migrate / pnpm db:seed（词库 seed-data/cet_words.csv）
+```
 
 ---
 
