@@ -1377,6 +1377,12 @@
                           "status": {
                             "type": "string"
                           },
+                          "wordsCount": {
+                            "type": "number"
+                          },
+                          "textPreview": {
+                            "type": "string"
+                          },
                           "audio": {
                             "nullable": true
                           },
@@ -1396,6 +1402,8 @@
                           "title",
                           "level",
                           "status",
+                          "wordsCount",
+                          "textPreview",
                           "createdAt",
                           "updatedAt"
                         ]
