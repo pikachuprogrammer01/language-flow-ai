@@ -11,6 +11,7 @@ import { cet } from "./routes/cet";
 import { content } from "./routes/content";
 import { files } from "./routes/files";
 import { health } from "./routes/health";
+import { tasks } from "./routes/tasks";
 import { tts } from "./routes/tts";
 import { video } from "./routes/video";
 
@@ -82,6 +83,7 @@ app.route("/api/cet", cet);
 app.route("/api/content", content);
 app.route("/api/tts", tts);
 app.route("/api/video", video);
+app.route("/api/tasks", tasks);
 app.route("/files", files);
 
 // ── OpenAPI 文档（#19）：/doc Scalar UI + openapi.json 自动生成 ──

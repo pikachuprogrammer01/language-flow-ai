@@ -4,6 +4,8 @@
  * 契约详见 SPEC.md §六 + docs/15_AI内容生成服务设计.md（@hono/zod-openapi）
  */
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { db } from "../db";
+import { contents } from "../db/schema";
 import { logger } from "../lib/logger";
 import { generateSceneWordContent } from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
@@ -106,6 +108,24 @@ export const content = new OpenAPIHono().openapi(generateRoute, async (c): Promi
       { template: dto.template, title: dto.title, segments: dto.content.length },
       "content generated",
     );
+    // 自动建任务记录（contents 表，状态 content_ready）；落库失败仅告警不阻塞响应
+    try {
+      await db.insert(contents).values({
+        id: dto.id,
+        template: dto.template,
+        title: dto.title,
+        level: input.level,
+        targetDuration: input.targetDuration ?? 60,
+        content: dto.content as unknown as object[],
+        words: dto.words as unknown as object[],
+        style: dto.style as unknown as object,
+        voice: dto.voice as unknown as object,
+        status: "content_ready",
+      });
+      logger.info({ id: dto.id }, "task record created");
+    } catch (dbErr) {
+      logger.warn({ err: dbErr, id: dto.id }, "task record 落库失败（不影响生成结果）");
+    }
     return c.json({ content: dto });
   } catch (err) {
     if (err instanceof LlmNotConfiguredError) {

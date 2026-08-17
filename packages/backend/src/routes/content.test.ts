@@ -7,6 +7,9 @@ import * as contentService from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
 import { content } from "./content";
 
+// content.ts 现在会在生成成功后落库（db.insert），测试环境无 DATABASE_URL
+vi.mock("../db", () => ({ db: { insert: () => ({ values: async () => undefined }) } }));
+
 vi.mock("../services/content.service", () => ({
   generateSceneWordContent: vi.fn(),
 }));
