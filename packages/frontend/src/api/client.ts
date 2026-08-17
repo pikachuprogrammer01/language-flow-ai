@@ -49,6 +49,14 @@ export async function listVoices() {
   return data;
 }
 
+/** 主题推荐（本地模型生成候选，用户确认后生成；PRD §10.1.2） */
+export async function suggestTopics(body: { hint?: string }) {
+  const { data, error, response } = await client.POST("/api/topics/suggest", { body });
+  if (error || !response.ok) throw new Error(`主题推荐失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("主题推荐失败：空响应");
+  return data;
+}
+
 /** 生成响应的 content 类型（供渲染入参复用） */
 export type GeneratedContent = Awaited<ReturnType<typeof generateContent>>;
 

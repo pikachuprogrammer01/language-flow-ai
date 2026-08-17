@@ -13,6 +13,7 @@ import { fileManager } from "./routes/file-manager";
 import { files } from "./routes/files";
 import { health } from "./routes/health";
 import { tasks } from "./routes/tasks";
+import { topics } from "./routes/topics";
 import { tts } from "./routes/tts";
 import { video } from "./routes/video";
 
@@ -85,6 +86,7 @@ app.route("/api/content", content);
 app.route("/api/tts", tts);
 app.route("/api/video", video);
 app.route("/api/tasks", tasks);
+app.route("/api/topics", topics);
 app.route("/api/files", fileManager);
 app.route("/files", files);
 

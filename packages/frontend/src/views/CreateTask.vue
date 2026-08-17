@@ -10,6 +10,7 @@ import {
   generateContent,
   listVoices,
   renderVideo,
+  suggestTopics,
   synthesizeFromContent,
   updateTask,
 } from "../api/client";
@@ -17,6 +18,18 @@ import {
 type Step = "idle" | "generating" | "generated" | "tts" | "rendering" | "done" | "error";
 
 const topic = ref("森林探险");
+/** 预设主题库（PRD §10.1.2 主题选择） */
+const PRESET_TOPICS = [
+  "森林探险",
+  "科技创业",
+  "美食探店",
+  "校园生活",
+  "旅行见闻",
+  "职场故事",
+] as const;
+/** AI 推荐的主题候选（本地模型生成） */
+const suggestedTopics = ref<{ title: string; description: string }[]>([]);
+const suggesting = ref(false);
 const level = ref<GenerateInput["level"]>("CET4");
 const wordCount = ref(8);
 const targetDuration = ref(60);
@@ -50,6 +63,24 @@ listVoices()
     voices.value = data.voices;
   })
   .catch(() => {});
+
+/** AI 推荐主题（本地模型生成候选，用户点击选用；PRD §10.1.2） */
+async function suggest(): Promise<void> {
+  suggesting.value = true;
+  errorMsg.value = "";
+  try {
+    const data = await suggestTopics({ hint: topic.value });
+    suggestedTopics.value = data.topics;
+  } catch (err) {
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    suggesting.value = false;
+  }
+}
+
+function pickTopic(t: string): void {
+  topic.value = t;
+}
 
 async function run(): Promise<void> {
   step.value = "generating";
@@ -97,13 +128,49 @@ async function run(): Promise<void> {
     <form class="mb-8 rounded-xl bg-white p-6 shadow-sm" @submit.prevent="run">
       <div class="mb-4">
         <label class="mb-1 block text-sm font-medium text-gray-700" for="topic">故事主题</label>
-        <input
-          id="topic"
-          v-model="topic"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-          placeholder="如：森林探险、美食探店"
-          maxlength="50"
-        />
+        <!-- 预设主题库（点击即选） -->
+        <div class="mb-2 flex flex-wrap gap-2">
+          <button
+            v-for="p in PRESET_TOPICS"
+            :key="p"
+            type="button"
+            class="rounded-full border px-3 py-1 text-xs"
+            :class="topic === p ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+            @click="pickTopic(p)"
+          >
+            {{ p }}
+          </button>
+        </div>
+        <div class="flex gap-2">
+          <input
+            id="topic"
+            v-model="topic"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+            placeholder="如：森林探险、美食探店，或点下方 AI 推荐"
+            maxlength="50"
+          />
+          <button
+            type="button"
+            class="shrink-0 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            :disabled="suggesting"
+            @click="suggest"
+          >
+            {{ suggesting ? "推荐中…" : "✨ AI 推荐" }}
+          </button>
+        </div>
+        <!-- AI 推荐候选（本地模型生成，点击选用） -->
+        <div v-if="suggestedTopics.length > 0" class="mt-2 space-y-1">
+          <button
+            v-for="t in suggestedTopics"
+            :key="t.title"
+            type="button"
+            class="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm hover:bg-gray-50"
+            @click="pickTopic(t.title)"
+          >
+            <span class="font-medium">{{ t.title }}</span>
+            <span class="ml-3 truncate text-xs text-gray-500">{{ t.description }}</span>
+          </button>
+        </div>
       </div>
       <div class="mb-4 grid grid-cols-3 gap-4">
         <div>

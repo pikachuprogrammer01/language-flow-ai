@@ -1657,6 +1657,71 @@
         }
       }
     },
+    "/api/topics/suggest": {
+      "post": {
+        "summary": "本地模型生成故事主题候选",
+        "tags": [
+          "topics"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "hint": {
+                    "type": "string",
+                    "maxLength": 50
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "主题候选列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "topics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "description"
+                        ]
+                      },
+                      "minItems": 1
+                    }
+                  },
+                  "required": [
+                    "topics"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "生成失败"
+          },
+          "503": {
+            "description": "LLM 未配置"
+          }
+        }
+      }
+    },
     "/api/files": {
       "get": {
         "tags": [
