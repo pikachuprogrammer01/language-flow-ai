@@ -87,10 +87,23 @@ export async function synthesizeSpeech(
   } catch (err) {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },
-      "tts 首次合成失败，重试一次",
+      "tts 首次合成失败，重试",
     );
-    await new Promise((r) => setTimeout(r, 500));
-    return synthesizeOnce(text, voice, rate);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      try {
+        return await synthesizeOnce(text, voice, rate);
+      } catch (retryErr) {
+        logger.warn(
+          {
+            err: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            attempt: attempt + 1,
+          },
+          "tts 重试失败",
+        );
+      }
+    }
+    throw err;
   }
 }
 
@@ -261,6 +274,17 @@ function escapeRegExp(value: string): string {
  * 空 segment/空字段自动跳过（对应"空 segment 丢弃"约定，SPEC §6.2.6）
  * @param title 可选：scene_word 模板先朗读标题（英文词同样逆替换为中文）
  */
+/**
+ * 朗读时长估算（秒）——音画对齐用（词卡/选择题回退链路的帧时长分配）
+ * 保守估算（宁可画面等音频，不可音频抢跑）：中文 4 字/秒、英文 1.8 词/秒、标点 0.35s、基准 0.5s
+ */
+export function estimateSpeechSeconds(text: string): number {
+  const zh = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
+  const enWords = (text.match(/[a-zA-Z]+/g) ?? []).length;
+  const punct = (text.match(/[，。！？、；：,.!?;:]/g) ?? []).length;
+  return zh / 4 + enWords / 1.8 + punct * 0.35 + 0.5;
+}
+
 /** 单题朗读文本（quiz 音画对齐：每题独立合成时用；含题干 + A-D 选项，词性前缀剥离） */
 export function buildQuizItemText(q: JsonRecord): string {
   const options = Array.isArray(q.options) ? (q.options as unknown[]) : [];

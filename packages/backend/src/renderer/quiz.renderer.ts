@@ -4,6 +4,7 @@
  * 每道题 2 帧：题目帧 + 解析帧（正确项高亮 + 解析文字）
  */
 import type { ContentDTO, QuizItem } from "@ai-english/shared";
+import { estimateSpeechSeconds } from "../services/tts.service";
 import { isQuiz } from "./guards";
 import { escapeHtml, fillTemplate, loadTemplate } from "./html";
 import { screenshotHtmls } from "./playwright";
@@ -58,13 +59,15 @@ export class QuizRenderer implements TemplateRenderer {
     const QUESTION_PAUSE = 1.0;
     const QUESTION_GAP = 0.8;
     const exact = extra?.questionDurations ?? null;
-    const totalRead = readWeights.reduce((n, w) => n + w, 0) || 1;
+    // 回退链路（无逐题精确时长）：按朗读估算分配（保守宁慢勿快，画面不抢跑音频）
+    const ests = items.map((q) => estimateSpeechSeconds(q.stem + q.options.join("")));
+    const totalEst = ests.reduce((n, w) => n + w, 0) || 1;
     const durations: number[] = [];
     const beepTimes: number[] = [];
     let cursor = 0;
     for (let i = 0; i < items.length; i++) {
       const questionDuration =
-        (exact?.[i] ?? (readWeights[i] / totalRead) * audio.duration) + QUESTION_PAUSE;
+        (exact?.[i] ?? (ests[i] / totalEst) * audio.duration) + QUESTION_PAUSE;
       durations.push(questionDuration);
       cursor += questionDuration;
       beepTimes.push(cursor); // 答案帧起点：提示音

@@ -4,6 +4,7 @@
  * 每张卡一帧；帧时长按「单词+释义+例句」字符权重分配
  */
 import type { ContentDTO, WordCardItem } from "@ai-english/shared";
+import { estimateSpeechSeconds } from "../services/tts.service";
 import { allocateDurations } from "./allocate-durations";
 import { isWordCard } from "./guards";
 import { escapeHtml, fillTemplate, loadTemplate } from "./html";
@@ -39,8 +40,13 @@ export class WordCardRenderer implements TemplateRenderer {
     });
 
     const paths = await screenshotHtmls(htmlList, workDir);
+    // 帧时长按朗读估算分配（中英/标点加权，保守宁慢勿快——用户确认 2026-08-18 画面不抢跑音频）
     const durations = allocateDurations(
-      items.map((i) => i.word.length + i.meaning.length + i.example.length),
+      items.map((i) =>
+        estimateSpeechSeconds(
+          `${i.word} ${i.pos} ${i.meaning} ${i.example} ${i.exampleMeaning ?? ""}`,
+        ),
+      ),
       audio.duration,
     );
 

@@ -6,13 +6,16 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import { deleteTask, listTasks } from "../api/client";
+import { batchDeleteTasks, deleteTask, listTasks } from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 
 const router = useRouter();
 /** 删除确认对话框状态 */
 const confirmOpen = ref(false);
 const pendingDeleteId = ref("");
+/** 批量选择 */
+const selected = ref<Set<string>>(new Set());
+const batchOpen = ref(false);
 const tasks = ref<
   {
     id: string;
@@ -61,6 +64,21 @@ async function remove(id: string): Promise<void> {
   confirmOpen.value = true;
 }
 
+/** 批量删除（确认后） */
+async function doBatchRemove(): Promise<void> {
+  try {
+    const ids = [...selected.value];
+    const result = await batchDeleteTasks(ids);
+    toast.success(
+      `已删除 ${result.deleted} 条${result.notFound.length > 0 ? `，${result.notFound.length} 条不存在` : ""}`,
+    );
+    selected.value = new Set();
+    await load();
+  } catch (err) {
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
 /** 执行删除（ConfirmDialog 确认后） */
 async function doRemove(): Promise<void> {
   try {
@@ -89,6 +107,13 @@ onMounted(load);
           ＋ 新建视频
         </button>
         <button class="rounded-lg border px-4 py-2 text-sm hover:bg-gray-100" @click="load">刷新</button>
+        <button
+          v-if="selected.size > 0"
+          class="rounded-lg border px-4 py-2 text-sm text-red-500 hover:bg-red-50"
+          @click="batchOpen = true"
+        >
+          删除选中（{{ selected.size }}）
+        </button>
       </div>
     </div>
 
@@ -105,6 +130,12 @@ onMounted(load);
         :key="t.id"
         class="flex items-center justify-between rounded-xl border p-4 hover:shadow-sm"
       >
+        <input
+          type="checkbox"
+          class="mr-3 shrink-0"
+          :checked="selected.has(t.id)"
+          @change="selected.has(t.id) ? selected.delete(t.id) : selected.add(t.id)"
+        />
         <div class="min-w-0 cursor-pointer flex-1" @click="router.push(`/tasks/${t.id}`)">
           <div class="truncate font-medium">{{ t.title }}</div>
           <p v-if="t.textPreview" class="mt-1 truncate text-sm text-gray-600">{{ t.textPreview }}</p>
@@ -135,6 +166,14 @@ onMounted(load);
   </div>
 
   <!-- 删除确认对话框（shadcn-vue AlertDialog） -->
+  <ConfirmDialog
+    v-model:open="batchOpen"
+    title="批量删除"
+    :description="`确定删除选中的 ${selected.size} 条生成记录吗？此操作不可恢复。`"
+    confirm-text="删除"
+    destructive
+    @confirm="doBatchRemove"
+  />
   <ConfirmDialog
     v-model:open="confirmOpen"
     title="删除生成记录"
