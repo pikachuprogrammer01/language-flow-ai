@@ -3,7 +3,7 @@
  * 任务详情页 — 生成记录详情 + 视频播放（完整链路产物回溯）
  * 数据源：GET /api/tasks/:id（ContentDTO 全量）
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { deleteTask, getTask } from "../api/client";
 
@@ -14,6 +14,7 @@ const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").repl
 const task = ref<Record<string, unknown> | null>(null);
 const loading = ref(true);
 const errorMsg = ref("");
+const notFound = ref(false);
 
 interface WordInfo {
   word: string;
@@ -71,14 +72,22 @@ const STATUS_LABEL: Record<string, string> = {
 async function load(): Promise<void> {
   loading.value = true;
   errorMsg.value = "";
+  notFound.value = false;
   try {
     task.value = await getTask(String(route.params.id));
   } catch (err) {
-    errorMsg.value = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && err.message.includes("404")) {
+      notFound.value = true; // 记录不存在或已删除（例如旧记录未落库）
+    } else {
+      errorMsg.value = err instanceof Error ? err.message : String(err);
+    }
   } finally {
     loading.value = false;
   }
 }
+
+// 同组件内路由参数变化（详情 A → 详情 B）或刷新/直链时重新加载
+watch(() => route.params.id, load);
 
 async function remove(): Promise<void> {
   if (!window.confirm("确定删除这条生成记录吗？")) return;
@@ -105,7 +114,13 @@ onMounted(load);
     </div>
 
     <p v-if="errorMsg" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
-    <p v-if="loading" class="py-8 text-center text-gray-500">加载中…</p>
+    <div v-else-if="notFound" class="py-12 text-center">
+      <p class="text-gray-500">该记录不存在或已被删除</p>
+      <button class="mt-4 rounded-lg border px-4 py-2 text-sm hover:bg-gray-100" @click="router.push('/tasks')">
+        返回生成记录
+      </button>
+    </div>
+    <p v-else-if="loading" class="py-8 text-center text-gray-500">加载中…</p>
 
     <template v-else-if="task">
       <h1 class="text-2xl font-bold">{{ String(task.title) }}</h1>
