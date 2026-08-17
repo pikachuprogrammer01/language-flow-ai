@@ -472,7 +472,7 @@
                   "text": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 500
+                    "maxLength": 2000
                   },
                   "voice": {
                     "type": "string",
@@ -603,7 +603,7 @@
             }
           },
           "400": {
-            "description": "content 无法拼出文本 / 超 500 字符"
+            "description": "content 无法拼出文本 / 超 2000 字符"
           },
           "500": {
             "description": "TTS 引擎错误"

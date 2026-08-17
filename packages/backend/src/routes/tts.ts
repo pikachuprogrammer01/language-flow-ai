@@ -14,7 +14,7 @@ import { buildTtsText, getAudioDuration, synthesizeSpeech } from "../services/tt
 // ── Zod schema ──
 
 const ttsSchema = z.object({
-  text: z.string().min(1).max(500),
+  text: z.string().min(1).max(2000),
   voice: z.string().optional().default("zh-CN-XiaoxiaoNeural"),
 });
 
@@ -83,7 +83,7 @@ const fromContentRoute = createRoute({
       content: { "application/json": { schema: audioResponseSchema } },
       description: "合成成功（url/duration/format）",
     },
-    400: { description: "content 无法拼出文本 / 超 500 字符" },
+    400: { description: "content 无法拼出文本 / 超 2000 字符" },
     500: { description: "TTS 引擎错误" },
   },
 });
@@ -132,9 +132,9 @@ export const tts = new OpenAPIHono({
       if (text.length === 0) {
         return c.json({ error: "content 无法拼出朗读文本" }, 400);
       }
-      // 与 generate 契约对齐：单次合成文本上限 500 字符（content 最多 100 段，拼接可能超限）
-      if (text.length > 500) {
-        return c.json({ error: "拼接文本超过 500 字符上限" }, 400);
+      // 与 generate 契约对齐：单次合成文本上限 2000 字符（中文朗读后 word_card/quiz 拼接可达 800-1000 字）
+      if (text.length > 2000) {
+        return c.json({ error: "拼接文本超过 2000 字符上限" }, 400);
       }
       const audio = await synthesizeSpeech(text, voice);
       const { url, duration, format } = await saveAudio(audio);

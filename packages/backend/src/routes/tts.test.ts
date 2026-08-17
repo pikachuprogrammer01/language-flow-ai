@@ -188,14 +188,24 @@ describe("POST /api/tts", () => {
     expect(res.status).toBe(400);
   });
 
-  it("from-content 400：拼接文本超过 500 字符上限", async () => {
+  it("from-content 400：拼接文本超过 2000 字符上限", async () => {
     const res = await postJson("/from-content", {
-      content: Array.from({ length: 10 }, () => ({ text: "长".repeat(60) })),
+      content: Array.from({ length: 11 }, () => ({ text: "长".repeat(190) })),
       template: "scene_word",
     });
 
     expect(res.status).toBe(400);
     expect(ttsService.synthesizeSpeech).not.toHaveBeenCalled();
+  });
+
+  it("from-content 200：拼接文本在 2000 字符内正常合成", async () => {
+    vi.mocked(ttsService.synthesizeSpeech).mockResolvedValue(Buffer.from([1]));
+    const res = await postJson("/from-content", {
+      content: Array.from({ length: 8 }, () => ({ text: "长".repeat(100) })),
+      template: "scene_word",
+    });
+
+    expect(res.status).toBe(200);
   });
 
   it("from-content 500：合成失败返回错误", async () => {
@@ -209,9 +219,9 @@ describe("POST /api/tts", () => {
     expect(res.status).toBe(500);
   });
 
-  it("generate 400：text 超 500 字符", async () => {
+  it("generate 400：text 超 2000 字符", async () => {
     const res = await postJson("/generate", {
-      text: "a".repeat(501),
+      text: "a".repeat(2001),
     });
 
     expect(res.status).toBe(400);
