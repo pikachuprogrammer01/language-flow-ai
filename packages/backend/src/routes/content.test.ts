@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as contentService from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
+import * as quizService from "../services/quiz.service";
 import * as wordCardService from "../services/word-card.service";
 import { content } from "./content";
 
@@ -19,8 +20,13 @@ vi.mock("../services/word-card.service", () => ({
   generateWordCardContent: vi.fn(),
 }));
 
+vi.mock("../services/quiz.service", () => ({
+  generateQuizContent: vi.fn(),
+}));
+
 const generateMock = vi.mocked(contentService.generateSceneWordContent);
 const wordCardMock = vi.mocked(wordCardService.generateWordCardContent);
+const quizMock = vi.mocked(quizService.generateQuizContent);
 
 const DTO = {
   id: "cnt_20260817_000001",
@@ -82,6 +88,18 @@ describe("POST /api/content/generate", () => {
       topic: "生活场景",
       level: "CET4",
       template: "word_card",
+    });
+  });
+
+  it("template=quiz 时走选择题生成器", async () => {
+    quizMock.mockResolvedValue({ ...DTO, template: "quiz" } as never);
+
+    const res = await postGenerate({ topic: "校园场景", level: "CET4", template: "quiz" });
+    expect(res.status).toBe(200);
+    expect(quizMock).toHaveBeenCalledWith({
+      topic: "校园场景",
+      level: "CET4",
+      template: "quiz",
     });
   });
 

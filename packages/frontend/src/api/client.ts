@@ -13,7 +13,7 @@ export interface GenerateInput {
   topic: string;
   level: "CET4" | "CET6";
   /** 模板选择（MVP 需求 #1）：scene_word 情景背词 / word_card 单词卡片 */
-  template?: "scene_word" | "word_card";
+  template?: "scene_word" | "word_card" | "quiz";
   wordCount?: number;
   targetDuration?: number;
 }
@@ -74,13 +74,13 @@ export type GeneratedContent = Awaited<ReturnType<typeof generateContent>>;
 
 export interface RenderInput extends GeneratedContent {
   /** 模板（单页流程由用户选择：scene_word 情景背词 / word_card 单词卡片） */
-  template: "scene_word" | "word_card";
+  template: "scene_word" | "word_card" | "quiz";
   audio: { url: string; duration: number; format: string };
 }
 
 /** 渲染入参（宽松版：详情页从任务记录组装，关键字段由 isRenderInput 守卫，后端 zod 兜底） */
 export type RenderVideoInput = {
-  template: "scene_word" | "word_card";
+  template: "scene_word" | "word_card" | "quiz";
   audio: { url: string; duration: number; format: string };
 } & Record<string, unknown>;
 

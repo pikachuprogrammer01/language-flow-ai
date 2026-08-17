@@ -45,15 +45,21 @@ const step = ref<Step>("idle");
 const errorMsg = ref("");
 const title = ref("");
 /** 模板选择（MVP 需求 #1）：情景背词 / 单词卡片 */
-const template = ref<"scene_word" | "word_card">("scene_word");
-const TEMPLATE_OPTIONS: { id: "scene_word" | "word_card"; label: string; desc: string }[] = [
-  { id: "scene_word", label: "情景背词", desc: "故事场景 + 词汇高亮" },
-  { id: "word_card", label: "单词卡片", desc: "单词 + 词性 + 例句" },
-];
+const template = ref<"scene_word" | "word_card" | "quiz">("scene_word");
+const TEMPLATE_OPTIONS: { id: "scene_word" | "word_card" | "quiz"; label: string; desc: string }[] =
+  [
+    { id: "scene_word", label: "情景背词", desc: "故事场景 + 词汇高亮" },
+    { id: "word_card", label: "单词卡片", desc: "单词 + 词性 + 例句" },
+    { id: "quiz", label: "选择题", desc: "单词选择题 + 解析" },
+  ];
 const segments = ref<{ text: string; words: { word: string; meaning: string }[] }[]>([]);
 /** word_card 生成结果（只读展示；编辑能力后续迭代） */
 const cards = ref<
   { word: string; pos: string; meaning: string; example: string; exampleMeaning?: string }[]
+>([]);
+/** quiz 生成结果（只读展示：题目/选项/答案/解析） */
+const questions = ref<
+  { word: string; stem: string; options: string[]; correctIndex: number; explanation: string }[]
 >([]);
 const videoUrl = ref("");
 const audioDuration = ref(0);
@@ -206,6 +212,17 @@ async function run(): Promise<void> {
         exampleMeaning: c.exampleMeaning != null ? String(c.exampleMeaning) : undefined,
       }));
       segments.value = [];
+      questions.value = [];
+    } else if (template.value === "quiz") {
+      questions.value = (dto.content as Record<string, unknown>[]).map((q) => ({
+        word: String((q as { word?: { word?: unknown } }).word?.word ?? ""),
+        stem: String(q.stem ?? ""),
+        options: Array.isArray(q.options) ? q.options.map(String) : [],
+        correctIndex: Number(q.correctIndex ?? -1),
+        explanation: String(q.explanation ?? ""),
+      }));
+      segments.value = [];
+      cards.value = [];
     } else {
       segments.value = dto.content as {
         text: string;
@@ -381,6 +398,23 @@ async function run(): Promise<void> {
             placeholder="正文段落"
           />
           <p v-else class="text-gray-700">{{ seg.text }}</p>
+        </div>
+      </div>
+      <!-- quiz 结果（只读：题目/选项/答案/解析） -->
+      <div v-if="template === 'quiz'" class="mb-4 space-y-3">
+        <div v-for="(q, qi) in questions" :key="qi" class="rounded-lg border border-gray-200 p-4">
+          <p class="font-medium text-gray-900">{{ qi + 1 }}. {{ q.stem }}</p>
+          <ul class="mt-2 space-y-1">
+            <li
+              v-for="(opt, oi) in q.options"
+              :key="oi"
+              class="text-sm"
+              :class="oi === q.correctIndex ? 'font-medium text-green-700' : 'text-gray-600'"
+            >
+              {{ String.fromCharCode(65 + oi) }}. {{ opt }}{{ oi === q.correctIndex ? " ✓" : "" }}
+            </li>
+          </ul>
+          <p class="mt-2 text-xs text-gray-500">解析：{{ q.explanation }}</p>
         </div>
       </div>
       <!-- word_card 结果（只读卡片） -->

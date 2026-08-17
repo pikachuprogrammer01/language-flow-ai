@@ -214,7 +214,8 @@
                     "type": "string",
                     "enum": [
                       "scene_word",
-                      "word_card"
+                      "word_card",
+                      "quiz"
                     ],
                     "default": "scene_word"
                   },

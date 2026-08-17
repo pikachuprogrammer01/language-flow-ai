@@ -9,6 +9,7 @@ import { contents } from "../db/schema";
 import { logger } from "../lib/logger";
 import { generateSceneWordContent } from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
+import { generateQuizContent } from "../services/quiz.service";
 import { generateWordCardContent } from "../services/word-card.service";
 
 // ── Zod schema ──
@@ -16,8 +17,8 @@ import { generateWordCardContent } from "../services/word-card.service";
 const generateSchema = z.object({
   topic: z.string().min(1).max(50),
   level: z.enum(["CET4", "CET6"]),
-  /** 模板选择（MVP 需求 #1）：默认情景背词；单词卡片为 word_card */
-  template: z.enum(["scene_word", "word_card"]).optional().default("scene_word"),
+  /** 模板选择（MVP 需求 #1）：情景背词 / 单词卡片 / 选择题 */
+  template: z.enum(["scene_word", "word_card", "quiz"]).optional().default("scene_word"),
   wordCount: z.number().int().min(3).max(15).optional(),
   targetDuration: z.number().int().min(15).max(300).optional(),
 });
@@ -109,7 +110,9 @@ export const content = new OpenAPIHono().openapi(generateRoute, async (c): Promi
     const dto =
       input.template === "word_card"
         ? await generateWordCardContent(input)
-        : await generateSceneWordContent(input);
+        : input.template === "quiz"
+          ? await generateQuizContent(input)
+          : await generateSceneWordContent(input);
     logger.info(
       { template: dto.template, title: dto.title, segments: dto.content.length },
       "content generated",

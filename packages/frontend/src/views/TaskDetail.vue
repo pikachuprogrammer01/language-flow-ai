@@ -160,6 +160,25 @@ interface AuditInfo {
 /** 模板判定：word_card 记录（详情只读展示卡片，无逐段编辑） */
 const isWordCardTask = computed<boolean>(() => task.value?.template === "word_card");
 
+/** 模板判定：quiz 记录（详情只读展示题目，无逐段编辑） */
+const isQuizTask = computed<boolean>(() => task.value?.template === "quiz");
+
+/** quiz 题目（宽松解析） */
+const quizQuestions = computed<
+  { stem: string; options: string[]; correctIndex: number; explanation: string }[]
+>(() => {
+  const c = task.value?.content;
+  if (!Array.isArray(c)) return [];
+  return c.map((q) => ({
+    stem: String((q as { stem?: unknown }).stem ?? ""),
+    options: Array.isArray((q as { options?: unknown }).options)
+      ? (q as { options: unknown[] }).options.map(String)
+      : [],
+    correctIndex: Number((q as { correctIndex?: unknown }).correctIndex ?? -1),
+    explanation: String((q as { explanation?: unknown }).explanation ?? ""),
+  }));
+});
+
 /** word_card 卡片（宽松解析：word/pos/meaning/example 来自卡片段） */
 const wordCards = computed<{ word: string; pos: string; meaning: string; text: string }[]>(() => {
   const c = task.value?.content;
@@ -233,7 +252,7 @@ async function doRevoice(): Promise<void> {
   try {
     const t = task.value;
     // 编辑态：用编辑中的文案并一并保存（否则修改只存在本地，刷新即丢失）
-    const isCard = t.template === "word_card";
+    const isCard = t.template === "word_card" || t.template === "quiz";
     // 编辑态（仅 scene_word）：用编辑中的文案并一并保存；word_card 用记录内容
     const content = isCard
       ? Array.isArray(t.content)
@@ -246,7 +265,7 @@ async function doRevoice(): Promise<void> {
           : [];
     const title = editing.value ? editTitle.value : String(t.title ?? "");
     const audio = await synthesizeFromContent(
-      t.template === "word_card" ? "word_card" : "scene_word",
+      t.template === "word_card" || t.template === "quiz" ? t.template : "scene_word",
       content,
       title,
       voice.value,
@@ -254,7 +273,7 @@ async function doRevoice(): Promise<void> {
     // render 需要完整 ContentDTO（audio 必填）；守卫后传宽松 Record（后端 zod 兜底）
     const dto: RenderVideoInput = {
       ...t,
-      template: t.template === "word_card" ? "word_card" : "scene_word",
+      template: t.template === "word_card" || t.template === "quiz" ? t.template : "scene_word",
       audio,
       style: { ...(t.style ?? {}), bgm: bgm.value },
     };
@@ -338,7 +357,7 @@ listFiles({ type: "bgm" })
           maxlength="255"
         />
         <button
-          v-if="!editing && !isWordCardTask"
+          v-if="!editing && !isWordCardTask && !isQuizTask"
           class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
           @click="startEdit"
         >
@@ -389,6 +408,31 @@ listFiles({ type: "bgm" })
         </li>
       </ul>
 
+      <!-- quiz 题目展示（只读） -->
+      <template v-if="isQuizTask">
+        <h2 class="mt-8 text-lg font-semibold">选择题（{{ quizQuestions.length }}）</h2>
+        <div class="mt-2 space-y-3">
+          <div
+            v-for="(q, qi) in quizQuestions"
+            :key="qi"
+            class="rounded-lg border border-gray-200 p-4"
+          >
+            <p class="font-medium text-gray-900">{{ qi + 1 }}. {{ q.stem }}</p>
+            <ul class="mt-2 space-y-1">
+              <li
+                v-for="(opt, oi) in q.options"
+                :key="oi"
+                class="text-sm"
+                :class="oi === q.correctIndex ? 'font-medium text-green-700' : 'text-gray-600'"
+              >
+                {{ String.fromCharCode(65 + oi) }}. {{ opt }}{{ oi === q.correctIndex ? " ✓" : "" }}
+              </li>
+            </ul>
+            <p class="mt-2 text-xs text-gray-500">解析：{{ q.explanation }}</p>
+          </div>
+        </div>
+      </template>
+
       <!-- word_card 卡片展示（只读；卡片内容由生成决定，重配音用记录内容） -->
       <template v-if="isWordCardTask">
         <h2 class="mt-8 text-lg font-semibold">单词卡片（{{ wordCards.length }}）</h2>
@@ -405,7 +449,7 @@ listFiles({ type: "bgm" })
       </template>
 
       <!-- 正文（scene_word） -->
-      <template v-else>
+      <template v-else-if="!isQuizTask && !isWordCardTask">
         <h2 class="mt-8 text-lg font-semibold">正文</h2>
         <div class="mt-2 space-y-3">
         <div v-for="(seg, i) in segments" :key="i" class="rounded-lg bg-gray-50 p-4 text-sm leading-relaxed">
