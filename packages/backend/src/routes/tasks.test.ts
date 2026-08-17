@@ -4,26 +4,32 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
+import { cetWords } from "../db/schema";
 import { tasks } from "./tasks";
 
 vi.mock("../db", () => ({ db: {} }));
 
 /** 测试替身：drizzle builder 是 thenable（where() 可直接 await），mock 需同时支持链式调用与 await */
-function fakeDb(rows: Record<string, unknown>[] = []) {
-  // biome-ignore lint/suspicious/noThenProperty: 模拟 drizzle select builder 的 thenable（await 返回行）
-  const leaf = () => ({ then: async (resolve: (v: unknown) => void) => resolve(rows) });
-  const limitResult = () => ({ offset: () => leaf(), ...leaf() });
+function fakeDb(rows: Record<string, unknown>[] = [], wordRows: Record<string, unknown>[] = []) {
+  const leaf = (r: Record<string, unknown>[]) => ({
+    // biome-ignore lint/suspicious/noThenProperty: 模拟 drizzle select builder 的 thenable（await 返回行）
+    then: async (resolve: (v: unknown) => void) => resolve(r),
+  });
+  const limitResult = (r: Record<string, unknown>[]) => ({ offset: () => leaf(r), ...leaf(r) });
   return {
     select: () => ({
-      from: () => ({
-        where: () => ({
-          orderBy: () => ({ limit: () => limitResult() }),
-          limit: () => limitResult(),
-          ...leaf(),
-        }),
-        orderBy: () => ({ limit: () => limitResult() }),
-        limit: () => limitResult(),
-      }),
+      from: (t?: unknown) =>
+        t === cetWords
+          ? { where: () => limitResult(wordRows) }
+          : {
+              where: () => ({
+                orderBy: () => ({ limit: () => limitResult(rows) }),
+                limit: () => limitResult(rows),
+                ...leaf(rows),
+              }),
+              orderBy: () => ({ limit: () => limitResult(rows) }),
+              limit: () => limitResult(rows),
+            },
     }),
     insert: () => ({ values: async () => undefined }),
     update: () => ({ set: () => ({ where: async () => undefined }) }),
@@ -151,6 +157,54 @@ describe("PATCH /api/tasks/:id", () => {
       body: JSON.stringify({ status: "completed" }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("带 content 时同步重建词汇清单（保留原词义 + 词库补新词）", async () => {
+    const updated = {
+      ...ROW,
+      content: [
+        {
+          text: "He found a contract in the library.",
+          words: [
+            { word: "contract", meaning: "合同", level: "CET4" },
+            { word: "library", meaning: "图书馆", level: "CET4" },
+          ],
+        },
+      ],
+      words: [
+        { word: "contract", meaning: "合同", level: "CET4" },
+        { word: "library", meaning: "图书馆", level: "CET4" },
+      ],
+    };
+    // select 三次：查存在 / 查词库（cetWords）/ 查更新后
+    vi.mocked(db)
+      .select.mockImplementationOnce(fakeDb([ROW]).select)
+      .mockImplementationOnce(
+        fakeDb([], [{ word: "library", meaning: "图书馆", level: "CET4" }]).select,
+      )
+      .mockImplementationOnce(fakeDb([updated]).select);
+
+    const res = await app.request("/t1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        content: [
+          {
+            text: "He found a contract in the library.",
+            words: [{ word: "contract", meaning: "合同", level: "CET4" }],
+          },
+        ],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // 顶层 words 跟随重建：保留 contract（原词义）+ 词库补入 library
+    expect(json.words).toEqual([
+      { word: "contract", meaning: "合同", level: "CET4" },
+      { word: "library", meaning: "图书馆", level: "CET4" },
+    ]);
+    // 段内 words 同样重建（library 补入）
+    expect(json.content[0].words).toHaveLength(2);
   });
 });
 

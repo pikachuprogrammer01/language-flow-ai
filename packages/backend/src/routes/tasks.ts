@@ -1,3 +1,4 @@
+import type { WordInfo } from "@ai-english/shared";
 /**
  * 任务（生成记录）管理路由
  * GET /api/tasks        — 列表（status 过滤 + 分页）
@@ -7,9 +8,9 @@
  * 存储复用 contents 表（SPEC §十），generate 时自动建记录（见 content.ts）
  */
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
-import { contents } from "../db/schema";
+import { cetWords, contents } from "../db/schema";
 import { logger } from "../lib/logger";
 
 // ── Zod schema ──
@@ -63,6 +64,50 @@ const patchBodySchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.string().min(1).max(32) });
+
+/**
+ * 文案改动后同步词汇清单（用户可能直接改 text 里的英文词）：
+ * 从各段 text 提取英文词 → 保留原段 words 中仍出现在 text 的词（词义不丢）
+ * → 新词查词库（按 level）补入 → 重建顶层 words（去重合并）。
+ * ponytail: 词库精确匹配原形，不做词形还原；词库外的生词不收录（无词义可填）。
+ */
+async function reconcileWords(
+  level: string,
+  content: Record<string, unknown>[],
+): Promise<{ content: Record<string, unknown>[]; words: WordInfo[] }> {
+  const segments = content.map((seg) => {
+    const text = typeof seg.text === "string" ? seg.text : "";
+    const lower = text.toLowerCase();
+    const kept: WordInfo[] = Array.isArray(seg.words)
+      ? seg.words.filter(
+          (w): w is WordInfo =>
+            typeof w === "object" &&
+            w !== null &&
+            typeof (w as { word?: unknown }).word === "string" &&
+            lower.includes(String((w as { word: string }).word).toLowerCase()),
+        )
+      : [];
+    const textWords = [...new Set(lower.match(/[a-z]+/g) ?? [])];
+    const missing = textWords.filter((w) => !kept.some((k) => k.word.toLowerCase() === w));
+    if (missing.length === 0) return { ...seg, words: kept };
+    return db
+      .select()
+      .from(cetWords)
+      .where(and(eq(cetWords.level, level as "CET4" | "CET6"), inArray(cetWords.word, missing)))
+      .then((rows) => ({
+        ...seg,
+        words: [
+          ...kept,
+          ...rows.map((r) => ({ word: r.word, meaning: r.meaning, level: r.level })),
+        ],
+      }));
+  });
+  const resolved = await Promise.all(segments);
+  const words = [
+    ...new Map(resolved.flatMap((s) => s.words).map((w) => [w.word.toLowerCase(), w])).values(),
+  ];
+  return { content: resolved, words };
+}
 
 /** 正文摘要：取第一段的 text 字段，截断 60 字 */
 function summarizeContent(content: unknown): string {
@@ -201,9 +246,14 @@ tasks.openapi(patchRoute, async (c) => {
   try {
     const rows = await db.select().from(contents).where(eq(contents.id, id)).limit(1);
     if (rows.length === 0) return c.json({ error: "任务不存在" }, 404);
+    // 文案改动时同步词汇清单（顶层 words 列跟随正文中的英文词）
+    const patch =
+      body.content !== undefined
+        ? { ...body, ...(await reconcileWords(rows[0].level, body.content)) }
+        : body;
     await db
       .update(contents)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...patch, updatedAt: new Date() })
       .where(eq(contents.id, id));
     const after = await db.select().from(contents).where(eq(contents.id, id)).limit(1);
     return c.json(after[0]);
