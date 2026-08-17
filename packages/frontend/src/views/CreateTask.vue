@@ -9,6 +9,7 @@ import {
   type RenderInput,
   generateContent,
   listVoices,
+  previewVoice as previewVoiceApi,
   renderVideo,
   suggestTopics,
   synthesizeFromContent,
@@ -31,11 +32,12 @@ const PRESET_TOPICS = [
 const suggestedTopics = ref<{ title: string; description: string }[]>([]);
 const suggesting = ref(false);
 const level = ref<GenerateInput["level"]>("CET4");
-const wordCount = ref(8);
-const targetDuration = ref(60);
 /** 配音音色（PRD §10.1.1 配音可选） */
 const voice = ref("zh-CN-XiaoxiaoNeural");
 const voices = ref<{ id: string; name: string; gender: string }[]>([]);
+/** 音色试听（固定试听文本 + 当前音色合成播放） */
+const previewing = ref(false);
+const previewText = "你好，欢迎来到四级词汇情景记忆课堂，今天我们一起学习吧。";
 const step = ref<Step>("idle");
 const errorMsg = ref("");
 const title = ref("");
@@ -82,6 +84,21 @@ function pickTopic(t: string): void {
   topic.value = t;
 }
 
+/** 试听当前音色（合成固定试听文本并播放；PRD §10.1.1） */
+async function previewVoice(): Promise<void> {
+  previewing.value = true;
+  errorMsg.value = "";
+  try {
+    const audio = await previewVoiceApi(voice.value, previewText);
+    const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
+    new Audio(`${base}${audio.url}`).play();
+  } catch (err) {
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    previewing.value = false;
+  }
+}
+
 async function run(): Promise<void> {
   step.value = "generating";
   errorMsg.value = "";
@@ -89,8 +106,6 @@ async function run(): Promise<void> {
     const dto = await generateContent({
       topic: topic.value,
       level: level.value,
-      wordCount: wordCount.value,
-      targetDuration: targetDuration.value,
     });
     title.value = dto.title;
     segments.value = dto.content;
@@ -183,20 +198,22 @@ async function run(): Promise<void> {
             <option value="CET6">CET6</option>
           </select>
         </div>
-        <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700" for="word-count">词汇数量（{{ wordCount }}）</label>
-          <input id="word-count" v-model.number="wordCount" type="range" min="3" max="15" class="mt-3 w-full" />
-        </div>
-        <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700" for="duration">视频时长（{{ targetDuration }}s）</label>
-          <input id="duration" v-model.number="targetDuration" type="range" min="15" max="300" step="15" class="mt-3 w-full" />
-        </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700" for="voice">配音音色</label>
-            <select id="voice" v-model="voice" class="mt-1 w-full rounded-lg border px-3 py-2 text-sm">
-              <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
-            </select>
+            <div class="mt-1 flex gap-2">
+              <select id="voice" v-model="voice" class="w-full rounded-lg border px-3 py-2 text-sm">
+                <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
+              </select>
+              <button
+                type="button"
+                class="shrink-0 rounded-lg bg-gray-100 px-3 py-2 text-sm hover:bg-gray-200 disabled:opacity-50"
+                :disabled="previewing"
+                @click="previewVoice"
+              >
+                {{ previewing ? "试听中…" : "🔊 试听" }}
+              </button>
+            </div>
           </div>
         </div>
       </div>

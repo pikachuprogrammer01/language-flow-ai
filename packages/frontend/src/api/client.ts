@@ -57,6 +57,16 @@ export async function suggestTopics(body: { hint?: string }) {
   return data;
 }
 
+/** 音色试听：指定音色合成文本并返回音频 URL（PRD §10.1.1） */
+export async function previewVoice(voice: string, text: string) {
+  const { data, error, response } = await client.POST("/api/tts/generate", {
+    body: { text, voice },
+  });
+  if (error || !response.ok) throw new Error(`试听合成失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("试听合成失败：空响应");
+  return data;
+}
+
 /** 生成响应的 content 类型（供渲染入参复用） */
 export type GeneratedContent = Awaited<ReturnType<typeof generateContent>>;
 
