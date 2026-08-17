@@ -194,17 +194,22 @@ async function revoice(): Promise<void> {
 /** 执行重新配音渲染（确认后） */
 async function doRevoice(): Promise<void> {
   if (!task.value) return;
+  if (editing.value && editTexts.value.some((x) => !x.trim())) {
+    errorMsg.value = "正文不能有空段";
+    return;
+  }
   revoicing.value = true;
   errorMsg.value = "";
   try {
     const t = task.value;
-    const content = Array.isArray(t.content) ? t.content : [];
-    const audio = await synthesizeFromContent(
-      "scene_word",
-      content,
-      String(t.title ?? ""),
-      voice.value,
-    );
+    // 编辑态：用编辑中的文案并一并保存（否则修改只存在本地，刷新即丢失）
+    const content = editing.value
+      ? segments.value.map((seg, i) => ({ ...seg, text: editTexts.value[i] ?? seg.text }))
+      : Array.isArray(t.content)
+        ? t.content
+        : [];
+    const title = editing.value ? editTitle.value : String(t.title ?? "");
+    const audio = await synthesizeFromContent("scene_word", content, title, voice.value);
     // render 需要完整 ContentDTO（audio 必填）；守卫后传宽松 Record（后端 zod 兜底）
     const dto: RenderVideoInput = {
       ...t,
@@ -214,7 +219,13 @@ async function doRevoice(): Promise<void> {
     };
     if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
     const video = await renderVideo(dto);
-    await updateTask(String(route.params.id), { audio, video, status: "completed" });
+    await updateTask(String(route.params.id), {
+      ...(editing.value ? { title, content } : {}),
+      audio,
+      video,
+      status: "completed",
+    });
+    editing.value = false;
     await load();
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
