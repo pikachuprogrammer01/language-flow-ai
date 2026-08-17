@@ -22,7 +22,9 @@ describe("GET /api/files", () => {
     const body = (await res.json()) as { files: { type: string; inUse: boolean }[] };
     expect(Array.isArray(body.files)).toBe(true);
     expect(body.files.length).toBeGreaterThan(0);
-    expect(body.files.every((f) => f.type === "audio" || f.type === "video")).toBe(true);
+    expect(
+      body.files.every((f) => f.type === "audio" || f.type === "video" || f.type === "bgm"),
+    ).toBe(true);
     expect(body.files.every((f) => typeof f.inUse === "boolean")).toBe(true);
   });
 
@@ -37,17 +39,17 @@ describe("GET /api/files", () => {
 describe("DELETE /api/files/:filename", () => {
   it("非法文件名（路径穿越）被拒绝", async () => {
     // Hono 归一化 `..`/`%2E%2E` 后路由不匹配返回 404（同样安全拒绝）
-    const res = await app.request("/%2E%2E/secret.mp3", { method: "DELETE" });
+    const res = await app.request("/%2E%2E/secret.mp3?type=bgm", { method: "DELETE" });
     expect(res.status).toBe(404);
   });
 
-  it("未知扩展名返回 400", async () => {
-    const res = await app.request("/x.txt", { method: "DELETE" });
+  it("缺少 type 参数返回 400", async () => {
+    const res = await app.request("/x.mp3", { method: "DELETE" });
     expect(res.status).toBe(400);
   });
 
-  it("不存在的文件返回 404", async () => {
-    const res = await app.request("/no-such-file.mp3", { method: "DELETE" });
+  it("未知扩展名文件按目录删除（无扩展名校验，目录即分类）", async () => {
+    const res = await app.request("/no-such.mp3?type=bgm", { method: "DELETE" });
     expect(res.status).toBe(404);
   });
 });

@@ -13,12 +13,9 @@ import { logger } from "../lib/logger";
 
 const UPLOADS_DIR = join(import.meta.dirname, "../../uploads");
 
-/** 按扩展名判断文件类型与所属目录 */
-function typeOf(filename: string): "audio" | "video" | null {
-  if (filename.endsWith(".mp3")) return "audio";
-  if (filename.endsWith(".mp4")) return "video";
-  return null;
-}
+/** 文件分类 = uploads 子目录（audio=配音 / video=成片 / bgm=素材） */
+export const FILE_TYPES = ["audio", "video", "bgm"] as const;
+export type FileType = (typeof FILE_TYPES)[number];
 
 /** 收集生成记录引用的文件名（audio/video URL 的 basename），用于 inUse 标记 */
 async function referencedFiles(): Promise<Set<string>> {
@@ -40,7 +37,7 @@ export const fileManager = new OpenAPIHono();
 const listRoute = createRoute({
   method: "get",
   path: "/",
-  request: { query: z.object({ type: z.enum(["audio", "video"]).optional() }) },
+  request: { query: z.object({ type: z.enum(FILE_TYPES).optional() }) },
   responses: {
     200: {
       description: "文件列表",
@@ -50,7 +47,7 @@ const listRoute = createRoute({
             files: z.array(
               z.object({
                 filename: z.string(),
-                type: z.enum(["audio", "video"]),
+                type: z.enum(FILE_TYPES),
                 size: z.number(),
                 mtime: z.string(),
                 inUse: z.boolean(),
@@ -71,18 +68,17 @@ fileManager.openapi(listRoute, async (c) => {
     const refs = await referencedFiles();
     const files: {
       filename: string;
-      type: "audio" | "video";
+      type: FileType;
       size: number;
       mtime: string;
       inUse: boolean;
     }[] = [];
-    for (const dir of ["audio", "video"] as const) {
+    for (const dir of FILE_TYPES) {
       if (type && type !== dir) continue;
       const dirPath = join(UPLOADS_DIR, dir);
       const names = await readdir(dirPath).catch(() => []);
       for (const name of names) {
-        const fileType = typeOf(name);
-        if (!fileType) continue;
+        const fileType = dir;
         try {
           const info = await stat(join(dirPath, name));
           files.push({
@@ -108,7 +104,10 @@ fileManager.openapi(listRoute, async (c) => {
 const deleteRoute = createRoute({
   method: "delete",
   path: "/{filename}",
-  request: { params: z.object({ filename: z.string().min(1).max(100) }) },
+  request: {
+    params: z.object({ filename: z.string().min(1).max(100) }),
+    query: z.object({ type: z.enum(FILE_TYPES) }),
+  },
   responses: {
     200: {
       description: "删除成功",
@@ -122,12 +121,12 @@ const deleteRoute = createRoute({
 
 fileManager.openapi(deleteRoute, async (c) => {
   const { filename } = c.req.valid("param");
-  const fileType = typeOf(filename);
-  // 防路径穿越：只允许 uploads/audio|video 下的常规文件名
-  if (!fileType || filename.includes("..") || basename(filename) !== filename) {
+  const { type } = c.req.valid("query");
+  // 防路径穿越：只允许对应分类目录下的常规文件名
+  if (filename.includes("..") || basename(filename) !== filename) {
     return c.json({ error: "非法文件名" }, 400);
   }
-  const filePath = join(UPLOADS_DIR, fileType, filename);
+  const filePath = join(UPLOADS_DIR, type, filename);
   try {
     await rm(filePath, { force: false });
     return c.json({ success: true });

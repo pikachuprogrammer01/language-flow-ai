@@ -143,18 +143,18 @@ export async function deleteTask(id: string) {
   return data;
 }
 
-/** 上传文件列表（audio/video，含是否被记录引用） */
-export async function listFiles(params: { type?: "audio" | "video" } = {}) {
+/** 上传文件列表（audio=配音 / video=成片 / bgm=素材，含是否被记录引用） */
+export async function listFiles(params: { type?: "audio" | "video" | "bgm" } = {}) {
   const { data, error, response } = await client.GET("/api/files", { params: { query: params } });
   if (error || !response.ok) throw new Error(`查询文件失败（HTTP ${response.status}）`);
   if (!data) throw new Error("查询文件失败：空响应");
   return data;
 }
 
-/** 删除上传文件（被记录引用的文件删除后记录中不可播放） */
-export async function deleteFile(filename: string) {
+/** 删除上传文件（type 指定分类目录；被记录引用的文件删除后记录中不可播放） */
+export async function deleteFile(filename: string, type: "audio" | "video" | "bgm") {
   const { data, error, response } = await client.DELETE("/api/files/{filename}", {
-    params: { path: { filename } },
+    params: { path: { filename }, query: { type } },
   });
   if (error || !response.ok) throw new Error(`删除文件失败（HTTP ${response.status}）`);
   return data;

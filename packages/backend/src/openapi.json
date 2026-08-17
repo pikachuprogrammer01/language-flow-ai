@@ -1668,7 +1668,8 @@
               "type": "string",
               "enum": [
                 "audio",
-                "video"
+                "video",
+                "bgm"
               ]
             },
             "required": false,
@@ -1696,7 +1697,8 @@
                             "type": "string",
                             "enum": [
                               "audio",
-                              "video"
+                              "video",
+                              "bgm"
                             ]
                           },
                           "size": {
@@ -1747,6 +1749,19 @@
             "required": true,
             "name": "filename",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "audio",
+                "video",
+                "bgm"
+              ]
+            },
+            "required": true,
+            "name": "type",
+            "in": "query"
           }
         ],
         "responses": {
