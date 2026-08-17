@@ -105,6 +105,7 @@ export async function listTasks(
       | "video_rendering"
       | "completed"
       | "failed";
+    keyword?: string;
     page?: number;
     pageSize?: number;
   } = {},
@@ -159,6 +160,15 @@ export async function deleteTask(id: string) {
     params: { path: { id } },
   });
   if (error || !response.ok) throw new Error(`删除任务失败（HTTP ${response.status}）`);
+  return data;
+}
+
+/** 批量删除生成记录（审计管理批量操作） */
+export async function batchDeleteTasks(ids: string[]) {
+  const { data, error, response } = await client.POST("/api/tasks/batch-delete", {
+    body: { ids },
+  });
+  if (error || !response.ok) throw new Error(`批量删除失败（HTTP ${response.status}）`);
   return data;
 }
 

@@ -105,6 +105,20 @@ describe("GET /api/tasks", () => {
     expect(body.tasks[0].textPreview).toBe("x");
   });
 
+  it("keyword 搜索过滤标题（like 匹配）", async () => {
+    const list = fakeDb([ROW]);
+    const count = fakeDb([{ count: 1 }]);
+    vi.mocked(db)
+      .select.mockReturnValueOnce(list.select() as never)
+      .mockReturnValueOnce(count.select() as never);
+
+    const res = await app.request("/?keyword=科技");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { total: number; tasks: { title: string }[] };
+    expect(body.total).toBe(1);
+    expect(body.tasks[0].title).toBe("科技创业故事");
+  });
+
   it("支持 status 过滤", async () => {
     vi.mocked(db).select.mockImplementation(fakeDb([]).select);
     const res = await app.request("/?status=completed");
@@ -262,5 +276,28 @@ describe("DELETE /api/tasks/:id", () => {
     vi.mocked(db).select.mockImplementation(fakeDb([]).select);
     const res = await app.request("/nope", { method: "DELETE" });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/tasks/batch-delete", () => {
+  it("批量删除存在的记录，不存在的进 notFound", async () => {
+    // select（查存在）返回 2 条中的 1 条
+    vi.mocked(db).select.mockImplementation(fakeDb([{ ...ROW, id: "t1" }]).select as never);
+    const res = await app.request("/batch-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids: ["t1", "t2"] }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deleted: 1, notFound: ["t2"] });
+  });
+
+  it("空 ids 返回 400", async () => {
+    const res = await app.request("/batch-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids: [] }),
+    });
+    expect(res.status).toBe(400);
   });
 });

@@ -28,8 +28,14 @@ const listQuerySchema = z.object({
       "failed",
     ])
     .optional(),
+  /** 关键词搜索：标题/正文摘要模糊匹配 */
+  keyword: z.string().max(100).optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+});
+
+const batchDeleteSchema = z.object({
+  ids: z.array(z.string().min(1).max(32)).min(1).max(100),
 });
 
 const patchBodySchema = z.object({
@@ -168,19 +174,21 @@ const listRoute = createRoute({
 });
 
 tasks.openapi(listRoute, async (c) => {
-  const { status, page, pageSize } = c.req.valid("query");
+  const { status, keyword, page, pageSize } = c.req.valid("query");
   try {
+    const conds = [
+      status ? eq(contents.status, status) : undefined,
+      keyword ? sql`${contents.title} like ${`%${keyword}%`}` : undefined,
+    ].filter((v) => v !== undefined);
+    const where = conds.length > 0 ? and(...conds) : undefined;
     const rows = await db
       .select()
       .from(contents)
-      .where(status ? eq(contents.status, status) : undefined)
+      .where(where)
       .orderBy(desc(contents.createdAt))
       .limit(pageSize)
       .offset((page - 1) * pageSize);
-    const totalRows = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(contents)
-      .where(status ? eq(contents.status, status) : undefined);
+    const totalRows = await db.select({ count: sql<number>`count(*)` }).from(contents).where(where);
     const total = Number(totalRows[0]?.count ?? 0);
     return c.json({
       tasks: rows.map((r) => {
@@ -304,6 +312,50 @@ const deleteRoute = createRoute({
     404: { description: "任务不存在" },
   },
   tags: ["tasks"],
+});
+
+// ── 批量删除（审计管理批量处理） ──
+
+const batchDeleteRoute = createRoute({
+  method: "post",
+  path: "/batch-delete",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: batchDeleteSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "批量删除结果",
+      content: {
+        "application/json": {
+          schema: z.object({
+            deleted: z.number(),
+            notFound: z.array(z.string()),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["tasks"],
+});
+
+tasks.openapi(batchDeleteRoute, async (c) => {
+  const { ids } = c.req.valid("json");
+  const existing = await db
+    .select({ id: contents.id })
+    .from(contents)
+    .where(inArray(contents.id, ids));
+  const found = new Set(existing.map((r) => r.id));
+  await db.delete(contents).where(inArray(contents.id, ids));
+  return c.json({
+    deleted: found.size,
+    notFound: ids.filter((id) => !found.has(id)),
+  });
 });
 
 tasks.openapi(deleteRoute, async (c) => {
