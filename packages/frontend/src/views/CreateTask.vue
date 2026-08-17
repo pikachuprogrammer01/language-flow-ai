@@ -3,7 +3,7 @@
  * 新建任务页 — 单页全流程：生成内容 → 配音 → 渲染视频 → 播放
  * 调用链：/api/content/generate → /api/tts/from-content → /api/video/render
  */
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   type GenerateInput,
   type RenderInput,
@@ -72,6 +72,18 @@ const TEMPLATE_OPTIONS: { id: "scene_word" | "word_card" | "quiz"; label: string
     { id: "quiz", label: "选择题", desc: "单词选择题 + 解析" },
   ];
 const segments = ref<{ text: string; words: { word: string; meaning: string }[] }[]>([]);
+/** 卡片展示视图（编辑态/展示态字段统一为 example） */
+const cardViews = computed(() => {
+  const src = editMode.value ? editCards.value : cards.value;
+  return src.map((c) => ({
+    word: c.word,
+    pos: c.pos,
+    meaning: c.meaning,
+    example: "example" in c ? c.example : c.text,
+    exampleMeaning: c.exampleMeaning,
+  }));
+});
+
 /** word_card 生成结果（只读展示；编辑能力后续迭代） */
 const cards = ref<
   { word: string; pos: string; meaning: string; example: string; exampleMeaning?: string }[]
@@ -89,6 +101,14 @@ const dtoId = ref("");
 const editMode = ref(false);
 const editTitle = ref("");
 const editTexts = ref<string[]>([]);
+/** word_card 编辑态 */
+const editCards = ref<
+  { word: string; pos: string; meaning: string; text: string; exampleMeaning: string }[]
+>([]);
+/** quiz 编辑态 */
+const editQuestions = ref<
+  { stem: string; options: string[]; correctIndex: number; explanation: string }[]
+>([]);
 const saving = ref(false);
 /** 渲染入参快照（生成成功后存，编辑保存时复用；Record 基类型便于后续加 audio 重组） */
 const dtoSnapshot = ref<Record<string, unknown> | null>(null);
@@ -144,10 +164,23 @@ function pickTopic(t: string): void {
   topic.value = t;
 }
 
-/** 进入编辑模式：载入当前标题/正文 */
+/** 进入编辑模式：按模板载入（scene_word 正文 / word_card 卡片 / quiz 题目） */
 function startEdit(): void {
   editTitle.value = title.value;
   editTexts.value = segments.value.map((s) => s.text);
+  editCards.value = cards.value.map((c) => ({
+    word: c.word,
+    pos: c.pos,
+    meaning: c.meaning,
+    text: c.example,
+    exampleMeaning: c.exampleMeaning ?? "",
+  }));
+  editQuestions.value = questions.value.map((q) => ({
+    stem: q.stem,
+    options: [...q.options],
+    correctIndex: q.correctIndex,
+    explanation: q.explanation,
+  }));
   editMode.value = true;
 }
 
@@ -155,30 +188,84 @@ function cancelEdit(): void {
   editMode.value = false;
   editTitle.value = "";
   editTexts.value = [];
+  editCards.value = [];
+  editQuestions.value = [];
 }
 
-/** 保存修改并原地重新渲染（PATCH 记录 → 重合成 → 重渲染 → 更新播放） */
-async function saveEdit(): Promise<void> {
+/** 按模板构建编辑后 content（scene_word / word_card / quiz） */
+function buildEditedContent(): Record<string, unknown>[] | null {
+  if (template.value === "word_card") {
+    for (const c of editCards.value) {
+      if (!c.word.trim() || !c.text.trim()) {
+        errorMsg.value = "卡片单词与例句不能为空";
+        return null;
+      }
+    }
+    return editCards.value.map((c) => ({
+      word: c.word,
+      pos: c.pos,
+      meaning: c.meaning,
+      example: c.text,
+      exampleMeaning: c.exampleMeaning || undefined,
+    }));
+  }
+  if (template.value === "quiz") {
+    for (const q of editQuestions.value) {
+      if (!q.stem.trim() || q.options.some((o) => !o.trim())) {
+        errorMsg.value = "题干与选项不能为空";
+        return null;
+      }
+      if (q.correctIndex < 0 || q.correctIndex >= q.options.length) {
+        errorMsg.value = "正确答案索引超出选项范围";
+        return null;
+      }
+    }
+    return editQuestions.value.map((q, i) => ({
+      stem: q.stem,
+      options: q.options,
+      correctIndex: q.correctIndex,
+      explanation: q.explanation,
+      word: questions.value[i]?.word ?? "",
+    }));
+  }
   if (editTexts.value.some((t) => !t.trim())) {
     errorMsg.value = "正文不能有空段";
-    return;
+    return null;
   }
+  return segments.value.map((seg, i) => ({
+    ...seg,
+    text: editTexts.value[i] ?? seg.text,
+  }));
+}
+
+/** 保存修改并原地重新渲染（PATCH 记录 → 重合成 → 重渲染 → 更新播放，三模板通用） */
+async function saveEdit(): Promise<void> {
+  const content = buildEditedContent();
+  if (!content) return;
   saving.value = true;
   errorMsg.value = "";
   try {
-    const content = segments.value.map((seg, i) => ({
-      ...seg,
-      text: editTexts.value[i] ?? seg.text,
-    }));
     title.value = editTitle.value;
-    segments.value = content;
+    if (template.value === "word_card") {
+      cards.value = editCards.value.map((c) => ({
+        word: c.word,
+        pos: c.pos,
+        meaning: c.meaning,
+        example: c.text,
+        exampleMeaning: c.exampleMeaning || undefined,
+      }));
+    } else if (template.value === "quiz") {
+      questions.value = editQuestions.value.map((q) => ({ ...q, word: "" }));
+    } else {
+      segments.value = content as { text: string; words: { word: string; meaning: string }[] }[];
+    }
     editMode.value = false;
     // 更新记录内容
     await updateTask(dtoId.value, { title: title.value, content });
-    // 重新配音 + 渲染（当前音色/语速/BGM）
+    // 重新配音 + 渲染（当前音色/语速/BGM，按模板）
     step.value = "rendering";
     const audio = await synthesizeFromContent(
-      "scene_word",
+      template.value,
       content,
       title.value,
       voice.value,
@@ -188,7 +275,7 @@ async function saveEdit(): Promise<void> {
     if (!dtoSnapshot.value) throw new Error("缺少渲染数据");
     const dtoWithAudio: RenderVideoInput = {
       ...dtoSnapshot.value,
-      template: "scene_word",
+      template: template.value,
       audio,
       style: {
         ...((dtoSnapshot.value.style as Record<string, unknown> | undefined) ?? {}),
@@ -512,7 +599,7 @@ async function run(): Promise<void> {
         />
         <h2 v-else class="text-lg font-semibold text-gray-900">《{{ title }}》</h2>
         <button
-          v-if="step === 'done' && !editMode && template === 'scene_word'"
+          v-if="step === 'done' && !editMode"
           class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
           @click="startEdit"
         >
@@ -531,33 +618,102 @@ async function run(): Promise<void> {
           <p v-else class="text-gray-700">{{ seg.text }}</p>
         </div>
       </div>
-      <!-- quiz 结果（只读：题目/选项/答案/解析） -->
+      <!-- quiz 结果（编辑态输入） -->
       <div v-if="template === 'quiz'" class="mb-4 space-y-3">
-        <div v-for="(q, qi) in questions" :key="qi" class="rounded-lg border border-gray-200 p-4">
-          <p class="font-medium text-gray-900">{{ qi + 1 }}. {{ q.stem }}</p>
-          <ul class="mt-2 space-y-1">
-            <li
-              v-for="(opt, oi) in q.options"
-              :key="oi"
-              class="text-sm"
-              :class="oi === q.correctIndex ? 'font-medium text-green-700' : 'text-gray-600'"
-            >
-              {{ String.fromCharCode(65 + oi) }}. {{ opt }}{{ oi === q.correctIndex ? " ✓" : "" }}
-            </li>
-          </ul>
-          <p class="mt-2 text-xs text-gray-500">解析：{{ q.explanation }}</p>
+        <div
+          v-for="(q, qi) in editMode ? editQuestions : questions"
+          :key="qi"
+          class="rounded-lg border border-gray-200 p-4"
+        >
+          <template v-if="editMode">
+            <input
+              v-model="editQuestions[qi].stem"
+              class="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm font-medium focus:border-blue-500 focus:outline-none"
+              placeholder="题干"
+            />
+            <div class="mt-2 space-y-1">
+              <div v-for="(opt, oi) in editQuestions[qi].options" :key="oi" class="flex items-center gap-2">
+                <input
+                  type="radio"
+                  :checked="editQuestions[qi].correctIndex === oi"
+                  @change="editQuestions[qi].correctIndex = oi"
+                />
+                <span class="text-xs text-gray-400">{{ String.fromCharCode(65 + oi) }}.</span>
+                <input
+                  v-model="editQuestions[qi].options[oi]"
+                  class="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                  :placeholder="`选项 ${String.fromCharCode(65 + oi)}`"
+                />
+              </div>
+            </div>
+            <textarea
+              v-model="editQuestions[qi].explanation"
+              rows="2"
+              class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+              placeholder="解析"
+            />
+          </template>
+          <template v-else>
+            <p class="font-medium text-gray-900">{{ qi + 1 }}. {{ q.stem }}</p>
+            <ul class="mt-2 space-y-1">
+              <li
+                v-for="(opt, oi) in q.options"
+                :key="oi"
+                class="text-sm"
+                :class="oi === q.correctIndex ? 'font-medium text-green-700' : 'text-gray-600'"
+              >
+                {{ String.fromCharCode(65 + oi) }}. {{ opt }}{{ oi === q.correctIndex ? " ✓" : "" }}
+              </li>
+            </ul>
+            <p class="mt-2 text-xs text-gray-500">解析：{{ q.explanation }}</p>
+          </template>
         </div>
       </div>
-      <!-- word_card 结果（只读卡片） -->
+      <!-- word_card 结果（编辑态输入） -->
       <div v-if="template === 'word_card'" class="mb-4 grid gap-3 sm:grid-cols-2">
-        <div v-for="c in cards" :key="c.word" class="rounded-lg border border-gray-200 p-4">
-          <div class="flex items-baseline gap-2">
-            <b class="text-lg text-gray-900">{{ c.word }}</b>
-            <span class="text-xs text-gray-400">{{ c.pos }}</span>
-          </div>
-          <p class="mt-1 text-sm text-gray-700">{{ c.meaning }}</p>
-          <p class="mt-2 text-sm leading-relaxed text-gray-800">{{ c.example }}</p>
-          <p v-if="c.exampleMeaning" class="mt-1 text-xs text-gray-500">{{ c.exampleMeaning }}</p>
+        <div
+          v-for="(_, i) in editMode ? editCards : cards"
+          :key="i"
+          class="rounded-lg border border-gray-200 p-4"
+        >
+          <template v-if="editMode">
+            <div class="flex gap-2">
+              <input
+                v-model="editCards[i].word"
+                class="w-1/2 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                placeholder="单词"
+              />
+              <input
+                v-model="editCards[i].pos"
+                class="w-1/2 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                placeholder="词性"
+              />
+            </div>
+            <input
+              v-model="editCards[i].meaning"
+              class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+              placeholder="释义"
+            />
+            <input
+              v-model="editCards[i].text"
+              class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+              placeholder="例句"
+            />
+            <input
+              v-model="editCards[i].exampleMeaning"
+              class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+              placeholder="例句翻译"
+            />
+          </template>
+          <template v-else>
+            <div class="flex items-baseline gap-2">
+              <b class="text-lg text-gray-900">{{ cardViews[i].word }}</b>
+              <span class="text-xs text-gray-400">{{ cardViews[i].pos }}</span>
+            </div>
+            <p class="mt-1 text-sm text-gray-700">{{ cardViews[i].meaning }}</p>
+            <p class="mt-2 text-sm leading-relaxed text-gray-800">{{ cardViews[i].example }}</p>
+            <p v-if="cardViews[i].exampleMeaning" class="mt-1 text-xs text-gray-500">{{ cardViews[i].exampleMeaning }}</p>
+          </template>
         </div>
       </div>
       <div class="flex flex-wrap gap-2">

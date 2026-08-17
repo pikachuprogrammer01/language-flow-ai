@@ -41,6 +41,14 @@ const revoicing = ref(false);
 const editing = ref(false);
 const editTitle = ref("");
 const editTexts = ref<string[]>([]);
+/** word_card 编辑态：每卡字段 */
+const editCards = ref<
+  { word: string; pos: string; meaning: string; text: string; exampleMeaning: string }[]
+>([]);
+/** quiz 编辑态：每题目字段（options 固定 4 项编辑） */
+const editQuestions = ref<
+  { stem: string; options: string[]; correctIndex: number; explanation: string }[]
+>([]);
 const saving = ref(false);
 /** 重新组装：BGM 选择（来自文件管理 bgm 素材，组装新视频时混音） */
 const bgmFiles = ref<{ filename: string }[]>([]);
@@ -77,10 +85,23 @@ function isVideoInfo(v: unknown): v is VideoInfo {
   return typeof v === "object" && v !== null && "url" in v && "duration" in v;
 }
 
-/** 进入编辑模式：把当前标题/正文载入编辑态 */
+/** 进入编辑模式：按模板载入编辑态（scene_word 正文 / word_card 卡片 / quiz 题目） */
 function startEdit(): void {
   editTitle.value = String(task.value?.title ?? "");
   editTexts.value = segments.value.map((s) => s.text);
+  editCards.value = wordCards.value.map((c) => ({
+    word: c.word,
+    pos: c.pos,
+    meaning: c.meaning,
+    text: c.text,
+    exampleMeaning: c.exampleMeaning ?? "",
+  }));
+  editQuestions.value = quizQuestions.value.map((q) => ({
+    stem: q.stem,
+    options: [...q.options],
+    correctIndex: q.correctIndex,
+    explanation: q.explanation,
+  }));
   editing.value = true;
 }
 
@@ -88,33 +109,83 @@ function cancelEdit(): void {
   editing.value = false;
   editTitle.value = "";
   editTexts.value = [];
+  editCards.value = [];
+  editQuestions.value = [];
 }
 
-/** 保存修改：PATCH title/content → 用新内容重新配音渲染 → 回写（PRD §10.1.3） */
+/** 按模板校验编辑态内容，返回 content 数组（scene_word 正文 / word_card 卡片 / quiz 题目） */
+function buildEditedContent(t: Record<string, unknown>): Record<string, unknown>[] | null {
+  if (t.template === "word_card") {
+    for (const c of editCards.value) {
+      if (!c.word.trim() || !c.text.trim()) {
+        errorMsg.value = "卡片单词与例句不能为空";
+        return null;
+      }
+    }
+    return editCards.value.map((c) => ({
+      word: c.word,
+      pos: c.pos,
+      meaning: c.meaning,
+      example: c.text,
+      exampleMeaning: c.exampleMeaning || undefined,
+    }));
+  }
+  if (t.template === "quiz") {
+    for (const q of editQuestions.value) {
+      if (!q.stem.trim() || q.options.some((o) => !o.trim())) {
+        errorMsg.value = "题干与选项不能为空";
+        return null;
+      }
+      if (q.correctIndex < 0 || q.correctIndex >= q.options.length) {
+        errorMsg.value = "正确答案索引超出选项范围";
+        return null;
+      }
+    }
+    const originals = Array.isArray(t.content) ? (t.content as { word?: unknown }[]) : [];
+    return editQuestions.value.map((q, i) => ({
+      stem: q.stem,
+      options: q.options,
+      correctIndex: q.correctIndex,
+      explanation: q.explanation,
+      word: originals[i]?.word ?? null,
+    }));
+  }
+  if (editTexts.value.some((x) => !x.trim())) {
+    errorMsg.value = "正文不能有空段";
+    return null;
+  }
+  return segments.value.map((seg, i) => ({
+    ...seg,
+    text: editTexts.value[i] ?? seg.text,
+  }));
+}
+
+/** 保存修改：PATCH title/content → 用新内容重新配音渲染 → 回写（PRD §10.1.3，三模板通用） */
 async function saveEdit(): Promise<void> {
   if (!task.value) return;
-  if (editTexts.value.some((t) => !t.trim())) {
-    errorMsg.value = "正文不能有空段";
-    return;
-  }
+  const t = task.value as Record<string, unknown>;
+  const content = buildEditedContent(t);
+  if (!content) return;
+  const template = t.template === "word_card" || t.template === "quiz" ? t.template : "scene_word";
   saving.value = true;
   errorMsg.value = "";
   try {
-    const t = task.value;
-    const content = segments.value.map((seg, i) => ({
-      ...seg,
-      text: editTexts.value[i] ?? seg.text,
-    }));
     await updateTask(String(route.params.id), { title: editTitle.value, content });
     editing.value = false;
     // 用新内容重新配音 + 渲染（复用重新配音链路）
     const refreshed = await getTask(String(route.params.id));
     task.value = refreshed;
     revoicing.value = true;
-    const audio = await synthesizeFromContent("scene_word", content, editTitle.value, voice.value);
+    const audio = await synthesizeFromContent(
+      template,
+      content,
+      editTitle.value,
+      voice.value,
+      rate.value,
+    );
     const dto: RenderVideoInput = {
       ...refreshed,
-      template: "scene_word",
+      template,
       audio,
       style: { ...(refreshed.style ?? {}), bgm: bgm.value },
     };
@@ -187,7 +258,9 @@ const quizQuestions = computed<
 });
 
 /** word_card 卡片（宽松解析：word/pos/meaning/example 来自卡片段） */
-const wordCards = computed<{ word: string; pos: string; meaning: string; text: string }[]>(() => {
+const wordCards = computed<
+  { word: string; pos: string; meaning: string; text: string; exampleMeaning?: string }[]
+>(() => {
   const c = task.value?.content;
   if (!Array.isArray(c)) return [];
   return c.map((seg) => ({
@@ -195,6 +268,10 @@ const wordCards = computed<{ word: string; pos: string; meaning: string; text: s
     pos: String((seg as { pos?: unknown }).pos ?? ""),
     meaning: String((seg as { meaning?: unknown }).meaning ?? ""),
     text: String((seg as { text?: unknown }).text ?? ""),
+    exampleMeaning:
+      (seg as { exampleMeaning?: unknown }).exampleMeaning != null
+        ? String((seg as { exampleMeaning?: unknown }).exampleMeaning)
+        : undefined,
   }));
 });
 
@@ -369,7 +446,7 @@ listFiles({ type: "bgm" })
           maxlength="255"
         />
         <button
-          v-if="!editing && !isWordCardTask && !isQuizTask"
+          v-if="!editing"
           class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
           @click="startEdit"
         >
@@ -433,42 +510,107 @@ listFiles({ type: "bgm" })
         </li>
       </ul>
 
-      <!-- quiz 题目展示（只读） -->
+      <!-- quiz 题目展示/编辑 -->
       <template v-if="isQuizTask">
         <h2 class="mt-8 text-lg font-semibold">选择题（{{ quizQuestions.length }}）</h2>
         <div class="mt-2 space-y-3">
           <div
-            v-for="(q, qi) in quizQuestions"
+            v-for="(q, qi) in editing ? editQuestions : quizQuestions"
             :key="qi"
             class="rounded-lg border border-gray-200 p-4"
           >
-            <p class="font-medium text-gray-900">{{ qi + 1 }}. {{ q.stem }}</p>
-            <ul class="mt-2 space-y-1">
-              <li
-                v-for="(opt, oi) in q.options"
-                :key="oi"
-                class="text-sm"
-                :class="oi === q.correctIndex ? 'font-medium text-green-700' : 'text-gray-600'"
-              >
-                {{ String.fromCharCode(65 + oi) }}. {{ opt }}{{ oi === q.correctIndex ? " ✓" : "" }}
-              </li>
-            </ul>
-            <p class="mt-2 text-xs text-gray-500">解析：{{ q.explanation }}</p>
+            <template v-if="editing">
+              <input
+                v-model="editQuestions[qi].stem"
+                class="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm font-medium focus:border-blue-500 focus:outline-none"
+                placeholder="题干"
+              />
+              <div class="mt-2 space-y-1">
+                <div v-for="(opt, oi) in editQuestions[qi].options" :key="oi" class="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    :checked="editQuestions[qi].correctIndex === oi"
+                    @change="editQuestions[qi].correctIndex = oi"
+                  />
+                  <span class="text-xs text-gray-400">{{ String.fromCharCode(65 + oi) }}.</span>
+                  <input
+                    v-model="editQuestions[qi].options[oi]"
+                    class="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                    :placeholder="`选项 ${String.fromCharCode(65 + oi)}`"
+                  />
+                </div>
+              </div>
+              <textarea
+                v-model="editQuestions[qi].explanation"
+                rows="2"
+                class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+                placeholder="解析"
+              />
+            </template>
+            <template v-else>
+              <p class="font-medium text-gray-900">{{ qi + 1 }}. {{ q.stem }}</p>
+              <ul class="mt-2 space-y-1">
+                <li
+                  v-for="(opt, oi) in q.options"
+                  :key="oi"
+                  class="text-sm"
+                  :class="oi === q.correctIndex ? 'font-medium text-green-700' : 'text-gray-600'"
+                >
+                  {{ String.fromCharCode(65 + oi) }}. {{ opt }}{{ oi === q.correctIndex ? " ✓" : "" }}
+                </li>
+              </ul>
+              <p class="mt-2 text-xs text-gray-500">解析：{{ q.explanation }}</p>
+            </template>
           </div>
         </div>
       </template>
 
-      <!-- word_card 卡片展示（只读；卡片内容由生成决定，重配音用记录内容） -->
+      <!-- word_card 卡片展示/编辑 -->
       <template v-if="isWordCardTask">
         <h2 class="mt-8 text-lg font-semibold">单词卡片（{{ wordCards.length }}）</h2>
         <div class="mt-2 grid gap-3 sm:grid-cols-2">
-          <div v-for="c in wordCards" :key="c.word" class="rounded-lg border border-gray-200 p-4">
-            <div class="flex items-baseline gap-2">
-              <b class="text-lg text-gray-900">{{ c.word }}</b>
-              <span class="text-xs text-gray-400">{{ c.pos }}</span>
-            </div>
-            <p class="mt-1 text-sm text-gray-700">{{ c.meaning }}</p>
-            <p class="mt-2 text-sm leading-relaxed text-gray-800">{{ c.text }}</p>
+          <div
+            v-for="(c, i) in editing ? editCards : wordCards"
+            :key="i"
+            class="rounded-lg border border-gray-200 p-4"
+          >
+            <template v-if="editing">
+              <div class="flex gap-2">
+                <input
+                  v-model="editCards[i].word"
+                  class="w-1/2 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="单词"
+                />
+                <input
+                  v-model="editCards[i].pos"
+                  class="w-1/2 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="词性（如 v.）"
+                />
+              </div>
+              <input
+                v-model="editCards[i].meaning"
+                class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                placeholder="释义"
+              />
+              <input
+                v-model="editCards[i].text"
+                class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                placeholder="例句"
+              />
+              <input
+                v-model="editCards[i].exampleMeaning"
+                class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                placeholder="例句翻译"
+              />
+            </template>
+            <template v-else>
+              <div class="flex items-baseline gap-2">
+                <b class="text-lg text-gray-900">{{ c.word }}</b>
+                <span class="text-xs text-gray-400">{{ c.pos }}</span>
+              </div>
+              <p class="mt-1 text-sm text-gray-700">{{ c.meaning }}</p>
+              <p class="mt-2 text-sm leading-relaxed text-gray-800">{{ c.text }}</p>
+            </template>
           </div>
         </div>
       </template>
