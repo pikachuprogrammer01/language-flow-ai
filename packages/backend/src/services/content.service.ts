@@ -1,6 +1,10 @@
 /**
  * AI 内容生成服务（docs/15）
- * 用户输入 topic/level → LLM 生成中文故事（英文词嵌入）→ 词库校验过滤 → ContentDTO
+ * 生成策略（2026-08-17 重构 V3，解决主题/文案偏离与 7B 能力限制）：
+ *   1. 两阶段：LLM 产出主题相关词 → 词库把关 → 随机补足 → 再生成故事
+ *   2. 模型只写纯中文故事（最擅长），词汇由代码注入（彻底移除模型元任务）
+ *   3. 代码注入：扫描候选词的中文释义在文本中的出现 → 替换为英文词（词必在词库、逐字在文本）
+ *   4. 模型回显 topic，代码验收主题相关度；词数不足时反馈重试（最多 3 次，每次全新对话）
  */
 import { randomBytes } from "node:crypto";
 import type { ContentDTO } from "@ai-english/shared";
@@ -17,17 +21,24 @@ export interface GenerateSceneWordInput {
   targetDuration?: number;
 }
 
-// LLM 输出结构（宽松校验，词汇是否合法由词库决定）
+// ── LLM 输出结构（模型只回 text，词汇由代码注入） ──
 const llmOutputSchema = z.object({
+  topic: z.string().min(1),
   title: z.string().min(1).max(60),
   segments: z
     .array(
       z.object({
         text: z.string().min(1),
-        words: z.array(z.object({ word: z.string().min(1), meaning: z.string().optional() })),
+        words: z
+          .array(z.object({ word: z.string().min(1), meaning: z.string().optional() }))
+          .optional(),
       }),
     )
     .min(1),
+});
+
+const topicWordsSchema = z.object({
+  words: z.array(z.string().min(1)).min(1).max(20),
 });
 
 /** 生成任务 id：cnt_YYYYMMDD_XXXXXX（6 位十六进制，docs/04 契约） */
@@ -46,26 +57,120 @@ function suggestSegmentCount(targetDuration?: number): number {
   return 3;
 }
 
+// ── 阶段一：主题相关候选词 ──
+
+/** 让 LLM 列出与主题相关的英文词（语义理解比词库释义匹配更准） */
+async function fetchTopicWords(topic: string, level: string): Promise<string[]> {
+  const prompt = [
+    `主题：${topic}（词汇等级：${level}）`,
+    "列出 15 个与上述主题语义高度相关的常见英语词汇（名词/动词为主，避免过于生僻或抽象），只输出一个 JSON 对象，不要其他文字：",
+    '{"words":["word1","word2",...]}',
+  ].join("\n");
+  try {
+    const raw = await chatCompletion([{ role: "user", content: prompt }]);
+    const out = topicWordsSchema.safeParse(extractJson<unknown>(raw));
+    return out.success ? out.data.words : [];
+  } catch (err) {
+    logger.warn({ err, topic }, "topic words fetch failed");
+    return [];
+  }
+}
+
+/** 候选词组装：主题相关词（词库校验命中）优先 + 高频池随机补足 */
+async function buildCandidates(
+  input: GenerateSceneWordInput,
+): Promise<{ word: string; meaning: string; level: "CET4" | "CET6" }[]> {
+  const want = input.wordCount ?? 8;
+  const target = Math.min(want * 2, 30);
+  const have = new Set<string>();
+  const result: { word: string; meaning: string; level: "CET4" | "CET6" }[] = [];
+
+  // 1) 主题相关词：LLM 产出 → 词库把关（词义以词库为准）
+  const topicWords = await fetchTopicWords(input.topic, input.level);
+  if (topicWords.length > 0) {
+    const { matchedWords } = await validateWords(topicWords, input.level, db);
+    for (const m of matchedWords) {
+      if (result.length >= target) break;
+      if (!have.has(m.word.toLowerCase())) {
+        have.add(m.word.toLowerCase());
+        result.push({ word: m.word, meaning: m.meaning, level: m.level });
+      }
+    }
+  }
+
+  // 2) 随机补足到目标数（通用叙事词，保证任意主题都有可注入词）
+  if (result.length < target) {
+    const { words: randoms } = await randomWords(input.level, target, db);
+    for (const r of randoms) {
+      if (result.length >= target) break;
+      if (!have.has(r.word.toLowerCase())) {
+        have.add(r.word.toLowerCase());
+        result.push({ word: r.word, meaning: r.meaning, level: r.level });
+      }
+    }
+  }
+  return result;
+}
+
+// ── 阶段二：故事生成 prompt（模型只写中文故事） ──
+
 function buildPrompt(
   input: GenerateSceneWordInput,
   candidates: { word: string; meaning: string }[],
+  feedback?: string,
 ): string {
-  const count = input.wordCount ?? 8;
   const segments = suggestSegmentCount(input.targetDuration);
   const candidateList = candidates.map((c) => `${c.word}（${c.meaning}）`).join("\n");
+  const feedbackBlock = feedback ? `\n上次生成的错误（本次必须修正）：${feedback}\n` : "";
   return [
-    "你是一名英语短视频内容创作者。根据用户主题生成一个中文情景故事，自然嵌入指定数量的四六级英文词汇。",
+    "你是一名英语短视频内容创作者。根据用户主题写一个中文情景故事，故事会被自动配上英语词汇学习标签。",
     "要求：",
-    `1. 中文为主要叙述语言，英文词汇自然嵌入句中（如"Leo接到一份contract"），不要用括号标注解释`,
-    `2. 必须从下方候选词汇中选出恰好 ${count} 个（一个都不能少），嵌入故事（每个候选词至多用一次）；禁止使用候选词汇之外的英文单词`,
-    `3. 故事情节连贯、生活化，主题：${input.topic}；故事要足够长以容纳全部词汇`,
-    `4. 正文严格分 ${segments} 段（每段 50-100 字），每段至少嵌入 3 个词汇，${count} 个词汇均匀分配到各段`,
+    `1. 故事必须紧紧围绕主题「${input.topic}」展开，情节连贯、生活化；标题也必须呼应主题`,
+    "2. 全部用中文写作，不要写任何英文",
+    `3. 写作时自然使用下方候选词汇的中文含义相关的内容（比如候选词里有"市场"，故事里就可以写"市场""行情"这类词；不必刻意，自然叙述即可）`,
+    `4. 正文分 ${segments} 段（每段 50-100 字）`,
     "5. 标题为主题式：点明故事主题+学习内容，自然不夸张，不超过 20 字",
-    "6. 只输出一个 JSON 对象，不要任何其他文字、不要 markdown 围栏。words 数组里的 word 必须逐字出现在对应段落的 text 中（渲染高亮依赖）；meaning 用下方候选词汇里的中文释义",
-    `候选词汇：\n${candidateList}`,
-    "严格按以下示例的格式（示例内容不可复用，主题与词汇必须按上面给定）：",
-    '{"title":"一次科技创业","segments":[{"text":"Leo收到一份contract，他决定accept这个offer。","words":[{"word":"contract","meaning":"合同"},{"word":"accept","meaning":"接受"}]}]}',
+    "6. 只输出一个 JSON 对象，不要任何其他文字、不要 markdown 围栏。topic 字段回显你理解的主题；segments 每段只需 text 字段",
+    `候选词汇（写作时自然涉及其中中文含义即可）：\n${candidateList}`,
+    '严格按以下格式（示例内容不可复用）：{"topic":"科技创业","title":"一次科技创业","segments":[{"text":"Leo签下一份合同，决定接受这份工作。"}]}',
+    feedbackBlock,
   ].join("\n");
+}
+
+// ── 代码注入：扫描候选词的中文释义在文本中的出现，替换为英文词 ──
+
+/** 词库释义拆分为短义项（如"市场；股市；行情，销路" → ["市场","股市","行情","销路"]） */
+function splitMeanings(meaning: string): string[] {
+  return meaning
+    .split(/[；;，,、/]/)
+    .map((m) => m.trim())
+    .filter((m) => m.length >= 2 && m.length <= 6);
+}
+
+/**
+ * 在文本中查找候选词的释义片段并替换为英文词（按义项长度降序，避免子串冲突）
+ * 返回注入后的文本与命中的词列表（词必在词库、逐字在文本）
+ */
+function injectFromDict(
+  text: string,
+  candidates: { word: string; meaning: string; level: "CET4" | "CET6" }[],
+): { text: string; injected: { word: string; meaning: string; level: "CET4" | "CET6" }[] } {
+  let t = text;
+  const injected: { word: string; meaning: string; level: "CET4" | "CET6" }[] = [];
+  // 全部义项按长度降序（先替换长词，防"美味"抢在"美味的"之前）
+  const items = candidates
+    .flatMap((c) =>
+      splitMeanings(c.meaning).map((m) => ({ word: c.word, meaning: m, level: c.level })),
+    )
+    .sort((a, b) => a.meaning.length - b.meaning.length)
+    .reverse();
+  for (const item of items) {
+    if (t.includes(item.meaning) && !injected.some((i) => i.word === item.word)) {
+      t = t.replace(item.meaning, item.word);
+      injected.push(item);
+    }
+  }
+  return { text: t, injected };
 }
 
 /** 词库校验后的段结构（与 SceneWordSegment 兼容） */
@@ -74,72 +179,94 @@ interface DictFilteredSegment {
   words: { word: string; meaning: string; level: "CET4" | "CET6" }[];
 }
 
-/** 从文本中提取英文单词（≥2 字母，用于补充 LLM words 数组的遗漏） */
-function extractEnglishWords(text: string): string[] {
-  return [...new Set(text.match(/[a-zA-Z]{2,}/g) ?? [])];
-}
-
-/** 词库校验过滤：LLM 给出的词 + 文本中提取的词，必须命中词库，词义以词库为准（docs/15 §三） */
-async function filterWordsByDict(
+/** 注入流程：模型中文故事 + 候选词 → 扫描替换 → 分段组装 */
+function injectSegments(
   segments: z.infer<typeof llmOutputSchema>["segments"],
-  level: "CET4" | "CET6",
-): Promise<DictFilteredSegment[]> {
+  candidates: { word: string; meaning: string; level: "CET4" | "CET6" }[],
+): DictFilteredSegment[] {
   const result: DictFilteredSegment[] = [];
   for (const seg of segments) {
     const text = seg.text ?? "";
-    // 合并 LLM 给出的词与文本中实际出现的英文词（小写去重）
-    const candidates = [
-      ...new Set([...seg.words.map((w) => w.word), ...extractEnglishWords(text)]),
-    ];
-    const { matchedWords } = await validateWords(candidates, level, db);
-    const matched = new Map(matchedWords.map((m) => [m.word.toLowerCase(), m]));
-    // 按文本中出现的顺序排列（保证高亮词顺序稳定）
-    const kept = [
-      ...new Set(
-        candidates
-          .map((w) => matched.get(w.toLowerCase()))
-          .filter((m): m is NonNullable<typeof m> => m !== undefined),
-      ),
-    ];
-    if (text && kept.length > 0) {
-      result.push({
-        text,
-        words: kept.map((m) => ({ word: m.word, meaning: m.meaning, level: m.level })),
-      });
+    const { text: injectedText, injected } = injectFromDict(text, candidates);
+    if (injectedText && injected.length > 0) {
+      result.push({ text: injectedText, words: injected });
     }
   }
   return result;
 }
 
-/** 生成 scene_word 内容（ContentDTO）；LLM 输出不达标（JSON 语法错/结构不符/词库无命中）时自动重试，最多 3 次 */
+// ── 代码验收 ──
+
+/** 主题相关度：输入主题的字符在模型回显 topic 中至少覆盖 50%（防"完全对不上"） */
+function topicMatch(expected: string, actual: string): boolean {
+  const chars = [...new Set(expected.replace(/\s/g, ""))];
+  if (chars.length === 0) return true;
+  const hit = chars.filter((ch) => actual.includes(ch)).length;
+  return hit / chars.length >= 0.5;
+}
+
+/** 验收结果：ok 时返回通过；否则返回可读的失败原因（供反馈重试与用户查看） */
+interface Acceptance {
+  ok: boolean;
+  reason?: string;
+}
+
+function acceptOutput(
+  input: GenerateSceneWordInput,
+  llmOutput: z.infer<typeof llmOutputSchema>,
+  filtered: DictFilteredSegment[],
+): Acceptance {
+  if (!topicMatch(input.topic, llmOutput.topic)) {
+    return {
+      ok: false,
+      reason: `主题偏离：要求围绕「${input.topic}」，你输出的主题是「${llmOutput.topic}」。请重新围绕「${input.topic}」编写故事。`,
+    };
+  }
+  const minWords = Math.min(2, input.wordCount ?? 8);
+  const total = filtered.reduce((n, s) => n + s.words.length, 0);
+  if (total < minWords) {
+    return {
+      ok: false,
+      reason: `词汇不足：当前只注入 ${total} 个英文词（目标 ${minWords}）。请让故事更贴近候选词汇的中文含义（如写"市场""发展""产品"等），让更多候选词能自然出现。`,
+    };
+  }
+  return { ok: true };
+}
+
+// ── 主流程 ──
+
+/** 生成 scene_word 内容（ContentDTO）；验收不通过时携带失败原因反馈重试，最多 3 次（每次全新对话） */
 export async function generateSceneWordContent(input: GenerateSceneWordInput): Promise<ContentDTO> {
-  let lastError: unknown;
+  let lastFeedback = "（未生成）";
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      // 从词库高频池随机抽候选词（4 倍，给 LLM 选择空间），保证生成词必命中词库
-      const want = input.wordCount ?? 8;
-      const candidates = await randomWords(input.level, Math.min(want * 4, 200), db);
+      const candidates = await buildCandidates(input);
       const raw = await chatCompletion([
-        { role: "user", content: buildPrompt(input, candidates.words) },
+        {
+          role: "user",
+          content: buildPrompt(input, candidates, attempt > 0 ? lastFeedback : undefined),
+        },
       ]);
-      const parsed = extractJson<unknown>(raw);
-      const llmOutput = llmOutputSchema.safeParse(parsed);
+      const llmOutput = llmOutputSchema.safeParse(extractJson<unknown>(raw));
       if (!llmOutput.success) {
-        logger.warn({ raw: raw.slice(0, 400) }, "LLM 输出结构不符");
-        throw new Error("LLM 输出结构不符合契约");
+        lastFeedback =
+          "输出不是合法的 JSON（必须只输出一个 JSON 对象，不要任何其他文字或 markdown 围栏）";
+        logger.warn({ raw: raw.slice(0, 300) }, "LLM 输出结构不符");
+        continue;
       }
 
-      const segments = await filterWordsByDict(llmOutput.data.segments, input.level);
-      if (segments.length === 0) {
-        logger.warn({ level: input.level }, "词库校验后无可用词汇段");
-        throw new Error("词库校验后无可用词汇（请检查词库数据或 LLM 输出）");
+      const segments = injectSegments(llmOutput.data.segments, candidates);
+      const accept = acceptOutput(input, llmOutput.data, segments);
+      if (!accept.ok) {
+        lastFeedback = accept.reason ?? "输出不达标";
+        logger.warn({ reason: lastFeedback, attempt: attempt + 1 }, "content generate rejected");
+        continue;
       }
 
       const now = new Date().toISOString();
       const allWords = [
         ...new Map(segments.flatMap((s) => s.words).map((w) => [w.word.toLowerCase(), w])).values(),
       ];
-
       return {
         id: makeContentId(),
         template: "scene_word",
@@ -155,9 +282,10 @@ export async function generateSceneWordContent(input: GenerateSceneWordInput): P
         updatedAt: now,
       };
     } catch (err) {
-      lastError = err;
+      lastFeedback = err instanceof Error ? err.message : "生成失败";
       logger.warn({ attempt: attempt + 1 }, "content generate retry");
     }
   }
-  throw lastError;
+  // 3 次仍失败：抛出可读原因（500 响应体展示给用户/人工审核）
+  throw new Error(`内容生成未通过验收：${lastFeedback}`);
 }

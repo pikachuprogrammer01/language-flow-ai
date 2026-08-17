@@ -57,15 +57,26 @@ export async function chatCompletion(messages: ChatMessage[]): Promise<string> {
   }
 }
 
-/** 从 LLM 输出中提取 JSON（容忍 ```json 围栏与前后杂质文本） */
+/**
+ * 从 LLM 输出中提取 JSON（容忍 ```json 围栏、前后杂质、尾部多余字符）
+ * 迭代策略：从第一个 { 开始，依次尝试所有 } 位置，取第一个能解析成功的对象
+ */
 export function extractJson<T>(raw: string): T {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidate = (fenced?.[1] ?? raw).trim();
   const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
+  if (start === -1) {
     logger.warn({ raw: raw.slice(0, 300) }, "LLM 输出未找到 JSON 对象");
     throw new Error("LLM 输出不是合法 JSON");
   }
-  return JSON.parse(candidate.slice(start, end + 1)) as T;
+  let end = candidate.lastIndexOf("}");
+  while (end > start) {
+    try {
+      return JSON.parse(candidate.slice(start, end + 1)) as T;
+    } catch {
+      end = candidate.lastIndexOf("}", end - 1);
+    }
+  }
+  logger.warn({ raw: raw.slice(0, 300) }, "LLM 输出未找到合法 JSON");
+  throw new Error("LLM 输出不是合法 JSON");
 }
