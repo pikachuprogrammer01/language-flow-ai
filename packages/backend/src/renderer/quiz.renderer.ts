@@ -53,6 +53,7 @@ export class QuizRenderer implements TemplateRenderer {
     const totalRead = readWeights.reduce((n, w) => n + w, 0) || 1;
     const ANSWER_DURATION = 2.5;
     const QUESTION_PAUSE = 1.0;
+    const QUESTION_GAP = 0.8; // 题间间隔（答案帧后停顿，防切太快，用户确认 2026-08-18）
     const durations: number[] = [];
     const beepTimes: number[] = [];
     let cursor = 0;
@@ -61,8 +62,8 @@ export class QuizRenderer implements TemplateRenderer {
       durations.push(questionDuration);
       cursor += questionDuration;
       beepTimes.push(cursor); // 答案帧起点：提示音
-      durations.push(ANSWER_DURATION);
-      cursor += ANSWER_DURATION;
+      durations.push(ANSWER_DURATION + QUESTION_GAP);
+      cursor += ANSWER_DURATION + QUESTION_GAP;
     }
 
     return {

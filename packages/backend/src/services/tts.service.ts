@@ -42,7 +42,21 @@ const DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural";
  * 通过 WebSocket 连接 Edge TTS 服务，将中文文本合成 MP3
  * 返回音频 Buffer，可直接写入文件或返回前端
  */
+/** 单次合成（含一次自动重试：Edge TTS 偶发断开/无数据，2026-08-18 用户反馈 500 后无法继续） */
 export async function synthesizeSpeech(text: string, voice = DEFAULT_VOICE): Promise<Buffer> {
+  try {
+    return await synthesizeOnce(text, voice);
+  } catch (err) {
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "tts 首次合成失败，重试一次",
+    );
+    await new Promise((r) => setTimeout(r, 500));
+    return synthesizeOnce(text, voice);
+  }
+}
+
+function synthesizeOnce(text: string, voice = DEFAULT_VOICE): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(buildEdgeTtsUrl(), {
       // 禁用 permessage-deflate：服务端对压缩消息分片发送，ws 库不重组（分片数组导致提取失败）

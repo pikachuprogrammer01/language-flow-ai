@@ -17,7 +17,15 @@ import {
   updateTask,
 } from "../api/client";
 
-type Step = "idle" | "generating" | "generated" | "tts" | "rendering" | "done" | "error";
+type Step =
+  | "idle"
+  | "generating"
+  | "generated"
+  | "tts"
+  | "audioReady"
+  | "rendering"
+  | "done"
+  | "error";
 
 const topic = ref("森林探险");
 /** 预设主题库（PRD §10.1.2 主题选择） */
@@ -63,6 +71,8 @@ const questions = ref<
 >([]);
 const videoUrl = ref("");
 const audioDuration = ref(0);
+/** 配音成果（分步执行保留：渲染/重试直接复用，失败不重来） */
+const audioMeta = ref<{ url: string; duration: number; format: string } | null>(null);
 /** 生成后原地编辑（PRD §10.1.3）：编辑标题/正文 → 保存 → 原地重渲染 */
 const dtoId = ref("");
 const editMode = ref(false);
@@ -77,6 +87,7 @@ const stepLabel: Record<Step, string> = {
   generating: "① 生成内容（LLM 本地生成故事 + 词库校验）…",
   generated: "② 内容已生成",
   tts: "② 配音（Edge TTS）…",
+  audioReady: "配音完成，可渲染视频",
   rendering: "③ 渲染视频（Playwright + FFmpeg）…",
   done: "✅ 完成",
   error: "❌ 失败",
@@ -193,7 +204,7 @@ async function previewVoice(): Promise<void> {
   }
 }
 
-async function run(): Promise<void> {
+async function generateStep(): Promise<boolean> {
   step.value = "generating";
   errorMsg.value = "";
   try {
@@ -230,31 +241,82 @@ async function run(): Promise<void> {
       }[];
     }
     dtoId.value = dto.id;
-    const snapshot: Record<string, unknown> = { ...dto, template: template.value };
-    dtoSnapshot.value = snapshot;
+    dtoSnapshot.value = { ...dto, template: template.value };
+    audioMeta.value = null;
+    videoUrl.value = "";
     step.value = "generated";
+    return true;
+  } catch (err) {
+    step.value = "error";
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+    return false;
+  }
+}
 
-    step.value = "tts";
-    const audio = await synthesizeFromContent(template.value, dto.content, dto.title, voice.value);
+/** 生成配音（分步：内容已生成后独立执行；失败只重试本步，不重来） */
+async function ttsStep(): Promise<boolean> {
+  if (!dtoSnapshot.value) {
+    errorMsg.value = "请先生成内容";
+    return false;
+  }
+  step.value = "tts";
+  errorMsg.value = "";
+  try {
+    const audio = await synthesizeFromContent(
+      template.value,
+      dtoSnapshot.value.content as Record<string, unknown>[],
+      String(dtoSnapshot.value.title ?? ""),
+      voice.value,
+    );
+    audioMeta.value = audio;
     audioDuration.value = audio.duration;
-    // audio 挂回 DTO 供渲染（render 的 audio 字段为必填）
-    const dtoWithAudio: RenderInput = { ...dto, template: template.value, audio };
+    step.value = "audioReady";
+    return true;
+  } catch (err) {
+    step.value = "generated"; // 停在内容已生成态，可单独重试配音
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+    return false;
+  }
+}
 
-    step.value = "rendering";
+/** 渲染视频（分步：配音完成后独立执行；失败只重试本步，配音成果保留） */
+async function renderStep(): Promise<boolean> {
+  if (!dtoSnapshot.value || !audioMeta.value) {
+    errorMsg.value = "请先完成生成与配音";
+    return false;
+  }
+  step.value = "rendering";
+  errorMsg.value = "";
+  try {
+    // dtoSnapshot 为宽松 Record（生成响应快照），运行时有完整 ContentDTO 字段，类型按项目先例收窄
+    const dtoWithAudio = {
+      ...dtoSnapshot.value,
+      template: template.value,
+      audio: audioMeta.value,
+    } as unknown as RenderInput;
     const video = await renderVideo(dtoWithAudio);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
     videoUrl.value = `${base}${video.url}`;
     step.value = "done";
     // 回写生成记录（generate 已自动落库）：配音 + 视频 + 完成状态；失败静默（不影响主流程）
     try {
-      await updateTask(dto.id, { audio, video, status: "completed" });
+      await updateTask(dtoId.value, { audio: audioMeta.value, video, status: "completed" });
     } catch {
       /* 静默：记录回写失败不影响视频产出 */
     }
+    return true;
   } catch (err) {
-    step.value = "error";
+    step.value = "audioReady"; // 停在配音完成态，可单独重试渲染
     errorMsg.value = err instanceof Error ? err.message : String(err);
+    return false;
   }
+}
+
+/** 一键全流程（任一步失败停在当前可重试状态，成果保留） */
+async function run(): Promise<void> {
+  if (!(await generateStep())) return;
+  if (!(await ttsStep())) return;
+  await renderStep();
 }
 </script>
 
@@ -370,7 +432,10 @@ async function run(): Promise<void> {
     </div>
 
     <!-- 生成结果 -->
-    <div v-if="step === 'generated' || step === 'tts' || step === 'rendering' || step === 'done'" class="mb-8 rounded-xl bg-white p-6 shadow-sm">
+    <div
+      v-if="step === 'generated' || step === 'tts' || step === 'audioReady' || step === 'rendering' || step === 'done'"
+      class="mb-8 rounded-xl bg-white p-6 shadow-sm"
+    >
       <!-- 审核修改（PRD §10.1.3）：生成后原地编辑，无需跳转 -->
       <div class="mb-3 flex items-center justify-between gap-3">
         <input
@@ -438,7 +503,29 @@ async function run(): Promise<void> {
           <b class="text-gray-900">{{ w.word }}</b> {{ w.meaning }}
         </span>
       </div>
-      <p v-if="step === 'done' && audioDuration" class="mt-3 text-xs text-gray-400">配音 {{ audioDuration.toFixed(1) }}s</p>
+      <p v-if="(step === 'done' || step === 'audioReady') && audioDuration" class="mt-3 text-xs text-gray-400">
+        配音 {{ audioDuration.toFixed(1) }}s
+      </p>
+      <!-- 分步操作（生成 → 配音 → 渲染，任一步失败只重试本步） -->
+      <div class="mt-4 flex items-center gap-3">
+        <button
+          v-if="step === 'generated' || step === 'tts'"
+          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="step === 'tts'"
+          @click="ttsStep"
+        >
+          {{ step === 'tts' ? "配音生成中…" : audioMeta ? "重新配音" : "生成配音" }}
+        </button>
+        <button
+          v-if="step === 'audioReady' || step === 'rendering'"
+          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="step === 'rendering'"
+          @click="renderStep"
+        >
+          {{ step === 'rendering' ? "渲染中…" : videoUrl ? "重新渲染" : "渲染视频" }}
+        </button>
+        <span v-if="step === 'audioReady'" class="text-xs text-gray-500">配音完成，可渲染视频</span>
+      </div>
       <!-- 编辑操作 -->
       <div v-if="editMode" class="mt-4 flex items-center gap-3">
         <button
