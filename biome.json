@@ -57,6 +57,16 @@
       "arrowParentheses": "always"
     }
   },
+  "overrides": [
+    {
+      "include": ["packages/backend/scripts/**"],
+      "linter": {
+        "rules": {
+          "suspicious": { "noConsole": "off" }
+        }
+      }
+    }
+  ],
   "json": {
     "formatter": {
       "enabled": true,
