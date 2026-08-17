@@ -71,7 +71,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 17b | POST /api/tts/from-content（ContentArray 拼接 + 合成 + ffprobe 时长，Workflow B 入口） | ✅ 完成 |
 | 17c | tts 测试补齐（拼接纯函数 5 + 路由 8，共 13 用例） | ✅ 完成 |
 | 18 | POST /api/video/render（Playwright 截图 + FFmpeg 合成，三个模板 renderer）+ 测试（时长分配 7 + 路由 9 用例） | ✅ 完成 |
-| 19 | @hono/zod-openapi → openapi.json 自动生成 | ⬜ |
+| 19 | @hono/zod-openapi → openapi.json 自动生成（6 API 全收录，/doc Scalar UI，启动时写入 src/openapi.json） | ✅ 完成 |
 
 ### 阶段 4：AI 内容生成（2026-08-17 架构变更：去 Dify，后端直连 LLM）
 

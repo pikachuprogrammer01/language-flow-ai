@@ -107,7 +107,7 @@ language-flow-ai/
 │   │       ├── db/
 │   │       │   ├── schema.ts     # Drizzle ORM 表定义 ✅
 │   │       │   └── index.ts      # 数据库连接 ✅
-│   │       └── openapi.json      # 自动生成的 OpenAPI 3.1 规范 ⏳ 待实现（#19）
+│   │       └── openapi.json      # 自动生成的 OpenAPI 3.1 规范 ✅（启动时生成 + /doc 页面）
 │   │
 │   └── frontend/                 ← Vue 3.5 + shadcn-vue + Vite
 │       ├── tsconfig.json
