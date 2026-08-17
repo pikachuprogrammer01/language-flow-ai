@@ -1255,10 +1255,26 @@
                       "properties": {
                         "url": {
                           "type": "string"
+                        },
+                        "duration": {
+                          "type": "number"
+                        },
+                        "resolution": {
+                          "type": "string"
+                        },
+                        "format": {
+                          "type": "string"
+                        },
+                        "size": {
+                          "type": "number"
                         }
                       },
                       "required": [
-                        "url"
+                        "url",
+                        "duration",
+                        "resolution",
+                        "format",
+                        "size"
                       ]
                     }
                   },
