@@ -14,7 +14,7 @@
 服务端口    backend 8080 · MySQL 3306 · Ollama 11434
 数据库      mysql://dev:dev@localhost:3306/language_flow（表：cet_words / contents / __drizzle_migrations）
 技术栈      Hono 4 · Drizzle ORM · MySQL 8.4 · Vue 3.5 + Tailwind CSS 4 · Playwright + FFmpeg 8 · Biome · Vitest 3 · zod
-LLM 配置    Agnes AI 主力 + Ollama(qwen2.5:7b) 兜底，切换走 packages/backend/.env 环境变量
+LLM 配置    Ollama 本地（qwen2.5:7b，纯本地离线方案 2026-08-17 用户决策），配置在 packages/backend/.env
             （LLM_BASE_URL/LLM_API_KEY/LLM_MODEL；.env 已被 gitignore，密钥不入库）
 文档版本    SPEC V2.0 · docs/ 01-15（05 已废弃由 15 取代）· PROGRESS 持续更新
 常用命令    pnpm dev（backend 8080）· pnpm test / pnpm lint / pnpm typecheck

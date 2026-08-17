@@ -156,6 +156,8 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 2026-07-28 | 限流方案：hono-rate-limiter | 轻量，按 IP 限流，无需 Redis |
 | 2026-07-28 | CI/CD：GitHub Actions | push/PR 自动跑 typecheck + test + lint，Node 24 |
 | 2026-07-28 | 测试框架：Vitest 3 | 与 Vite 共享配置，backend=node / frontend=jsdom |
+| 2026-08-17 | 去 Dify：后端直连 LLM（/api/content/generate） | 简化架构，少一个部署依赖，env 切换模型 |
+| 2026-08-17 | 模型：纯本地 Ollama qwen2.5:7b（不用 Agnes） | 完全免费离线；质量不足可换 14b 或接免费云 API |
 | 2026-07-28 | Node 版本：24 | 最新 LTS，与 pnpm 11 配套 |
 | 2026-07-28 | Tailwind 4 Vite 插件 | 替代 PostCSS，零配置启动 |
 | 2026-07-28 | 本地数据库：Docker Compose | MySQL 8.4，一键启动 |

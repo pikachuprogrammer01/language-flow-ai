@@ -74,7 +74,7 @@
 
 | 层 | 选型 | 说明 |
 |----|------|------|
-| 流程编排 | 无（后端 service 直连 LLM） | 内容生成：llm.service 调 OpenAI 兼容 API（Agnes/Ollama，docs/14） |
+| 流程编排 | 无（后端 service 直连 LLM） | 内容生成：llm.service 调 OpenAI 兼容 API（Ollama 本地，docs/14） |
 | 后端语言 | TypeScript (Node.js) | 后端 API 服务统一语言 |
 | 后端框架 | Hono | 轻量 TS-first Web 框架，原生 Zod 集成，Edge-ready |
 | 数据校验 | Zod | 运行时类型校验，与 Hono zValidator 中间件配合 |
@@ -572,7 +572,7 @@ POST /api/content/generate
 
 ### 6.3 模型切换
 
-- Agnes（主力）/ Ollama（兜底）通过环境变量 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL 切换，
+- Ollama 本地（qwen2.5:7b）通过环境变量 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL 配置（docs/14），
   **代码零改动**（docs/14 §2）。
 - Prompt 规范（主题式标题、中文故事嵌入英文词、JSON 输出格式）见 docs/15 §五。
 
@@ -841,7 +841,7 @@ project-root/
 ### 12.3 AI 内容生成（去 Dify，2026-08-17 架构变更）
 
 - [ ] `POST /api/content/generate` — LLM 生成情景故事 + 词库校验（docs/15）
-- [ ] 模型切换：Agnes（主力）/ Ollama（兜底）环境变量配置（docs/14）
+- [x] 模型配置：Ollama 本地（qwen2.5:7b）环境变量配置（docs/14，2026-08-17 完成）
 - [ ] 串联逻辑：content/generate → tts/from-content → video/render
 
 ### 12.4 shared 类型包

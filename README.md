@@ -42,7 +42,7 @@
 
 | 层 | 选型 |
 |----|------|
-| 流程编排 | 无（后端 service 直连 LLM：Agnes / Ollama，docs/14） |
+| 流程编排 | 无（后端 service 直连本地 LLM：Ollama qwen2.5:7b，docs/14） |
 | 后端框架 | Hono + Zod + Drizzle ORM |
 | 后端语言 | TypeScript (Node.js) |
 | 数据库 | MySQL 8.4（Docker Compose） |
@@ -243,7 +243,7 @@ interface ContentDTO {
    ```bash
    pnpm --filter frontend gen-api     # 从 openapi.json 生成 schema.d.ts
    ```
-8. （后续）配置 LLM 环境变量（`LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`，Agnes 或 Ollama，详见 [docs/14](./docs/14_模型层设计方案.md)）
+8. （后续）配置 LLM 环境变量（`LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`，Ollama 本地，详见 [docs/14](./docs/14_模型层设计方案.md)）
 
 ## 开发规范
 
