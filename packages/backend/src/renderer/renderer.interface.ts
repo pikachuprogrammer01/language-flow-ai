@@ -15,6 +15,8 @@ export interface RenderResult {
   frames: RenderFrame[];
   /** 总时长 = audio.duration（对齐配音，docs/10 §五） */
   totalDuration: number;
+  /** 提示音时间点（秒）：在这些时刻插入短促音频提示（如 quiz 答案帧起点） */
+  beepTimes?: number[];
 }
 
 export interface TemplateRenderer {

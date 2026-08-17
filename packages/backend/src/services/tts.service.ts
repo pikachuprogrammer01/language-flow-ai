@@ -174,40 +174,12 @@ function dateToString(): string {
 
 type JsonRecord = Record<string, unknown>;
 
-/** 词性缩写 → 中文（朗读用，覆盖常见缩写与连写：adv.→副词、vt.&vi.→及物和不及物动词） */
-const POS_ZH: Record<string, string> = {
-  n: "名词",
-  v: "动词",
-  vt: "及物动词",
-  vi: "不及物动词",
-  vbl: "动词",
-  adj: "形容词",
-  a: "形容词",
-  adv: "副词",
-  ad: "副词",
-  prep: "介词",
-  conj: "连词",
-  pron: "代词",
-  num: "数词",
-  art: "冠词",
-  aux: "助动词",
-  int: "感叹词",
-  interj: "感叹词",
-  pref: "前缀",
-  suf: "后缀",
-  abbr: "缩写",
-};
-
-/** 词性中文映射：拆分连写（vt.vi. / aux.v.&vi. / a.&ad.）逐个映射后拼接 */
-function posToChinese(pos: string): string {
-  const tokens = pos
-    .toLowerCase()
-    .replace(/\./g, " ")
-    .replace(/&/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  const mapped = tokens.map((t) => POS_ZH[t] ?? t).filter(Boolean);
-  return mapped.join("、") || pos;
+/** 剥离释义开头的词性前缀（如 "n.天花板" → "天花板"）：朗读时词性不读出 */
+function stripPosPrefix(text: string): string {
+  return text.replace(
+    /^(?:n|vt|vi|v|adj|a|adv|ad|prep|conj|pron|aux|num|art|int|interj|abbr)\.\s*/,
+    "",
+  );
 }
 
 function str(value: unknown): string {
@@ -268,16 +240,12 @@ export function buildTtsText(
     case "word_card":
       return content
         .map((card) => {
-          // 全中文朗读（用户确认 2026-08-18）：词性映射中文 + 释义中文 + 例句 + 例句翻译
+          // 全中文朗读（用户确认 2026-08-18）：词性不朗读，读 释义 + 例句 + 例句翻译
           const word = str(card.word);
-          const posZh = posToChinese(str(card.pos));
-          const meaning = str(card.meaning);
+          const meaning = stripPosPrefix(str(card.meaning));
           const example = str(card.example);
           const exampleMeaning = str(card.exampleMeaning);
-          const head = [word, posZh ? `${posZh}，${meaning}` : meaning]
-            .map(stripTrailingPunct)
-            .filter(Boolean)
-            .join("，");
+          const head = [word, meaning].map(stripTrailingPunct).filter(Boolean).join("，");
           const parts = [head, example, exampleMeaning]
             .map(stripTrailingPunct)
             .filter(Boolean)
@@ -293,7 +261,10 @@ export function buildTtsText(
           // 选项上限 4 个（QuizItem 契约），超出截断避免字母越界（A-D）
           const optionText = options
             .slice(0, 4)
-            .map((opt, i) => `${String.fromCharCode(65 + i)}. ${stripTrailingPunct(str(opt))}`)
+            .map(
+              (opt, i) =>
+                `${String.fromCharCode(65 + i)}. ${stripTrailingPunct(stripPosPrefix(str(opt)))}`,
+            )
             .join(". ");
           if (!optionText) return "";
           const stem = ensureEndPunct(str(q.stem));

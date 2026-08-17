@@ -43,6 +43,7 @@ export async function composeVideo(
   audioPath: string,
   outputPath: string,
   bgmPath?: string,
+  beepTimes?: number[],
 ): Promise<void> {
   const inputs = frames.flatMap((f) => [
     "-loop",
@@ -56,23 +57,47 @@ export async function composeVideo(
   const concatFilter = `${frames.map((_, i) => `[v${i}]`).join("")}concat=n=${frames.length}:v=1:a=0[vout]`;
   // BGM 混音（可选）：循环背景音乐、降音量后与配音混合（配音为主，BGM 垫底）
   const bgmArgs = bgmPath ? ["-stream_loop", "-1", "-i", bgmPath] : [];
-  const audioFilter = bgmPath
-    ? `[0:a]volume=1.0[a0];[${frames.length + 1}:a]volume=0.12,afade=t=out:st=${frames.reduce((n, f) => n + f.duration, 0) - 2}:d=2[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]`
-    : "";
+  // 提示音（可选，quiz 答案帧起点）：880Hz 0.25s 短音，按 beepTimes 延时至对应时刻后混入
+  const beepArgs =
+    beepTimes && beepTimes.length > 0
+      ? ["-f", "lavfi", "-t", "0.25", "-i", "sine=frequency=880:sample_rate=44100"]
+      : [];
+  const beepIdx = frames.length + 1 + (bgmPath ? 1 : 0);
+  const beepFilters =
+    beepTimes && beepTimes.length > 0
+      ? (() => {
+          const split = `[${beepIdx}:a]asplit=${beepTimes.length}${beepTimes
+            .map((_, i) => `[beep${i}]`)
+            .join("")}`;
+          const delays = beepTimes
+            .map(
+              (t, i) => `[beep${i}]adelay=${Math.round(t * 1000)}|${Math.round(t * 1000)}[b${i}]`,
+            )
+            .join(";");
+          return `${split};${delays}`;
+        })()
+      : "";
+  const baseAudio = bgmPath
+    ? `[0:a]volume=1.0[a0];[${frames.length + 1}:a]volume=0.12,afade=t=out:st=${frames.reduce((n, f) => n + f.duration, 0) - 2}:d=2[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[base]`
+    : "[0:a]volume=1.0[base]";
+  const beepMix =
+    beepTimes && beepTimes.length > 0
+      ? `[base]${beepTimes.map((_, i) => `[b${i}]`).join("")}amix=inputs=${beepTimes.length + 1}:duration=first:dropout_transition=0.5[aout]`
+      : "[base]anull[aout]";
+  const audioFilters = [beepFilters, baseAudio, beepMix].filter(Boolean).join(";");
   const args = [
     "-y",
     "-i",
     audioPath,
     ...inputs,
     ...bgmArgs,
+    ...beepArgs,
     "-filter_complex",
-    bgmPath
-      ? `${scaleFilters.join(";")};${concatFilter};${audioFilter}`
-      : `${scaleFilters.join(";")};${concatFilter}`,
+    `${scaleFilters.join(";")};${concatFilter};${audioFilters}`,
     "-map",
     "[vout]",
     "-map",
-    bgmPath ? "[aout]" : "0:a",
+    "[aout]",
     "-r",
     "25",
     "-c:v",
@@ -129,6 +154,7 @@ export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
         localFilePathFromUrl(audio.url),
         outputPath,
         bgm ? localFilePathFromUrl(bgm, "bgm") : undefined,
+        result.beepTimes,
       );
     } catch (err) {
       // FFmpeg 失败：删除半成品 MP4，不保留（docs/10 §七）

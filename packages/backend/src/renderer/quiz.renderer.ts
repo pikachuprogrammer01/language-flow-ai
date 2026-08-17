@@ -4,7 +4,6 @@
  * 每道题 2 帧：题目帧 + 解析帧（正确项高亮 + 解析文字）
  */
 import type { ContentDTO, QuizItem } from "@ai-english/shared";
-import { allocateDurations } from "./allocate-durations";
 import { isQuiz } from "./guards";
 import { escapeHtml, fillTemplate, loadTemplate } from "./html";
 import { screenshotHtmls } from "./playwright";
@@ -40,20 +39,36 @@ export class QuizRenderer implements TemplateRenderer {
 
     const template = await loadTemplate("quiz.html");
     const htmlList: string[] = [];
-    const weights: number[] = [];
+    const readWeights: number[] = [];
     for (const q of items) {
       htmlList.push(renderQuizHtml(template, q, false));
-      weights.push(q.stem.length + q.options.join("").length);
+      // 题目帧权重 = 该题朗读文本量（题干 + 选项，配音按此比例朗读）
+      readWeights.push(q.stem.length + q.options.join("").length);
       htmlList.push(renderQuizHtml(template, q, true));
-      weights.push(q.explanation.length + 8);
     }
 
     const paths = await screenshotHtmls(htmlList, workDir);
-    const durations = allocateDurations(weights, audio.duration);
+    // 题目帧 = 该题朗读比例 × 配音总时长 + 1s 缓冲（读完所有选项再等 1 秒才显示答案，用户确认 2026-08-18）
+    // 答案帧固定 2.5s（解析阅读）；答案帧起点插入提示音
+    const totalRead = readWeights.reduce((n, w) => n + w, 0) || 1;
+    const ANSWER_DURATION = 2.5;
+    const QUESTION_PAUSE = 1.0;
+    const durations: number[] = [];
+    const beepTimes: number[] = [];
+    let cursor = 0;
+    for (let i = 0; i < items.length; i++) {
+      const questionDuration = (readWeights[i] / totalRead) * audio.duration + QUESTION_PAUSE;
+      durations.push(questionDuration);
+      cursor += questionDuration;
+      beepTimes.push(cursor); // 答案帧起点：提示音
+      durations.push(ANSWER_DURATION);
+      cursor += ANSWER_DURATION;
+    }
 
     return {
       frames: paths.map((filePath, i) => ({ filePath, duration: durations[i] })),
-      totalDuration: audio.duration,
+      totalDuration: cursor,
+      beepTimes,
     };
   }
 }

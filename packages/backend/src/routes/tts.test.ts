@@ -52,7 +52,7 @@ describe("buildTtsText", () => {
     expect(text).toBe("纯文本段。");
   });
 
-  it("word_card：全中文朗读（词性映射中文 + 释义 + 例句 + 例句翻译）", () => {
+  it("word_card：全中文朗读（词性不朗读，读释义 + 例句 + 例句翻译）", () => {
     const text = buildTtsText(
       [
         {
@@ -74,25 +74,42 @@ describe("buildTtsText", () => {
     );
 
     expect(text).toBe(
-      "elaborate，形容词，精心制作的。She made elaborate preparations。她做了精心的准备。 contract，名词，合同。He signed a contract。他签了一份合同。",
+      "elaborate，精心制作的。She made elaborate preparations。她做了精心的准备。 contract，合同。He signed a contract。他签了一份合同。",
     );
   });
 
-  it("word_card：连写词性映射（vt.&vi. → 及物动词、不及物动词）", () => {
+  it("word_card：释义带词性前缀时剥离（n.合同 → 合同）", () => {
     const text = buildTtsText(
       [
         {
-          word: "resolve",
-          pos: "vt.&vi.",
-          meaning: "决定",
-          example: "I resolve to try.",
-          exampleMeaning: "我决心尝试。",
+          word: "contract",
+          pos: "n.",
+          meaning: "n.合同",
+          example: "He signed a contract.",
+          exampleMeaning: "他签了一份合同。",
         },
       ],
       "word_card",
     );
 
-    expect(text).toBe("resolve，及物动词、不及物动词，决定。I resolve to try。我决心尝试。");
+    expect(text).toBe("contract，合同。He signed a contract。他签了一份合同。");
+  });
+
+  it("quiz：选项剥离词性前缀（n.天花板 → 天花板）", () => {
+    const text = buildTtsText(
+      [
+        {
+          stem: "ceiling 的意思是？",
+          options: ["n.天花板，顶蓬", "n.合同", "v.建立", "adj.巨大的"],
+          correctIndex: 0,
+          explanation: "解析",
+          word: { word: "ceiling", meaning: "n.天花板", level: "CET4" },
+        },
+      ],
+      "quiz",
+    );
+
+    expect(text).toBe("ceiling 的意思是？ A. 天花板，顶蓬. B. 合同. C. 建立. D. 巨大的.");
   });
 
   it("quiz：逐题拼接 stem. A. opt0. B. opt1. C. opt2. D. opt3.", () => {
@@ -156,7 +173,7 @@ describe("POST /api/tts", () => {
     });
 
     expect(ttsService.synthesizeSpeech).toHaveBeenCalledWith(
-      "hi，感叹词，嗨。Hi there。你好。",
+      "hi，嗨。Hi there。你好。",
       "zh-CN-XiaoxiaoNeural",
     );
   });
