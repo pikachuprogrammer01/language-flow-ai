@@ -29,24 +29,26 @@ const TOPIC_WORDS_JSON = JSON.stringify({
   words: ["establishment", "equip", "contract", "expand"],
 });
 
-/** 纯中文故事（含候选词中文义项：机构/装备/合同） */
+/** 纯中文故事（含 6 个候选词中文义项：机构/装备/合同/扩张/改善/市场） */
 const STORY_JSON = JSON.stringify({
   topic: "科技创业",
   title: "职场英语：读一个科技创业故事",
   segments: [
     {
-      text: "奥斯丁在一家科技机构工作，负责装备实验室，并签下一份合同。",
+      text: "奥斯丁在一家科技机构工作，负责装备实验室，签下一份合同，计划扩张业务，改善运营，打开市场。",
     },
   ],
 });
 
-/** 词库命中（establishment/equip/contract/expand）；词义含模型/故事里的短词义 */
+/** 词库命中（6 词）；meaning 须包含故事里的短词义 */
 function dictHit(words: string[]) {
   const dict: Record<string, string> = {
     establishment: "机构；组织；建立",
     equip: "装备；配备",
     contract: "合同；契约",
     expand: "扩张；扩展",
+    improve: "改善；改进",
+    market: "市场；销路",
   };
   const matched = words.filter((w) => dict[w.toLowerCase()] !== undefined);
   const unmatched = words.filter((w) => !matched.includes(w));
@@ -126,6 +128,9 @@ describe("generateSceneWordContent", () => {
       "contract",
       "equip",
       "establishment",
+      "expand",
+      "improve",
+      "market",
     ]);
     expect(chatCompletionMock).toHaveBeenCalledTimes(2);
   });
@@ -164,11 +169,11 @@ describe("generateSceneWordContent", () => {
   });
 
   it("文本中未出现的候选词不注入", async () => {
-    // 故事含"机构/合同/扩张"，无"装备" → equip 不注入
+    // 故事含"机构/合同/扩张/改善/市场"，无"装备" → equip 不注入（其余 5 词注入）
     const story = JSON.stringify({
       topic: "科技创业",
       title: "t",
-      segments: [{ text: "奥斯丁在科技机构签下合同，计划扩张业务。" }],
+      segments: [{ text: "奥斯丁在科技机构签下合同，计划扩张业务，改善运营，打开市场。" }],
     });
     chatCompletionMock.mockResolvedValueOnce(TOPIC_WORDS_JSON).mockResolvedValueOnce(story);
 
@@ -176,7 +181,7 @@ describe("generateSceneWordContent", () => {
     expect(isSceneWord(dto)).toBe(true);
     if (!isSceneWord(dto)) throw new Error("unexpected template");
     const words = dto.content[0].words.map((w) => w.word).sort();
-    expect(words).toEqual(["contract", "establishment", "expand"]);
+    expect(words).toEqual(["contract", "establishment", "expand", "improve", "market"]);
     expect(words).not.toContain("equip");
   });
 
@@ -185,13 +190,21 @@ describe("generateSceneWordContent", () => {
     const mixedStory = JSON.stringify({
       topic: "人工智能创业",
       title: "AI 创业",
-      segments: [{ text: "张明在一家科技机构工作，负责装备实验室，并签下一份合同。" }],
+      segments: [
+        {
+          text: "张明在一家科技机构工作，负责装备实验室，签下一份合同，计划扩张业务，改善运营，打开市场。",
+        },
+      ],
     });
     // 纯英文主题：原样回显通过
     const enStory = JSON.stringify({
       topic: "AI startup",
       title: "AI 创业",
-      segments: [{ text: "张明在一家科技机构工作，负责装备实验室，并签下一份合同。" }],
+      segments: [
+        {
+          text: "张明在一家科技机构工作，负责装备实验室，签下一份合同，计划扩张业务，改善运营，打开市场。",
+        },
+      ],
     });
     chatCompletionMock
       .mockResolvedValueOnce(TOPIC_WORDS_JSON)

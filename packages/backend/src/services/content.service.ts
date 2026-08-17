@@ -78,38 +78,72 @@ async function fetchTopicWords(topic: string, level: string): Promise<string[]> 
   }
 }
 
-/** 候选词组装：主题相关词（词库校验命中）优先 + 高频池随机补足 */
+/**
+ * 通用叙事词表（2026-08-17 实测词库存在）：任意主题故事都容易自然出现的中文词义，
+ * 用于候选词补足，保证注入词数下限可达成（用户要求：每篇 5-20 词）
+ */
+const NARRATIVE_WORDS = [
+  "product",
+  "improve",
+  "provide",
+  "opportunity",
+  "risk",
+  "market",
+  "establish",
+  "support",
+  "contract",
+  "create",
+  "require",
+  "resolve",
+  "perform",
+  "propose",
+  "consequence",
+  "emphasis",
+  "finally",
+  "staff",
+  "expectation",
+  "alternative",
+  "object",
+  "resume",
+  "elect",
+  "calculate",
+  "convention",
+  "reverse",
+] as const;
+
+/** 用户要求的词汇数硬边界：每篇 ≥5 且 ≤20（注入上限） */
+export const MIN_WORDS_PER_CONTENT = 5;
+export const MAX_WORDS_PER_CONTENT = 20;
+
+/** 候选词组装：主题相关词（LLM 产出 + 词库把关）→ 通用叙事词 → 高频池随机补足 */
 async function buildCandidates(
   input: GenerateSceneWordInput,
 ): Promise<{ word: string; meaning: string; level: "CET4" | "CET6" }[]> {
   const want = input.wordCount ?? 8;
-  const target = Math.min(want * 2, 30);
+  const target = Math.min(want * 2, MAX_WORDS_PER_CONTENT);
   const have = new Set<string>();
   const result: { word: string; meaning: string; level: "CET4" | "CET6" }[] = [];
+  const pushIfNew = (m: { word: string; meaning: string; level: "CET4" | "CET6" }): void => {
+    if (result.length >= target || have.has(m.word.toLowerCase())) return;
+    have.add(m.word.toLowerCase());
+    result.push(m);
+  };
 
   // 1) 主题相关词：LLM 产出 → 词库把关（词义以词库为准）
   const topicWords = await fetchTopicWords(input.topic, input.level);
   if (topicWords.length > 0) {
     const { matchedWords } = await validateWords(topicWords, input.level, db);
-    for (const m of matchedWords) {
-      if (result.length >= target) break;
-      if (!have.has(m.word.toLowerCase())) {
-        have.add(m.word.toLowerCase());
-        result.push({ word: m.word, meaning: m.meaning, level: m.level });
-      }
-    }
+    for (const m of matchedWords) pushIfNew(m);
   }
 
-  // 2) 随机补足到目标数（通用叙事词，保证任意主题都有可注入词）
+  // 2) 通用叙事词（任意主题故事自然出现概率高）
+  const { matchedWords: narrative } = await validateWords([...NARRATIVE_WORDS], input.level, db);
+  for (const m of narrative) pushIfNew(m);
+
+  // 3) 高频池随机补足（保底）
   if (result.length < target) {
     const { words: randoms } = await randomWords(input.level, target, db);
-    for (const r of randoms) {
-      if (result.length >= target) break;
-      if (!have.has(r.word.toLowerCase())) {
-        have.add(r.word.toLowerCase());
-        result.push({ word: r.word, meaning: r.meaning, level: r.level });
-      }
-    }
+    for (const r of randoms) pushIfNew(r);
   }
   return result;
 }
@@ -129,8 +163,8 @@ function buildPrompt(
     "要求：",
     `1. 故事必须紧紧围绕主题「${input.topic}」展开，情节连贯、生活化；标题也必须呼应主题`,
     "2. 全部用中文写作，不要写任何英文",
-    `3. 写作时自然使用下方候选词汇的中文含义相关的内容（比如候选词里有"市场"，故事里就可以写"市场""行情"这类词；不必刻意，自然叙述即可）`,
-    `4. 正文分 ${segments} 段（每段 50-100 字）`,
+    "3. 写作时自然使用下方候选词汇的中文含义相关的内容：候选词里至少 5 个词的中文含义要出现在故事里（如候选词有「市场」，就写「市场」「行情」这类词；候选词有「产品」，就写「产品」）。务必自然，不要罗列",
+    `4. 正文分 ${segments} 段（每段 60-120 字）`,
     "5. 标题为主题式：点明故事主题+学习内容，自然不夸张，不超过 20 字",
     "6. 只输出一个 JSON 对象，不要任何其他文字、不要 markdown 围栏。topic 字段回显你理解的主题；segments 每段只需 text 字段",
     `候选词汇（写作时自然涉及其中中文含义即可）：\n${candidateList}`,
@@ -167,6 +201,7 @@ function injectFromDict(
     .sort((a, b) => a.meaning.length - b.meaning.length)
     .reverse();
   for (const item of items) {
+    if (injected.length >= MAX_WORDS_PER_CONTENT) break; // 上限 20：超出即停
     const idx = t.indexOf(item.meaning);
     if (idx === -1 || injected.some((i) => i.word === item.word)) continue;
     // 相邻字符是字母/数字则补空格（防 technologymarket 粘连，且保证 \b 词边界可用于逆替换/高亮）
@@ -249,13 +284,13 @@ function acceptOutput(
       reason: `主题偏离：要求围绕「${input.topic}」，你输出的主题是「${llmOutput.topic}」。请重新围绕「${input.topic}」编写故事。`,
     };
   }
-  // 至少 1 词兜底（wordCount 可能 < 2）
-  const minWords = Math.max(1, Math.min(2, input.wordCount ?? 8));
+  // 硬约束：每篇 ≥5 词（用户要求，不足即失败重试）
+  const minWords = MIN_WORDS_PER_CONTENT;
   const total = filtered.reduce((n, s) => n + s.words.length, 0);
   if (total < minWords) {
     return {
       ok: false,
-      reason: `词汇不足：当前只注入 ${total} 个英文词（目标 ${minWords}）。请让故事更贴近候选词汇的中文含义（如写"市场""发展""产品"等），让更多候选词能自然出现。`,
+      reason: `词汇不足：当前只注入 ${total} 个英文词（要求至少 ${minWords} 个）。请让故事更贴近候选词汇的中文含义（如写"市场""产品""发展""合同"这类词），让至少 ${minWords} 个候选词能自然出现。`,
     };
   }
   return { ok: true };
