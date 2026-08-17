@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 /**
  * GET/DELETE /api/files 测试
  * 覆盖：列表（类型过滤/inUse 标记）/ 删除成功 / 非法文件名 400 / 不存在 404
@@ -13,6 +15,50 @@ const app = fileManager;
 beforeEach(() => {
   // referencedFiles 查询 contents：select({audio, video}).from() 返回空数组；vitest mock 赋值类型断层用 as never（测试替身惯例）
   vi.mocked(db).select = vi.fn(() => ({ from: async () => [] }) as never) as never;
+});
+
+describe("POST /api/files/batch-delete", () => {
+  it("批量删除返回统计（存在文件删除成功，不存在文件幂等跳过）", async () => {
+    // 创建临时文件验证删除成功分支（测试后无残留）
+    const tmpPath = join(process.cwd(), "uploads/audio/__batch_tmp.mp3");
+    await writeFile(tmpPath, "x");
+    const res = await app.request("/batch-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        items: [
+          { filename: "__batch_tmp.mp3", type: "audio" },
+          { filename: "gone.mp4", type: "video" },
+        ],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: number; notFound: string[]; errors: unknown[] };
+    expect(body.deleted).toBe(1);
+    expect(body.notFound).toEqual(["gone.mp4"]);
+    expect(body.errors).toEqual([]);
+  });
+
+  it("非法文件名进 errors 列表", async () => {
+    const res = await app.request("/batch-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [{ filename: "x/../y.mp3", type: "audio" }] }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: number; errors: { filename: string }[] };
+    expect(body.deleted).toBe(0);
+    expect(body.errors).toHaveLength(1);
+  });
+
+  it("空 items 返回 400", async () => {
+    const res = await app.request("/batch-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [] }),
+    });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("GET /api/files", () => {

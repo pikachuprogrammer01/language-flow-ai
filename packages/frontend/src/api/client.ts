@@ -159,3 +159,15 @@ export async function deleteFile(filename: string, type: "audio" | "video" | "bg
   if (error || !response.ok) throw new Error(`删除文件失败（HTTP ${response.status}）`);
   return data;
 }
+
+/** 批量删除文件（文件管理批量处理；不存在的文件幂等跳过） */
+export async function batchDeleteFiles(
+  items: { filename: string; type: "audio" | "video" | "bgm" }[],
+) {
+  const { data, error, response } = await client.POST("/api/files/batch-delete", {
+    body: { items },
+  });
+  if (error || !response.ok) throw new Error(`批量删除失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("批量删除失败：空响应");
+  return data;
+}

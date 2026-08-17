@@ -1791,6 +1791,100 @@
           }
         }
       }
+    },
+    "/api/files/batch-delete": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "filename": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "audio",
+                            "video",
+                            "bgm"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "filename",
+                        "type"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 100
+                  }
+                },
+                "required": [
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "批量删除结果（已删除 / 不存在 / 失败）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "number"
+                    },
+                    "notFound": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "errors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "filename": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "filename",
+                          "reason"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "deleted",
+                    "notFound",
+                    "errors"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

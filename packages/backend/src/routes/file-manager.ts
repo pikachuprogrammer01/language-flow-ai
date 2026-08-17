@@ -134,3 +134,59 @@ fileManager.openapi(deleteRoute, async (c) => {
     return c.json({ error: "文件不存在" }, 404);
   }
 });
+
+// ── 批量删除（文件管理批量处理） ──
+
+const batchDeleteRoute = createRoute({
+  method: "post",
+  path: "/batch-delete",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            items: z
+              .array(z.object({ filename: z.string().min(1).max(100), type: z.enum(FILE_TYPES) }))
+              .min(1)
+              .max(100),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "批量删除结果（已删除 / 不存在 / 失败）",
+      content: {
+        "application/json": {
+          schema: z.object({
+            deleted: z.number(),
+            notFound: z.array(z.string()),
+            errors: z.array(z.object({ filename: z.string(), reason: z.string() })),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["files"],
+});
+
+fileManager.openapi(batchDeleteRoute, async (c) => {
+  const { items } = c.req.valid("json");
+  const deleted: string[] = [];
+  const notFound: string[] = [];
+  const errors: { filename: string; reason: string }[] = [];
+  for (const { filename, type } of items) {
+    if (filename.includes("..") || basename(filename) !== filename) {
+      errors.push({ filename, reason: "非法文件名" });
+      continue;
+    }
+    try {
+      await rm(join(UPLOADS_DIR, type, filename), { force: false });
+      deleted.push(filename);
+    } catch {
+      notFound.push(filename); // 已删除/不存在视为幂等跳过
+    }
+  }
+  return c.json({ deleted: deleted.length, notFound, errors });
+});

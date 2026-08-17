@@ -4,7 +4,7 @@
  * 数据源：GET /api/files（分类 + inUse 标记）+ DELETE /api/files/:filename?type=
  */
 import { computed, onMounted, ref } from "vue";
-import { deleteFile, listFiles } from "../api/client";
+import { batchDeleteFiles, deleteFile, listFiles } from "../api/client";
 
 const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
 const files = ref<
@@ -19,6 +19,8 @@ const files = ref<
 const filter = ref<"all" | "video" | "audio" | "bgm">("all");
 const loading = ref(true);
 const errorMsg = ref("");
+/** 批量选择（key = type/filename） */
+const selected = ref<Set<string>>(new Set());
 
 const TYPE_LABEL: Record<string, string> = {
   video: "视频（成片）",
@@ -68,6 +70,57 @@ async function remove(f: {
   }
 }
 
+function keyOf(f: { filename: string; type: string }): string {
+  return `${f.type}/${f.filename}`;
+}
+
+const allFilteredSelected = computed(
+  () => filtered.value.length > 0 && filtered.value.every((f) => selected.value.has(keyOf(f))),
+);
+
+function toggleAll(): void {
+  const next = new Set(selected.value);
+  if (allFilteredSelected.value) {
+    for (const f of filtered.value) next.delete(keyOf(f));
+  } else {
+    for (const f of filtered.value) next.add(keyOf(f));
+  }
+  selected.value = next;
+}
+
+function toggle(f: { filename: string; type: "audio" | "video" | "bgm" }): void {
+  const k = keyOf(f);
+  const next = new Set(selected.value);
+  if (next.has(k)) next.delete(k);
+  else next.add(k);
+  selected.value = next;
+}
+
+async function batchRemove(): Promise<void> {
+  if (selected.value.size === 0) return;
+  const hasReferenced = [...selected.value]
+    .map((k) => files.value.find((f) => keyOf(f) === k))
+    .some((f) => f?.inUse);
+  const tip = hasReferenced
+    ? `选中的 ${selected.value.size} 个文件中包含被记录引用的文件，删除后对应记录中的视频/音频将无法播放，确定删除？`
+    : `确定删除选中的 ${selected.value.size} 个文件？`;
+  if (!window.confirm(tip)) return;
+  try {
+    const items = [...selected.value].map((k) => {
+      const [type, filename] = k.split("/");
+      return { type, filename } as { type: "audio" | "video" | "bgm"; filename: string };
+    });
+    const result = await batchDeleteFiles(items);
+    selected.value = new Set();
+    await load();
+    if (result.errors.length > 0) {
+      errorMsg.value = `已删除 ${result.deleted} 个；${result.errors.length} 个失败（${result.errors.map((e) => e.filename).join("、")}）`;
+    }
+  } catch (err) {
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -87,7 +140,7 @@ onMounted(load);
       </p>
 
       <!-- 分类 Tab：视频 / 配音 / BGM 分开管理 -->
-      <div class="mb-4 flex flex-wrap gap-2">
+      <div class="mb-4 flex flex-wrap items-center gap-2">
         <button
           v-for="f in (['all', 'video', 'audio', 'bgm'] as const)"
           :key="f"
@@ -97,19 +150,39 @@ onMounted(load);
         >
           {{ f === "all" ? `全部（${files.length}）` : `${TYPE_LABEL[f]}（${files.filter((x) => x.type === f).length}）` }}
         </button>
+        <span class="ml-auto flex items-center gap-2">
+          <label v-if="filtered.length > 0" class="flex items-center gap-1 text-sm text-gray-600">
+            <input type="checkbox" :checked="allFilteredSelected" @change="toggleAll" />
+            全选本页
+          </label>
+          <button
+            class="rounded-lg border px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 disabled:opacity-40"
+            :disabled="selected.size === 0"
+            @click="batchRemove"
+          >
+            批量删除（{{ selected.size }}）
+          </button>
+        </span>
       </div>
 
       <ul class="space-y-3">
         <li v-for="f in filtered" :key="`${f.type}-${f.filename}`" class="rounded-xl border p-4">
           <div class="flex items-center justify-between gap-4">
-            <div class="min-w-0">
-              <div class="truncate font-mono text-xs text-gray-700">{{ f.filename }}</div>
-              <div class="mt-1 flex items-center gap-3 text-xs text-gray-500">
-                <span class="rounded bg-gray-100 px-1.5 py-0.5">{{ TYPE_LABEL[f.type] }}</span>
-                <span>{{ fmtSize(f.size) }}</span>
-                <span>{{ new Date(f.mtime).toLocaleString("zh-CN") }}</span>
-                <span v-if="f.inUse" class="text-blue-600">被记录引用</span>
-                <span v-else class="text-orange-500">未引用</span>
+            <div class="flex min-w-0 flex-1 items-center gap-3">
+              <input
+                type="checkbox"
+                :checked="selected.has(`${f.type}/${f.filename}`)"
+                @change="toggle(f)"
+              />
+              <div class="min-w-0 flex-1">
+                <div class="truncate font-mono text-xs text-gray-700">{{ f.filename }}</div>
+                <div class="mt-1 flex items-center gap-3 text-xs text-gray-500">
+                  <span class="rounded bg-gray-100 px-1.5 py-0.5">{{ TYPE_LABEL[f.type] }}</span>
+                  <span>{{ fmtSize(f.size) }}</span>
+                  <span>{{ new Date(f.mtime).toLocaleString("zh-CN") }}</span>
+                  <span v-if="f.inUse" class="text-blue-600">被记录引用</span>
+                  <span v-else class="text-orange-500">未引用</span>
+                </div>
               </div>
             </div>
             <button
