@@ -3,7 +3,7 @@
  * 新建任务页 — 单页全流程：生成内容 → 配音 → 渲染视频 → 播放
  * 调用链：/api/content/generate → /api/tts/from-content → /api/video/render
  */
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import {
   type GenerateInput,
   type RenderInput,
@@ -107,6 +107,13 @@ const stepLabel: Record<Step, string> = {
 const allWords = () => [
   ...new Map(segments.value.flatMap((s) => s.words.map((w) => [w.word, w]))).values(),
 ];
+
+// 加载 BGM 素材（重新渲染混音用；失败静默）
+listFiles({ type: "bgm" })
+  .then((data) => {
+    bgmFiles.value = data.files;
+  })
+  .catch(() => {});
 
 // 加载配音列表（失败静默，默认音色兜底）
 listVoices()
