@@ -78,8 +78,8 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | # | 任务 | 状态 |
 |---|------|------|
 | 20 | llm.service（OpenAI 兼容调用，Agnes/Ollama 环境变量切换）+ content.service（生成 story + 词库校验）+ POST /api/content/generate + 测试（14 用例：llm 3 + service 4 + route 7） | ✅ 完成 |
-| 21 | prompt 调优：中文故事嵌入英文词、主题式标题、JSON 输出（docs/15 §五） | ⬜ |
-| 22 | 端到端：content/generate → tts/from-content → video/render 串联验证 | ⬜ |
+| 21 | prompt 调优：候选词注入（词库高频池随机 4 倍）+ 英文词嵌入 + 主题式标题 + JSON 容错重试 ×3 + 文本英文词自动提取（2026-08-17 实测 qwen2.5:7b） | ✅ 完成 |
+| 22 | 端到端：content/generate → tts/from-content → video/render 串联验证（实测：森林探险 12.12s MP4，1080×1920 h264+aac） | ✅ 完成 |
 
 > 原 #20-24（Dify Workflow YAML）已废弃：docs/05 标注废弃，由 docs/15 取代。
 
