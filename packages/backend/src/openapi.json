@@ -1784,6 +1784,24 @@
                           },
                           "inUse": {
                             "type": "boolean"
+                          },
+                          "referencedBy": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "title": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "title"
+                              ]
+                            }
                           }
                         },
                         "required": [
@@ -1791,7 +1809,8 @@
                           "type",
                           "size",
                           "mtime",
-                          "inUse"
+                          "inUse",
+                          "referencedBy"
                         ]
                       }
                     }
