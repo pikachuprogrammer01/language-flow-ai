@@ -200,21 +200,30 @@ function injectSegments(
 
 // ── 代码验收 ──
 
-/** 主题相关度：输入主题的字符在模型回显 topic 中至少覆盖 50%（防"完全对不上"）；英文主题降级为包含匹配 */
+/** 主题相关度：防"完全对不上"。中文主题按字符覆盖率 ≥50%；英文 token 任一包含；混合主题两者任一通过 */
 function topicMatch(expected: string, actual: string): boolean {
   const expectedNorm = expected.trim().toLowerCase();
   const actualNorm = actual.trim().toLowerCase();
-  // 英文/数字主题：LLM 通常原样回显 → 包含匹配即可
-  if (/[a-z0-9]/.test(expectedNorm)) {
-    if (!actualNorm) return false;
+  if (!actualNorm) return false;
+  const hasChinese = /[\u4e00-\u9fff]/.test(expectedNorm);
+
+  // 无中文字符（纯英文/数字主题）：LLM 通常原样回显 → 包含匹配
+  if (!hasChinese) {
     return expectedNorm.length >= 3
       ? actualNorm.includes(expectedNorm) || expectedNorm.includes(actualNorm)
       : actualNorm.includes(expectedNorm);
   }
-  const chars = [...new Set(expected.replace(/\s/g, ""))];
-  if (chars.length === 0) return true;
-  const hit = chars.filter((ch) => actual.includes(ch)).length;
-  return hit / chars.length >= 0.5;
+
+  // 含中文主题：中文字符覆盖率 ≥50% 通过
+  const chars = [...new Set(expected.replace(/\s/g, "").replace(/[a-z0-9]/gi, ""))];
+  if (chars.length > 0) {
+    const hit = chars.filter((ch) => actual.includes(ch)).length;
+    if (hit / chars.length >= 0.5) return true;
+  }
+
+  // 混合主题兜底：英文 token（≥2 字符）任一出现在回显中（如「AI 创业」回显「人工智能创业」）
+  const enTokens = expectedNorm.match(/[a-z0-9]{2,}/g) ?? [];
+  return enTokens.some((t) => actualNorm.includes(t));
 }
 
 /** 验收结果：ok 时返回通过；否则返回可读的失败原因（供反馈重试与用户查看） */

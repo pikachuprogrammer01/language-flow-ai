@@ -180,6 +180,31 @@ describe("generateSceneWordContent", () => {
     expect(words).not.toContain("equip");
   });
 
+  it("英文/混合主题验收通过（英文回显或中文改写均可）", async () => {
+    // 混合主题：回显把 AI 改写成"人工智能"也能通过（英文 token 任一匹配）
+    const mixedStory = JSON.stringify({
+      topic: "人工智能创业",
+      title: "AI 创业",
+      segments: [{ text: "张明在一家科技机构工作，负责装备实验室，并签下一份合同。" }],
+    });
+    // 纯英文主题：原样回显通过
+    const enStory = JSON.stringify({
+      topic: "AI startup",
+      title: "AI 创业",
+      segments: [{ text: "张明在一家科技机构工作，负责装备实验室，并签下一份合同。" }],
+    });
+    chatCompletionMock
+      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
+      .mockResolvedValueOnce(mixedStory)
+      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
+      .mockResolvedValueOnce(enStory);
+
+    const dto1 = await generateSceneWordContent({ topic: "AI 创业", level: "CET4" });
+    expect(dto1.title).toBe("AI 创业");
+    const dto2 = await generateSceneWordContent({ topic: "AI startup", level: "CET4" });
+    expect(dto2.title).toBe("AI 创业");
+  });
+
   it("3 次均未通过验收时抛出可读原因", async () => {
     const offTopic = withTopic(STORY_JSON, "森林露营");
     chatCompletionMock.mockResolvedValue(TOPIC_WORDS_JSON).mockResolvedValue(offTopic);
