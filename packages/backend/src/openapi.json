@@ -544,6 +544,10 @@
                   "voice": {
                     "type": "string",
                     "default": "zh-CN-XiaoxiaoNeural"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 100
                   }
                 },
                 "required": [
