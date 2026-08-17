@@ -103,7 +103,7 @@ async function saveEdit(): Promise<void> {
       ...refreshed,
       template: "scene_word",
       audio,
-      style: { ...(refreshed.style ?? {}), bgm },
+      style: { ...(refreshed.style ?? {}), bgm: bgm.value },
     };
     if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
     const video = await renderVideo(dto);
@@ -202,7 +202,7 @@ async function revoice(): Promise<void> {
       ...t,
       template: "scene_word",
       audio,
-      style: { ...(t.style ?? {}), bgm },
+      style: { ...(t.style ?? {}), bgm: bgm.value },
     };
     if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
     const video = await renderVideo(dto);
