@@ -8,6 +8,8 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogOverlay,
+  AlertDialogPortal,
   AlertDialogRoot,
   AlertDialogTitle,
 } from "radix-vue";
@@ -29,9 +31,11 @@ const emit = defineEmits<{ confirm: [] }>();
 <template>
   <AlertDialogRoot v-model:open="open">
     <slot name="trigger" />
-    <AlertDialogContent
-      class="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-6 shadow-lg"
-    >
+    <AlertDialogPortal>
+      <AlertDialogOverlay class="fixed inset-0 z-40 bg-black/50" />
+      <AlertDialogContent
+        class="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-6 shadow-lg"
+      >
       <div>
         <AlertDialogTitle class="text-lg font-semibold">{{ title }}</AlertDialogTitle>
         <AlertDialogDescription v-if="description" class="mt-2 text-sm text-muted-foreground">
@@ -49,5 +53,6 @@ const emit = defineEmits<{ confirm: [] }>();
         </AlertDialogAction>
       </div>
     </AlertDialogContent>
+    </AlertDialogPortal>
   </AlertDialogRoot>
 </template>

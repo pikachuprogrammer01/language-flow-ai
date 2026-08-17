@@ -7,6 +7,7 @@ import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import { deleteTask, listTasks } from "../api/client";
+import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 
 const router = useRouter();
 /** 删除确认对话框状态 */
