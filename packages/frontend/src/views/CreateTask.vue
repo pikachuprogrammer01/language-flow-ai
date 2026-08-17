@@ -9,6 +9,7 @@ import {
   type RenderInput,
   type RenderVideoInput,
   generateContent,
+  listFiles,
   listVoices,
   previewVoice as previewVoiceApi,
   renderVideo,
@@ -45,6 +46,9 @@ const level = ref<GenerateInput["level"]>("CET4");
 const voice = ref("zh-CN-XiaoxiaoNeural");
 /** 语速倍率（MVP 需求 #5：0.8 慢 / 1 正常 / 1.2 快） */
 const rate = ref(1);
+/** BGM 选择（生成时可选；重新渲染时混入，docs/13 素材清单） */
+const bgm = ref("");
+const bgmFiles = ref<{ filename: string }[]>([]);
 const RATE_OPTIONS = [
   { value: 0.8, label: "慢" },
   { value: 1, label: "正常" },
@@ -164,12 +168,26 @@ async function saveEdit(): Promise<void> {
     editMode.value = false;
     // 更新记录内容
     await updateTask(dtoId.value, { title: title.value, content });
-    // 重新配音 + 渲染（当前音色；BGM 暂用生成页默认无）
+    // 重新配音 + 渲染（当前音色/语速/BGM）
     step.value = "rendering";
-    const audio = await synthesizeFromContent("scene_word", content, title.value, voice.value);
+    const audio = await synthesizeFromContent(
+      "scene_word",
+      content,
+      title.value,
+      voice.value,
+      rate.value,
+    );
     audioDuration.value = audio.duration;
     if (!dtoSnapshot.value) throw new Error("缺少渲染数据");
-    const dtoWithAudio: RenderVideoInput = { ...dtoSnapshot.value, template: "scene_word", audio };
+    const dtoWithAudio: RenderVideoInput = {
+      ...dtoSnapshot.value,
+      template: "scene_word",
+      audio,
+      style: {
+        ...((dtoSnapshot.value.style as Record<string, unknown> | undefined) ?? {}),
+        bgm: bgm.value,
+      },
+    };
     const video = await renderVideo(dtoWithAudio);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
     videoUrl.value = `${base}${video.url}`;
@@ -305,6 +323,10 @@ async function renderStep(): Promise<boolean> {
       ...dtoSnapshot.value,
       template: template.value,
       audio: audioMeta.value,
+      style: {
+        ...((dtoSnapshot.value.style as Record<string, unknown> | undefined) ?? {}),
+        bgm: bgm.value,
+      },
     } as unknown as RenderInput;
     const video = await renderVideo(dtoWithAudio);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
@@ -426,8 +448,8 @@ async function run(): Promise<void> {
               {{ previewing ? "试听中…" : previewPlaying ? "⏸ 暂停" : "🔊 试听" }}
             </button>
           </div>
-          <!-- 语速（MVP 需求 #5） -->
-          <div class="mt-2 flex items-center gap-2">
+          <!-- 语速（MVP 需求 #5）+ BGM（生成时可选，重新渲染混音） -->
+          <div class="mt-2 flex flex-wrap items-center gap-2">
             <span class="text-xs text-gray-500">语速</span>
             <button
               v-for="r in RATE_OPTIONS"
@@ -439,6 +461,17 @@ async function run(): Promise<void> {
             >
               {{ r.label }}
             </button>
+            <span class="ml-2 text-xs text-gray-500">BGM</span>
+            <select
+              v-model="bgm"
+              class="rounded-lg border px-2 py-1 text-xs"
+            >
+              <option value="">无 BGM</option>
+              <option v-for="b in bgmFiles" :key="b.filename" :value="`/files/bgm/${b.filename}`">
+                {{ b.filename }}
+              </option>
+            </select>
+            <span class="text-xs text-gray-400">生成后可改，重新配音/渲染时生效</span>
           </div>
         </div>
       </div>
