@@ -51,7 +51,8 @@ export class SceneWordRenderer implements TemplateRenderer {
 
     const template = await loadTemplate("scene-word.html");
     const html = fillTemplate(template, {
-      TITLE: escapeHtml(dto.title),
+      // 标题中的英文词同样高亮（与正文一致）
+      TITLE: highlightWords(dto.title, allWords),
       TEXT: fullText,
       FONT_SIZE: String(fitFontSize(fullText.length)),
       SUMMARY_WORDS: allWords

@@ -198,28 +198,37 @@ function escapeRegExp(value: string): string {
 /**
  * 按模板将 ContentArray 拼为朗读文本（规则见 SPEC §5.2 拼接规则表）
  * 空 segment/空字段自动跳过（对应"空 segment 丢弃"约定，SPEC §6.2.6）
+ * @param title 可选：scene_word 模板先朗读标题（英文词同样逆替换为中文）
  */
-export function buildTtsText(content: JsonRecord[], template: TemplateType): string {
+export function buildTtsText(
+  content: JsonRecord[],
+  template: TemplateType,
+  title?: string,
+): string {
   switch (template) {
-    case "scene_word":
+    case "scene_word": {
       // 全中文朗读（用户确认 2026-08-17）：text 中英文词原位替换为中文释义，不再追加词条
-      return content
-        .map((s) => {
+      const wordMap = new Map(
+        content.flatMap((s) => {
           const words = Array.isArray(s.words) ? (s.words as JsonRecord[]) : [];
-          const wordMap = new Map(
-            words
-              .map((w): [string, string] => [str(w.word).toLowerCase(), str(w.meaning)])
-              .filter(([, meaning]) => meaning),
-          );
-          let text = str(s.text);
-          for (const [word, meaning] of wordMap) {
-            if (word) {
-              text = text.replace(new RegExp(`\\b${escapeRegExp(word)}\\b`, "gi"), meaning);
-            }
+          return words
+            .map((w): [string, string] => [str(w.word).toLowerCase(), str(w.meaning)])
+            .filter(([, meaning]) => meaning);
+        }),
+      );
+      const toChinese = (text: string): string => {
+        let t = text;
+        for (const [word, meaning] of wordMap) {
+          if (word) {
+            t = t.replace(new RegExp(`\\b${escapeRegExp(word)}\\b`, "gi"), meaning);
           }
-          return ensureEndPunct(text);
-        })
-        .join("");
+        }
+        return t;
+      };
+      const titlePart = title ? ensureEndPunct(toChinese(title)) : "";
+      const body = content.map((s) => ensureEndPunct(toChinese(str(s.text)))).join("");
+      return `${titlePart}${body}`;
+    }
     case "word_card":
       return content
         .map((card) => {

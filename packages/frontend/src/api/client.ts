@@ -26,13 +26,14 @@ export async function generateContent(input: GenerateInput) {
   return data.content;
 }
 
-/** TTS 配音（ContentArray + template → 音频元数据） */
+/** TTS 配音（ContentArray + template → 音频元数据；scene_word 可传 title 朗读标题） */
 export async function synthesizeFromContent(
   template: "scene_word" | "word_card" | "quiz",
   content: Record<string, unknown>[],
+  title?: string,
 ) {
   const { data, error, response } = await client.POST("/api/tts/from-content", {
-    body: { template, content },
+    body: { template, content, title },
   });
   if (error || !response.ok) throw new Error(`配音失败（HTTP ${response.status}）`);
   if (!data) throw new Error("配音失败：空响应");

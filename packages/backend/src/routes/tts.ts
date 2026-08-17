@@ -23,6 +23,7 @@ const fromContentSchema = z.object({
   content: z.array(z.record(z.string(), z.unknown())).min(1).max(100),
   template: z.enum(["scene_word", "word_card", "quiz"]),
   voice: z.string().optional().default("zh-CN-XiaoxiaoNeural"),
+  title: z.string().max(100).optional(), // scene_word 标题朗读（可选，向后兼容）
 });
 
 const ttsResponseSchema = z.object({
@@ -106,9 +107,9 @@ export const tts = new OpenAPIHono()
     }
   })
   .openapi(fromContentRoute, async (c): Promise<Response> => {
-    const { content, template, voice } = c.req.valid("json");
+    const { content, template, voice, title } = c.req.valid("json");
     try {
-      const text = buildTtsText(content, template);
+      const text = buildTtsText(content, template, title);
       if (text.length === 0) {
         return c.json({ error: "content 无法拼出朗读文本" }, 400);
       }

@@ -167,10 +167,16 @@ function injectFromDict(
     .sort((a, b) => a.meaning.length - b.meaning.length)
     .reverse();
   for (const item of items) {
-    if (t.includes(item.meaning) && !injected.some((i) => i.word === item.word)) {
-      t = t.replace(item.meaning, item.word);
-      injected.push(item);
-    }
+    const idx = t.indexOf(item.meaning);
+    if (idx === -1 || injected.some((i) => i.word === item.word)) continue;
+    // 相邻字符是字母/数字则补空格（防 technologymarket 粘连，且保证 \b 词边界可用于逆替换/高亮）
+    const before = idx > 0 ? t[idx - 1] : "";
+    const afterIdx = idx + item.meaning.length;
+    const after = afterIdx < t.length ? t[afterIdx] : "";
+    const padBefore = /[a-zA-Z0-9]/.test(before) ? " " : "";
+    const padAfter = /[a-zA-Z0-9]/.test(after) ? " " : "";
+    t = `${t.slice(0, idx)}${padBefore}${item.word}${padAfter}${t.slice(afterIdx)}`;
+    injected.push(item);
   }
   return { text: t, injected };
 }
