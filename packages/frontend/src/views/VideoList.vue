@@ -10,6 +10,8 @@ type VideoAsset = NonNullable<Awaited<ReturnType<typeof listTasks>>["tasks"]>[nu
 const loading = ref(true);
 const errorMsg = ref("");
 const assets = ref<VideoAsset[]>([]);
+/** 静态文件前缀（video.url 是相对路径，需拼完整 API 地址，与 TaskDetail 播放一致） */
+const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
 /** 播放展开的 id */
 const playing = ref<Set<string>>(new Set());
 /** 重命名状态：id → 输入值 */
@@ -165,10 +167,10 @@ onMounted(load);
             </button>
           </div>
         </div>
-        <!-- 行内播放器 -->
+        <!-- 行内播放器（url 为相对路径，拼 base 完整地址） -->
         <video
           v-if="playing.has(t.id) && videoOf(t)"
-          :src="videoOf(t)!.url"
+          :src="base + videoOf(t)!.url"
           controls
           class="mt-3 w-full max-w-md rounded-lg bg-black"
         />
