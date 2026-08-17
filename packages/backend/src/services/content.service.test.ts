@@ -13,15 +13,17 @@ vi.mock("./llm.service", async (importOriginal) => {
 });
 
 vi.mock("./cet.service", () => ({
+  randomWords: vi.fn(),
   validateWords: vi.fn(),
 }));
 
-import { validateWords } from "./cet.service";
+import { randomWords, validateWords } from "./cet.service";
 import { generateSceneWordContent } from "./content.service";
 import { chatCompletion, extractJson } from "./llm.service";
 
 const chatCompletionMock = vi.mocked(chatCompletion);
 const validateWordsMock = vi.mocked(validateWords);
+const randomWordsMock = vi.mocked(randomWords);
 
 const LLM_OUTPUT = JSON.stringify({
   title: "职场英语：读一个科技创业故事",
@@ -39,6 +41,13 @@ const LLM_OUTPUT = JSON.stringify({
 beforeEach(() => {
   chatCompletionMock.mockReset();
   validateWordsMock.mockReset();
+  randomWordsMock.mockReset();
+  randomWordsMock.mockResolvedValue({
+    words: [
+      { word: "establishment", meaning: "机构", level: "CET4" },
+      { word: "equip", meaning: "装备", level: "CET4" },
+    ],
+  });
 });
 
 describe("extractJson", () => {
