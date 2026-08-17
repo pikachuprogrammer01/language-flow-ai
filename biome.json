@@ -65,6 +65,14 @@
           "suspicious": { "noConsole": "off" }
         }
       }
+    },
+    {
+      "include": ["packages/frontend/src/**/*.vue"],
+      "linter": {
+        "rules": {
+          "correctness": { "noUnusedVariables": "off" }
+        }
+      }
     }
   ],
   "json": {

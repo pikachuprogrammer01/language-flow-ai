@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
-import App from "./App.vue";
+import CreateTask from "./views/CreateTask.vue";
 
-const routes = [{ path: "/", component: App }];
+const routes = [{ path: "/", name: "create", component: CreateTask }];
 
 const router = createRouter({
   history: createWebHistory(),

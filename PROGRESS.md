@@ -88,11 +88,11 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | # | 任务 | 状态 |
 |---|------|------|
 | 25 | packages/frontend 项目骨架（Vite + Vue 3 + Tailwind） | ✅ 完成 |
-| 26 | openapi-typescript 生成 schema.d.ts | ⬜ |
-| 27 | openapi-fetch 客户端封装 | ⬜ |
-| 28 | 新建任务页（CreateTask.vue） | ⬜ |
-| 29 | 任务列表页（TaskList.vue） | ⬜ |
-| 30 | 任务详情页（TaskDetail.vue）+ 视频播放 | ⬜ |
+| 26 | openapi-typescript 生成 schema.d.ts（592 行，6 API 全收录） | ✅ 完成 |
+| 27 | openapi-fetch 客户端封装（src/api/client.ts，类型安全） | ✅ 完成 |
+| 28 | 新建任务页（CreateTask.vue，单页全流程：生成→配音→渲染→播放） | ✅ 完成 |
+| 29 | 任务列表页（TaskList.vue） | ⏳ 搁置（无任务持久化 API，YAGNI；做任务 API 时补） |
+| 30 | 任务详情页（TaskDetail.vue）+ 视频播放 | ⏳ 同上（播放已在 CreateTask 实现） |
 
 ### 阶段 6：集成验证
 
