@@ -91,7 +91,13 @@ const renderRequestSchema = z.discriminatedUnion("template", [
   z.object({ ...baseFields, template: z.literal("quiz"), content: z.array(quizItemSchema).min(1) }),
 ]);
 
-const videoResultSchema = z.object({ url: z.string() });
+const videoResultSchema = z.object({
+  url: z.string(),
+  duration: z.number(),
+  resolution: z.string(),
+  format: z.string(),
+  size: z.number(),
+});
 const renderResponseSchema = z.object({ video: videoResultSchema });
 
 // ── 路由定义 ──

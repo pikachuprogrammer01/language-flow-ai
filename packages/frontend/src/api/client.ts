@@ -58,3 +58,71 @@ export async function renderVideo(dto: RenderInput) {
   if (!data) throw new Error("渲染失败：空响应");
   return data.video;
 }
+
+/** 生成记录（任务）列表 */
+export async function listTasks(
+  params: {
+    status?:
+      | "draft"
+      | "ai_generating"
+      | "content_ready"
+      | "tts_processing"
+      | "audio_ready"
+      | "video_rendering"
+      | "completed"
+      | "failed";
+    page?: number;
+    pageSize?: number;
+  } = {},
+) {
+  const { data, error, response } = await client.GET("/api/tasks", { params: { query: params } });
+  if (error || !response.ok) throw new Error(`查询任务失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("查询任务失败：空响应");
+  return data;
+}
+
+/** 生成记录详情（ContentDTO 全量） */
+export async function getTask(id: string) {
+  const { data, error, response } = await client.GET("/api/tasks/:id", {
+    params: { path: { id } },
+  });
+  if (error || !response.ok) throw new Error(`查询任务详情失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("查询任务详情失败：空响应");
+  return data;
+}
+
+/** 更新生成记录（标题/配音/视频/状态回写） */
+export async function updateTask(
+  id: string,
+  body: {
+    title?: string;
+    audio?: { url: string; duration: number; format: string };
+    video?: { url: string; duration: number; format: string };
+    status?:
+      | "draft"
+      | "ai_generating"
+      | "content_ready"
+      | "tts_processing"
+      | "audio_ready"
+      | "video_rendering"
+      | "completed"
+      | "failed";
+  },
+) {
+  const { data, error, response } = await client.PATCH("/api/tasks/:id", {
+    params: { path: { id } },
+    body,
+  });
+  if (error || !response.ok) throw new Error(`更新任务失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("更新任务失败：空响应");
+  return data;
+}
+
+/** 删除生成记录 */
+export async function deleteTask(id: string) {
+  const { data, error, response } = await client.DELETE("/api/tasks/:id", {
+    params: { path: { id } },
+  });
+  if (error || !response.ok) throw new Error(`删除任务失败（HTTP ${response.status}）`);
+  return data;
+}

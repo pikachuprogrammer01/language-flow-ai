@@ -10,6 +10,7 @@ import {
   generateContent,
   renderVideo,
   synthesizeFromContent,
+  updateTask,
 } from "../api/client";
 
 type Step = "idle" | "generating" | "generated" | "tts" | "rendering" | "done" | "error";
@@ -64,6 +65,12 @@ async function run(): Promise<void> {
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
     videoUrl.value = `${base}${video.url}`;
     step.value = "done";
+    // 回写生成记录（generate 已自动落库）：配音 + 视频 + 完成状态；失败静默（不影响主流程）
+    try {
+      await updateTask(dto.id, { audio, video, status: "completed" });
+    } catch {
+      /* 静默：记录回写失败不影响视频产出 */
+    }
   } catch (err) {
     step.value = "error";
     errorMsg.value = err instanceof Error ? err.message : String(err);
