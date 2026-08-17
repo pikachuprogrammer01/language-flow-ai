@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from "vue";
 import { toast } from "vue-sonner";
 import { batchDeleteTasks, deleteTask, getTask, listTasks } from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
+import Pagination from "../components/ui/pagination.vue";
 
 type TaskSummary = NonNullable<Awaited<ReturnType<typeof listTasks>>["tasks"]>[number];
 
@@ -24,6 +25,10 @@ const loading = ref(true);
 const errorMsg = ref("");
 const tasks = ref<TaskSummary[]>([]);
 const keyword = ref("");
+/** 分页状态 */
+const page = ref(1);
+const pageSize = 10;
+const total = ref(0);
 /** 选中 id 集合（批量操作） */
 const selected = ref<Set<string>>(new Set());
 /** 行展开详情缓存（id → audit 等完整档案） */
@@ -57,8 +62,13 @@ async function load(): Promise<void> {
   loading.value = true;
   errorMsg.value = "";
   try {
-    const data = await listTasks({ keyword: keyword.value.trim() || undefined });
+    const data = await listTasks({
+      keyword: keyword.value.trim() || undefined,
+      page: page.value,
+      pageSize,
+    });
     tasks.value = data.tasks ?? [];
+    total.value = data.total ?? 0;
     selected.value = new Set();
     expanded.value = new Set();
     details.value = {};
@@ -90,11 +100,17 @@ function requestDelete(id: string): void {
   deleteOpen.value = true;
 }
 
+function clampPage(): void {
+  const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
+  if (page.value > maxPage) page.value = maxPage;
+}
+
 /** 单条删除（确认后） */
 async function doDelete(): Promise<void> {
   try {
     await deleteTask(pendingDeleteId.value);
     toast.success("记录已删除");
+    clampPage();
     await load();
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
@@ -111,6 +127,7 @@ async function doBatchDelete(): Promise<void> {
     toast.success(
       `已删除 ${result.deleted} 条${result.notFound.length > 0 ? `，${result.notFound.length} 条不存在` : ""}`,
     );
+    clampPage();
     await load();
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
@@ -137,7 +154,7 @@ onMounted(load);
       />
       <button
         class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        @click="load"
+        @click="page = 1; load()"
       >
         搜索
       </button>
@@ -264,6 +281,17 @@ onMounted(load);
           </template>
         </tbody>
       </table>
+    </div>
+
+    <!-- 分页（shadcn-vue Pagination） -->
+    <div v-if="total > pageSize" class="mt-4 flex items-center justify-between">
+      <span class="text-xs text-gray-400">共 {{ total }} 条</span>
+      <Pagination
+        :page="page"
+        :total="total"
+        :page-size="pageSize"
+        @update:page="page = $event; load()"
+      />
     </div>
 
     <!-- 删除确认对话框（shadcn-vue AlertDialog） -->
