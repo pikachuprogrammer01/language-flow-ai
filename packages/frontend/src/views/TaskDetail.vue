@@ -27,6 +27,11 @@ const notFound = ref(false);
 const voice = ref("zh-CN-XiaoxiaoNeural");
 const voices = ref<{ id: string; name: string; gender: string }[]>([]);
 const revoicing = ref(false);
+/** 审核修改（PRD §10.1.3）：编辑标题/正文 → 保存 → 重新配音渲染 */
+const editing = ref(false);
+const editTitle = ref("");
+const editTexts = ref<string[]>([]);
+const saving = ref(false);
 
 interface WordInfo {
   word: string;
@@ -53,6 +58,54 @@ function isSegmentInfo(v: unknown): v is SegmentInfo {
 
 function isVideoInfo(v: unknown): v is VideoInfo {
   return typeof v === "object" && v !== null && "url" in v && "duration" in v;
+}
+
+/** 进入编辑模式：把当前标题/正文载入编辑态 */
+function startEdit(): void {
+  editTitle.value = String(task.value?.title ?? "");
+  editTexts.value = segments.value.map((s) => s.text);
+  editing.value = true;
+}
+
+function cancelEdit(): void {
+  editing.value = false;
+  editTitle.value = "";
+  editTexts.value = [];
+}
+
+/** 保存修改：PATCH title/content → 用新内容重新配音渲染 → 回写（PRD §10.1.3） */
+async function saveEdit(): Promise<void> {
+  if (!task.value) return;
+  if (editTexts.value.some((t) => !t.trim())) {
+    errorMsg.value = "正文不能有空段";
+    return;
+  }
+  saving.value = true;
+  errorMsg.value = "";
+  try {
+    const t = task.value;
+    const content = segments.value.map((seg, i) => ({
+      ...seg,
+      text: editTexts.value[i] ?? seg.text,
+    }));
+    await updateTask(String(route.params.id), { title: editTitle.value, content });
+    editing.value = false;
+    // 用新内容重新配音 + 渲染（复用重新配音链路）
+    const refreshed = await getTask(String(route.params.id));
+    task.value = refreshed;
+    revoicing.value = true;
+    const audio = await synthesizeFromContent("scene_word", content, editTitle.value, voice.value);
+    const dto: RenderVideoInput = { ...refreshed, template: "scene_word", audio };
+    if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
+    const video = await renderVideo(dto);
+    await updateTask(String(route.params.id), { audio, video, status: "completed" });
+    await load();
+  } catch (err) {
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    saving.value = false;
+    revoicing.value = false;
+  }
 }
 
 /** 记录 → 渲染入参守卫（关键字段齐全即可，后端 zod 兜底校验） */
@@ -189,7 +242,22 @@ listVoices()
     <p v-else-if="loading" class="py-8 text-center text-gray-500">加载中…</p>
 
     <template v-else-if="task">
-      <h1 class="text-2xl font-bold">{{ String(task.title) }}</h1>
+      <div class="flex items-center justify-between gap-3">
+        <h1 v-if="!editing" class="text-2xl font-bold">{{ String(task.title) }}</h1>
+        <input
+          v-else
+          v-model="editTitle"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-xl font-bold focus:border-blue-500 focus:outline-none"
+          maxlength="255"
+        />
+        <button
+          v-if="!editing"
+          class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
+          @click="startEdit"
+        >
+          ✏️ 编辑
+        </button>
+      </div>
       <div class="mt-2 flex items-center gap-3 text-sm text-gray-500">
         <span class="rounded bg-gray-100 px-2 py-0.5">{{ String(task.level) }}</span>
         <span>{{ STATUS_LABEL[String(task.status)] ?? String(task.status) }}</span>
@@ -233,9 +301,30 @@ listVoices()
       <!-- 正文 -->
       <h2 class="mt-8 text-lg font-semibold">正文</h2>
       <div class="mt-2 space-y-3">
-        <p v-for="(seg, i) in segments" :key="i" class="rounded-lg bg-gray-50 p-4 text-sm leading-relaxed">
-          {{ seg.text }}
-        </p>
+        <div v-for="(seg, i) in segments" :key="i" class="rounded-lg bg-gray-50 p-4 text-sm leading-relaxed">
+          <textarea
+            v-if="editing"
+            v-model="editTexts[i]"
+            rows="3"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+          />
+          <p v-else>{{ seg.text }}</p>
+        </div>
+      </div>
+
+      <!-- 编辑操作（PRD §10.1.3 审核修改） -->
+      <div v-if="editing" class="mt-4 flex items-center gap-3">
+        <button
+          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="saving || revoicing"
+          @click="saveEdit"
+        >
+          {{ saving || revoicing ? "保存并重新配音渲染中…" : "保存修改并重新渲染" }}
+        </button>
+        <button class="rounded-lg border px-4 py-2 text-sm hover:bg-gray-100" :disabled="saving" @click="cancelEdit">
+          取消
+        </button>
+        <span class="text-xs text-gray-500">保存后会用新内容重新配音并重渲染视频</span>
       </div>
     </template>
   </div>

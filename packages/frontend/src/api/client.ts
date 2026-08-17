@@ -130,6 +130,7 @@ export async function updateTask(
   id: string,
   body: {
     title?: string;
+    content?: Record<string, unknown>[];
     audio?: { url: string; duration: number; format: string };
     video?: { url: string; duration: number; format: string };
     status?:

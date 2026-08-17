@@ -33,6 +33,7 @@ const listQuerySchema = z.object({
 
 const patchBodySchema = z.object({
   title: z.string().min(1).max(255).optional(),
+  content: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
   audio: z
     .object({
       url: z.string(),

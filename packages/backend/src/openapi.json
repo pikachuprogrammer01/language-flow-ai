@@ -1541,6 +1541,16 @@
                     "minLength": 1,
                     "maxLength": 255
                   },
+                  "content": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "nullable": true
+                      }
+                    },
+                    "maxItems": 100
+                  },
                   "audio": {
                     "type": "object",
                     "properties": {
