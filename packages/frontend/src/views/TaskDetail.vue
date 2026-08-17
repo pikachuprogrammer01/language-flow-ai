@@ -5,7 +5,15 @@
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { deleteTask, getTask } from "../api/client";
+import {
+  type RenderVideoInput,
+  deleteTask,
+  getTask,
+  listVoices,
+  renderVideo,
+  synthesizeFromContent,
+  updateTask,
+} from "../api/client";
 
 const route = useRoute();
 const router = useRouter();
@@ -15,6 +23,10 @@ const task = ref<Record<string, unknown> | null>(null);
 const loading = ref(true);
 const errorMsg = ref("");
 const notFound = ref(false);
+/** 重新配音（PRD §10.1.1）：选音色 → 重合成 → 重渲染 → 回写 */
+const voice = ref("zh-CN-XiaoxiaoNeural");
+const voices = ref<{ id: string; name: string; gender: string }[]>([]);
+const revoicing = ref(false);
 
 interface WordInfo {
   word: string;
@@ -41,6 +53,20 @@ function isSegmentInfo(v: unknown): v is SegmentInfo {
 
 function isVideoInfo(v: unknown): v is VideoInfo {
   return typeof v === "object" && v !== null && "url" in v && "duration" in v;
+}
+
+/** 记录 → 渲染入参守卫（关键字段齐全即可，后端 zod 兜底校验） */
+function isRenderInput(v: unknown): v is RenderVideoInput {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.template === "string" &&
+    typeof o.title === "string" &&
+    typeof o.level === "string" &&
+    Array.isArray(o.content) &&
+    Array.isArray(o.words) &&
+    isVideoInfo(o.audio)
+  );
 }
 
 const video = computed<VideoInfo | null>(() => {
@@ -89,6 +115,39 @@ async function load(): Promise<void> {
 // 同组件内路由参数变化（详情 A → 详情 B）或刷新/直链时重新加载
 watch(() => route.params.id, load);
 
+/** 重新配音：用记录正文 + 新音色重合成音频 → 重渲染视频 → 回写记录 */
+async function revoice(): Promise<void> {
+  if (!task.value) return;
+  if (
+    !window.confirm(
+      `用「${voices.value.find((v) => v.id === voice.value)?.name ?? voice.value}」重新配音并重新渲染视频？`,
+    )
+  )
+    return;
+  revoicing.value = true;
+  errorMsg.value = "";
+  try {
+    const t = task.value;
+    const content = Array.isArray(t.content) ? t.content : [];
+    const audio = await synthesizeFromContent(
+      "scene_word",
+      content,
+      String(t.title ?? ""),
+      voice.value,
+    );
+    // render 需要完整 ContentDTO（audio 必填）；守卫后传宽松 Record（后端 zod 兜底）
+    const dto: RenderVideoInput = { ...t, template: "scene_word", audio };
+    if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
+    const video = await renderVideo(dto);
+    await updateTask(String(route.params.id), { audio, video, status: "completed" });
+    await load();
+  } catch (err) {
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    revoicing.value = false;
+  }
+}
+
 async function remove(): Promise<void> {
   if (!window.confirm("确定删除这条生成记录吗？")) return;
   try {
@@ -100,6 +159,13 @@ async function remove(): Promise<void> {
 }
 
 onMounted(load);
+
+// 加载配音列表（失败静默，默认音色兜底）
+listVoices()
+  .then((data) => {
+    voices.value = data.voices;
+  })
+  .catch(() => {});
 </script>
 
 <template>
@@ -139,6 +205,21 @@ onMounted(load);
         </p>
       </div>
       <p v-else class="mt-6 rounded-lg bg-gray-50 p-4 text-center text-sm text-gray-400">该记录尚未生成视频</p>
+
+      <!-- 重新配音（PRD §10.1.1） -->
+      <div class="mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-4">
+        <select v-model="voice" class="rounded-lg border px-3 py-2 text-sm" :disabled="revoicing">
+          <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
+        </select>
+        <button
+          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="revoicing"
+          @click="revoice"
+        >
+          {{ revoicing ? "重新配音渲染中…" : "重新配音并渲染" }}
+        </button>
+        <span class="text-xs text-gray-500">用新音色重新合成配音并重渲染视频</span>
+      </div>
 
       <!-- 词汇 -->
       <h2 class="mt-8 text-lg font-semibold">词汇（{{ words.length }}）</h2>

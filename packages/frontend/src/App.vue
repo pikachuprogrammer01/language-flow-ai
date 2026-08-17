@@ -22,6 +22,13 @@
         >
           生成记录
         </router-link>
+        <router-link
+          to="/files"
+          class="rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
+          active-class="bg-blue-50 font-medium text-blue-700"
+        >
+          文件管理
+        </router-link>
       </div>
     </nav>
     <router-view />

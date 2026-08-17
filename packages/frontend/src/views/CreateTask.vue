@@ -8,6 +8,7 @@ import {
   type GenerateInput,
   type RenderInput,
   generateContent,
+  listVoices,
   renderVideo,
   synthesizeFromContent,
   updateTask,
@@ -19,6 +20,9 @@ const topic = ref("森林探险");
 const level = ref<GenerateInput["level"]>("CET4");
 const wordCount = ref(8);
 const targetDuration = ref(60);
+/** 配音音色（PRD §10.1.1 配音可选） */
+const voice = ref("zh-CN-XiaoxiaoNeural");
+const voices = ref<{ id: string; name: string; gender: string }[]>([]);
 const step = ref<Step>("idle");
 const errorMsg = ref("");
 const title = ref("");
@@ -40,6 +44,13 @@ const allWords = () => [
   ...new Map(segments.value.flatMap((s) => s.words.map((w) => [w.word, w]))).values(),
 ];
 
+// 加载配音列表（失败静默，默认音色兜底）
+listVoices()
+  .then((data) => {
+    voices.value = data.voices;
+  })
+  .catch(() => {});
+
 async function run(): Promise<void> {
   step.value = "generating";
   errorMsg.value = "";
@@ -55,7 +66,7 @@ async function run(): Promise<void> {
     step.value = "generated";
 
     step.value = "tts";
-    const audio = await synthesizeFromContent("scene_word", dto.content, dto.title);
+    const audio = await synthesizeFromContent("scene_word", dto.content, dto.title, voice.value);
     audioDuration.value = audio.duration;
     // audio 挂回 DTO 供渲染（render 的 audio 字段为必填；generate 固定返回 scene_word）
     const dtoWithAudio: RenderInput = { ...dto, template: "scene_word", audio };
@@ -112,6 +123,14 @@ async function run(): Promise<void> {
         <div>
           <label class="mb-1 block text-sm font-medium text-gray-700" for="duration">视频时长（{{ targetDuration }}s）</label>
           <input id="duration" v-model.number="targetDuration" type="range" min="15" max="300" step="15" class="mt-3 w-full" />
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-700" for="voice">配音音色</label>
+            <select id="voice" v-model="voice" class="mt-1 w-full rounded-lg border px-3 py-2 text-sm">
+              <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
+            </select>
+          </div>
         </div>
       </div>
       <button

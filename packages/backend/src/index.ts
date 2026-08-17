@@ -9,6 +9,7 @@ import { cors } from "hono/cors";
 import { logger } from "./lib/logger";
 import { cet } from "./routes/cet";
 import { content } from "./routes/content";
+import { fileManager } from "./routes/file-manager";
 import { files } from "./routes/files";
 import { health } from "./routes/health";
 import { tasks } from "./routes/tasks";
@@ -84,6 +85,7 @@ app.route("/api/content", content);
 app.route("/api/tts", tts);
 app.route("/api/video", video);
 app.route("/api/tasks", tasks);
+app.route("/api/files", fileManager);
 app.route("/files", files);
 
 // ── OpenAPI 文档（#19）：/doc Scalar UI + openapi.json 自动生成 ──

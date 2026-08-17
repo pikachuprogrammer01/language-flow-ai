@@ -18,6 +18,18 @@ const ttsSchema = z.object({
   voice: z.string().optional().default("zh-CN-XiaoxiaoNeural"),
 });
 
+/** 常用中文配音（edge-tts 支持，2026-08-17 整理；PRD §10.1.1 配音可选） */
+export const TTS_VOICES = [
+  { id: "zh-CN-XiaoxiaoNeural", name: "晓晓（女·温暖）", gender: "女" },
+  { id: "zh-CN-XiaoyiNeural", name: "晓伊（女·活泼）", gender: "女" },
+  { id: "zh-CN-YunxiNeural", name: "云希（男·阳光）", gender: "男" },
+  { id: "zh-CN-YunjianNeural", name: "云健（男·浑厚）", gender: "男" },
+  { id: "zh-CN-YunyangNeural", name: "云扬（男·新闻）", gender: "男" },
+  { id: "zh-CN-XiaochenNeural", name: "晓辰（女·温柔）", gender: "女" },
+  { id: "zh-CN-XiaohanNeural", name: "晓涵（女·知性）", gender: "女" },
+  { id: "zh-CN-XiaomengNeural", name: "晓梦（女·少年感）", gender: "女" },
+];
+
 // content 为上游传入的动态 JSON（AGENTS.md §3.1：Record<string, unknown> 例外）
 const fromContentSchema = z.object({
   content: z.array(z.record(z.string(), z.unknown())).min(1).max(100),
@@ -125,4 +137,26 @@ export const tts = new OpenAPIHono()
       logger.error({ err }, "tts from-content failed");
       return c.json({ error: "TTS synthesis failed" }, 500);
     }
-  });
+  })
+  .openapi(
+    createRoute({
+      method: "get",
+      path: "/voices",
+      summary: "可用配音列表（音色/性别）",
+      responses: {
+        200: {
+          description: "配音列表",
+          content: {
+            "application/json": {
+              schema: z.object({
+                voices: z.array(z.object({ id: z.string(), name: z.string(), gender: z.string() })),
+                default: z.string(),
+              }),
+            },
+          },
+        },
+      },
+      tags: ["tts"],
+    }),
+    async (c) => c.json({ voices: TTS_VOICES, default: "zh-CN-XiaoxiaoNeural" }),
+  );
