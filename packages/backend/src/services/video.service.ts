@@ -147,11 +147,20 @@ async function prepareQuizAudio(
   for (let i = 0; i < items.length; i++) {
     const text = buildQuizItemText(items[i] as unknown as Record<string, unknown>);
     if (!text) continue;
-    const buf = await synthesizeSpeech(text, voice);
-    const filePath = join(workDir, `quiz-q${i}.aiff`);
-    await writeFile(filePath, buf);
-    questionDurations.push(await getAudioDuration(filePath));
-    inputs.push(filePath);
+    try {
+      const buf = await synthesizeSpeech(text, voice);
+      const filePath = join(workDir, `quiz-q${i}.aiff`);
+      await writeFile(filePath, buf);
+      questionDurations.push(await getAudioDuration(filePath));
+      inputs.push(filePath);
+    } catch (err) {
+      // 单题合成失败（Edge 波动）：整体回退旧链路（整段音频 + 比例帧时长），不阻塞渲染
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err), i },
+        "quiz 逐题合成失败，回退整段音频",
+      );
+      return null;
+    }
   }
   if (inputs.length === 0) return null;
   // 每题后接静音（1s 缓冲 + 2.5s 答案 + 0.8s 题间间隔），与 renderer 帧时长一致

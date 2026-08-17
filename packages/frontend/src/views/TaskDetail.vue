@@ -142,13 +142,24 @@ function buildEditedContent(t: Record<string, unknown>): Record<string, unknown>
       }
     }
     const originals = Array.isArray(t.content) ? (t.content as { word?: unknown }[]) : [];
-    return editQuestions.value.map((q, i) => ({
-      stem: q.stem,
-      options: q.options,
-      correctIndex: q.correctIndex,
-      explanation: q.explanation,
-      word: originals[i]?.word ?? null,
-    }));
+    return editQuestions.value.map((q, i) => {
+      const origWord = originals[i]?.word;
+      // render 校验要求 word 为 WordInfo 对象；取不到时从题干构造（renderer 不使用该字段内容）
+      const word =
+        origWord ??
+        ({
+          word: q.stem.split(" ")[0] ?? "word",
+          meaning: "（未提供）",
+          level: t.level ?? "CET4",
+        } as Record<string, unknown>);
+      return {
+        stem: q.stem,
+        options: q.options,
+        correctIndex: q.correctIndex,
+        explanation: q.explanation,
+        word,
+      };
+    });
   }
   if (editTexts.value.some((x) => !x.trim())) {
     errorMsg.value = "正文不能有空段";

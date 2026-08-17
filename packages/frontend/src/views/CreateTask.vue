@@ -220,13 +220,27 @@ function buildEditedContent(): Record<string, unknown>[] | null {
         return null;
       }
     }
-    return editQuestions.value.map((q, i) => ({
-      stem: q.stem,
-      options: q.options,
-      correctIndex: q.correctIndex,
-      explanation: q.explanation,
-      word: questions.value[i]?.word ?? "",
-    }));
+    const originals = dtoSnapshot.value?.content;
+    return editQuestions.value.map((q, i) => {
+      const origWord = Array.isArray(originals)
+        ? (originals[i] as { word?: unknown })?.word
+        : undefined;
+      // render 校验要求 word 为 WordInfo 对象；取不到原对象时从题干构造（renderer 不使用该字段内容）
+      const word =
+        origWord ??
+        ({
+          word: q.stem.split(" ")[0] ?? "word",
+          meaning: "（未提供）",
+          level: dtoSnapshot.value?.level ?? "CET4",
+        } as Record<string, unknown>);
+      return {
+        stem: q.stem,
+        options: q.options,
+        correctIndex: q.correctIndex,
+        explanation: q.explanation,
+        word,
+      };
+    });
   }
   if (editTexts.value.some((t) => !t.trim())) {
     errorMsg.value = "正文不能有空段";
@@ -276,6 +290,8 @@ async function saveEdit(): Promise<void> {
     const dtoWithAudio: RenderVideoInput = {
       ...dtoSnapshot.value,
       template: template.value,
+      // 关键：渲染用编辑后的 content 覆盖快照旧值（否则画面仍是旧文案）
+      content,
       audio,
       style: {
         ...((dtoSnapshot.value.style as Record<string, unknown> | undefined) ?? {}),
