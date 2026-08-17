@@ -3,7 +3,7 @@
  * 任务列表页 — 生成记录管理（列表 / 查看详情 / 删除 / 新建入口）
  * 数据源：GET /api/tasks（status 过滤 + 分页）
  */
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import { batchDeleteTasks, deleteTask, listTasks } from "../api/client";
@@ -16,6 +16,29 @@ const pendingDeleteId = ref("");
 /** 批量选择 */
 const selected = ref<Set<string>>(new Set());
 const batchOpen = ref(false);
+/** 模板分类 tab（全部 / 三模板） */
+const templateFilter = ref<"all" | "scene_word" | "word_card" | "quiz">("all");
+const TEMPLATE_TABS: { id: "all" | "scene_word" | "word_card" | "quiz"; label: string }[] = [
+  { id: "all", label: "全部" },
+  { id: "scene_word", label: "情景背词" },
+  { id: "word_card", label: "单词卡片" },
+  { id: "quiz", label: "选择题" },
+];
+/** 全选（当前分类下） */
+const allChecked = computed(
+  () => visibleTasks.value.length > 0 && selected.value.size === visibleTasks.value.length,
+);
+
+/** 按模板分类过滤后的列表 */
+const visibleTasks = computed(() =>
+  templateFilter.value === "all"
+    ? tasks.value
+    : tasks.value.filter((t) => t.template === templateFilter.value),
+);
+
+function toggleAll(): void {
+  selected.value = allChecked.value ? new Set() : new Set(visibleTasks.value.map((t) => t.id));
+}
 const tasks = ref<
   {
     id: string;
@@ -119,14 +142,36 @@ onMounted(load);
 
     <p v-if="errorMsg" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
     <p v-if="loading" class="py-8 text-center text-gray-500">加载中…</p>
+    <p v-else-if="tasks.length > 0 && visibleTasks.length === 0" class="py-12 text-center text-gray-400">
+      当前分类无记录
+    </p>
 
     <div v-else-if="tasks.length === 0" class="py-12 text-center text-gray-400">
       暂无生成记录，去<button class="text-blue-600 underline" @click="router.push('/')">新建视频</button>
     </div>
 
+    <!-- 模板分类 tab + 全选 -->
+    <div v-if="tasks.length > 0" class="mb-3 flex items-center justify-between">
+      <div class="flex gap-2">
+        <button
+          v-for="tab in TEMPLATE_TABS"
+          :key="tab.id"
+          class="rounded-full border px-3 py-1 text-xs"
+          :class="templateFilter === tab.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+          @click="templateFilter = tab.id; selected = new Set()"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <label class="flex cursor-pointer items-center gap-1.5 text-xs text-gray-500">
+        <input type="checkbox" :checked="allChecked" @change="toggleAll" />
+        全选
+      </label>
+    </div>
+
     <ul v-else class="space-y-3">
       <li
-        v-for="t in tasks"
+        v-for="t in visibleTasks"
         :key="t.id"
         class="flex items-center justify-between rounded-xl border p-4 hover:shadow-sm"
       >

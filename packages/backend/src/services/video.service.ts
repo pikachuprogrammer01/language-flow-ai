@@ -147,7 +147,7 @@ async function preparePerItemAudio(
       ? (item: Record<string, unknown>) => buildQuizItemText(item)
       : (item: Record<string, unknown>) =>
           `${item.word ?? ""} ${item.meaning ?? ""} ${item.example ?? ""} ${item.exampleMeaning ?? ""}`;
-  const GAP = dto.template === "quiz" ? 4.3 : 1.2;
+  const GAP = dto.template === "quiz" ? 4.3 : 0.8;
   const prefix = dto.template === "quiz" ? "quiz" : "card";
   const inputs: string[] = [];
   const itemDurations: number[] = [];

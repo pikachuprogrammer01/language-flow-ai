@@ -47,7 +47,7 @@ export class WordCardRenderer implements TemplateRenderer {
     // 音画对齐：帧时长 = 该卡实际朗读时长 + 卡间缓冲（extra.itemDurations，不估算）
     // 回退链路（逐卡合成失败）：按朗读估算分配（保守宁慢勿快）
     const exact = extra?.itemDurations ?? null;
-    const GAP = 1.2;
+    const GAP = 0.8; // 卡间缓冲（语音比画面快了一点，2026-08-18 收窄）
     const durations = exact
       ? items.map((_, i) => (exact[i] ?? 0) + GAP)
       : allocateDurations(
