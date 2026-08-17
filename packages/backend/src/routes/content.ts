@@ -120,6 +120,7 @@ export const content = new OpenAPIHono().openapi(generateRoute, async (c): Promi
         words: dto.words as unknown as object[],
         style: dto.style as unknown as object,
         voice: dto.voice as unknown as object,
+        audit: dto.audit as unknown as object,
         status: "content_ready",
       });
       logger.info({ id: dto.id }, "task record created");

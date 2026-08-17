@@ -147,6 +147,21 @@ const words = computed<WordInfo[]>(() => {
   return Array.isArray(w) ? w.filter(isWordInfo) : [];
 });
 
+/** 审计档案（PRD 10.1.4）展示类型：与后端 GenerationAudit 对齐，宽松解析 */
+interface AuditInfo {
+  input?: { topic?: string; level?: string; wordCount?: number; targetDuration?: number };
+  process?: {
+    candidates?: { source?: string; word?: string }[];
+    attempts?: { result?: string; reason?: string; injectedWords?: string[] }[];
+  };
+  modifications?: { at?: string; fields?: string[] }[];
+}
+
+const audit = computed<AuditInfo | null>(() => {
+  const a = task.value?.audit;
+  return a && typeof a === "object" ? (a as AuditInfo) : null;
+});
+
 const segments = computed<SegmentInfo[]>(() => {
   const c = task.value?.content;
   return Array.isArray(c) ? c.filter(isSegmentInfo) : [];
@@ -376,6 +391,46 @@ listFiles({ type: "bgm" })
         </button>
         <span class="text-xs text-gray-500">保存后会用新内容重新配音并重渲染视频</span>
       </div>
+
+      <!-- 生成档案（PRD 10.1.4 审计：输入/候选词/重试历史/修改日志） -->
+      <details class="mt-8 rounded-lg border border-gray-200">
+        <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-gray-700">
+          生成档案（输入 / 候选词 / 重试 / 修改日志）
+        </summary>
+        <div class="space-y-3 border-t px-4 py-3 text-xs leading-relaxed text-gray-600">
+          <div v-if="audit?.input">
+            主题「{{ audit.input.topic }}」 · {{ audit.input.level }} · 词数
+            {{ audit.input.wordCount ?? "自动" }} · 目标时长 {{ audit.input.targetDuration ?? 60 }}s
+          </div>
+          <div v-if="audit?.process?.candidates?.length">
+            候选词（{{ audit.process.candidates.length }}）：
+            <span
+              v-for="c in audit.process.candidates"
+              :key="c.word"
+              class="mr-1.5 inline-block rounded bg-gray-100 px-1.5 py-0.5"
+            >
+              {{ c.word }}<span class="text-gray-400">（{{ c.source }}）</span>
+            </span>
+          </div>
+          <div v-if="audit?.process?.attempts?.length">
+            生成尝试（{{ audit.process.attempts.length }} 次）：
+            <ul class="ml-4 list-disc">
+              <li v-for="(a, i) in audit.process.attempts" :key="i">
+                第 {{ i + 1 }} 次：{{ a.result === "accepted" ? "通过" : "拒绝" }}{{ a.reason ? `（${a.reason}）` : "" }}
+                <span v-if="a.injectedWords?.length"> · 注入 {{ a.injectedWords.length }} 词</span>
+              </li>
+            </ul>
+          </div>
+          <div v-if="audit?.modifications?.length">
+            修改日志：
+            <ul class="ml-4 list-disc">
+              <li v-for="(m, i) in audit.modifications" :key="i">
+                {{ new Date(String(m.at)).toLocaleString("zh-CN") }} · {{ (m.fields ?? []).join("、") }}
+              </li>
+            </ul>
+          </div>
+        </div>
+      </details>
     </template>
   </div>
 

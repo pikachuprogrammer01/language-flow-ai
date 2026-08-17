@@ -251,9 +251,16 @@ tasks.openapi(patchRoute, async (c) => {
       body.content !== undefined
         ? { ...body, ...(await reconcileWords(rows[0].level, body.content)) }
         : body;
+    // 操作日志（PRD 10.1.4 MVP）：audit.modifications 追加本次修改动作
+    const changed = ["title", "content", "audio", "video", "status"].filter((f) => f in body);
+    const audit = rows[0].audit as { modifications?: unknown[] } | null;
+    const modifications = [
+      ...(Array.isArray(audit?.modifications) ? audit.modifications : []),
+      { at: new Date().toISOString(), fields: changed },
+    ];
     await db
       .update(contents)
-      .set({ ...patch, updatedAt: new Date() })
+      .set({ ...patch, audit: { ...(audit ?? {}), modifications }, updatedAt: new Date() })
       .where(eq(contents.id, id));
     const after = await db.select().from(contents).where(eq(contents.id, id)).limit(1);
     return c.json(after[0]);

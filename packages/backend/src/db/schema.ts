@@ -27,6 +27,8 @@ export const contents = mysqlTable(
     voice: json("voice").notNull(),
     audio: json("audio"),
     video: json("video"),
+    /** 生成审计档案（PRD 10.1.4）：输入/候选词/重试历史/修改日志 */
+    audit: json("audit"),
     status: mysqlEnum("status", [
       "draft",
       "ai_generating",

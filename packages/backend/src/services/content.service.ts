@@ -115,37 +115,72 @@ const NARRATIVE_WORDS = [
 export const MIN_WORDS_PER_CONTENT = 5;
 export const MAX_WORDS_PER_CONTENT = 20;
 
+/** 候选词来源标注（审计档案用） */
+export interface CandidateSource {
+  source: "topic" | "narrative" | "random";
+  word: string;
+}
+
+/** 生成审计档案（PRD 10.1.4）：输入/候选词来源/重试历史/修改日志 */
+export interface GenerationAudit {
+  input: {
+    topic: string;
+    level: "CET4" | "CET6";
+    wordCount?: number;
+    targetDuration?: number;
+    template: string;
+  };
+  process: {
+    candidates: CandidateSource[];
+    attempts: {
+      prompt: string;
+      result: "accepted" | "rejected";
+      reason?: string;
+      injectedWords: string[];
+    }[];
+  };
+  createdAt: string;
+  /** 修改日志（PATCH 时追加，PRD 10.1.4 操作日志 MVP：仅记录修改动作） */
+  modifications?: { at: string; fields: string[] }[];
+}
+
 /** 候选词组装：主题相关词（LLM 产出 + 词库把关）→ 通用叙事词 → 高频池随机补足 */
-async function buildCandidates(
-  input: GenerateSceneWordInput,
-): Promise<{ word: string; meaning: string; level: "CET4" | "CET6" }[]> {
+async function buildCandidates(input: GenerateSceneWordInput): Promise<{
+  candidates: { word: string; meaning: string; level: "CET4" | "CET6" }[];
+  sources: CandidateSource[];
+}> {
   const want = input.wordCount ?? 8;
   const target = Math.min(want * 2, MAX_WORDS_PER_CONTENT);
   const have = new Set<string>();
   const result: { word: string; meaning: string; level: "CET4" | "CET6" }[] = [];
-  const pushIfNew = (m: { word: string; meaning: string; level: "CET4" | "CET6" }): void => {
+  const sources: CandidateSource[] = [];
+  const pushIfNew = (
+    m: { word: string; meaning: string; level: "CET4" | "CET6" },
+    source: CandidateSource["source"],
+  ): void => {
     if (result.length >= target || have.has(m.word.toLowerCase())) return;
     have.add(m.word.toLowerCase());
     result.push(m);
+    sources.push({ source, word: m.word });
   };
 
   // 1) 主题相关词：LLM 产出 → 词库把关（词义以词库为准）
   const topicWords = await fetchTopicWords(input.topic, input.level);
   if (topicWords.length > 0) {
     const { matchedWords } = await validateWords(topicWords, input.level, db);
-    for (const m of matchedWords) pushIfNew(m);
+    for (const m of matchedWords) pushIfNew(m, "topic");
   }
 
   // 2) 通用叙事词（任意主题故事自然出现概率高）
   const { matchedWords: narrative } = await validateWords([...NARRATIVE_WORDS], input.level, db);
-  for (const m of narrative) pushIfNew(m);
+  for (const m of narrative) pushIfNew(m, "narrative");
 
   // 3) 高频池随机补足（保底）
   if (result.length < target) {
     const { words: randoms } = await randomWords(input.level, target, db);
-    for (const r of randoms) pushIfNew(r);
+    for (const r of randoms) pushIfNew(r, "random");
   }
-  return result;
+  return { candidates: result, sources };
 }
 
 // ── 阶段二：故事生成 prompt（模型只写中文故事） ──
@@ -318,28 +353,36 @@ function acceptOutput(
 
 // ── 主流程 ──
 
-/** 生成 scene_word 内容（ContentDTO）；验收不通过时携带失败原因反馈重试，最多 3 次（每次全新对话） */
-export async function generateSceneWordContent(input: GenerateSceneWordInput): Promise<ContentDTO> {
+/** 生成 scene_word 内容（ContentDTO + 审计档案）；验收不通过时携带失败原因反馈重试，最多 3 次（每次全新对话） */
+export async function generateSceneWordContent(
+  input: GenerateSceneWordInput,
+): Promise<ContentDTO & { audit: GenerationAudit }> {
   let lastFeedback = "（未生成）";
+  const attempts: GenerationAudit["process"]["attempts"] = [];
+  const { candidates, sources } = await buildCandidates(input);
   for (let attempt = 0; attempt < 3; attempt++) {
+    const prompt = buildPrompt(input, candidates, attempt > 0 ? lastFeedback : undefined);
     try {
-      const candidates = await buildCandidates(input);
-      const raw = await chatCompletion([
-        {
-          role: "user",
-          content: buildPrompt(input, candidates, attempt > 0 ? lastFeedback : undefined),
-        },
-      ]);
+      const raw = await chatCompletion([{ role: "user", content: prompt }]);
       const llmOutput = llmOutputSchema.safeParse(extractJson<unknown>(raw));
       if (!llmOutput.success) {
         lastFeedback =
           "输出不是合法的 JSON（必须只输出一个 JSON 对象，不要任何其他文字或 markdown 围栏）";
+        attempts.push({ prompt, result: "rejected", reason: lastFeedback, injectedWords: [] });
         logger.warn({ raw: raw.slice(0, 300) }, "LLM 输出结构不符");
         continue;
       }
 
       const segments = await injectSegments(llmOutput.data.segments, candidates);
       const accept = acceptOutput(input, llmOutput.data, segments);
+      attempts.push({
+        prompt,
+        result: accept.ok ? "accepted" : "rejected",
+        reason: accept.ok ? undefined : (accept.reason ?? "输出不达标"),
+        injectedWords: [
+          ...new Set(segments.flatMap((s) => s.words.map((w) => w.word.toLowerCase()))),
+        ],
+      });
       if (!accept.ok) {
         lastFeedback = accept.reason ?? "输出不达标";
         logger.warn({ reason: lastFeedback, attempt: attempt + 1 }, "content generate rejected");
@@ -363,9 +406,21 @@ export async function generateSceneWordContent(input: GenerateSceneWordInput): P
         status: "content_ready",
         createdAt: now,
         updatedAt: now,
+        audit: {
+          input: {
+            topic: input.topic,
+            level: input.level,
+            wordCount: input.wordCount,
+            targetDuration: input.targetDuration,
+            template: "scene_word",
+          },
+          process: { candidates: sources, attempts },
+          createdAt: now,
+        },
       };
     } catch (err) {
       lastFeedback = err instanceof Error ? err.message : "生成失败";
+      attempts.push({ prompt, result: "rejected", reason: lastFeedback, injectedWords: [] });
       logger.warn({ attempt: attempt + 1 }, "content generate retry");
     }
   }

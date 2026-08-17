@@ -16,7 +16,9 @@ function fakeDb(rows: Record<string, unknown>[] = [], wordRows: Record<string, u
     then: async (resolve: (v: unknown) => void) => resolve(r),
   });
   const limitResult = (r: Record<string, unknown>[]) => ({ offset: () => leaf(r), ...leaf(r) });
-  return {
+  // update().set() 的参数捕获（断言审计/回写逻辑）
+  const sets: Record<string, unknown>[] = [];
+  const mock = {
     select: () => ({
       from: (t?: unknown) =>
         t === cetWords
@@ -32,9 +34,17 @@ function fakeDb(rows: Record<string, unknown>[] = [], wordRows: Record<string, u
             },
     }),
     insert: () => ({ values: async () => undefined }),
-    update: () => ({ set: () => ({ where: async () => undefined }) }),
+    update: () => ({
+      set: (v: Record<string, unknown>) => {
+        sets.push(v);
+        return { where: async () => undefined };
+      },
+    }),
     delete: () => ({ where: async () => undefined }),
-  } as unknown as typeof db;
+  };
+  return Object.assign(mock, { __sets: sets }) as unknown as typeof db & {
+    __sets: Record<string, unknown>[];
+  };
 }
 
 const ROW = {
@@ -205,6 +215,37 @@ describe("PATCH /api/tasks/:id", () => {
     ]);
     // 段内 words 同样重建（library 补入）
     expect(json.content[0].words).toHaveLength(2);
+  });
+
+  it("PATCH 时审计档案追加修改日志（audit.modifications）", async () => {
+    const withAudit = {
+      ...ROW,
+      audit: {
+        input: { topic: "科技创业", level: "CET4", template: "scene_word" },
+        process: { candidates: [], attempts: [] },
+        createdAt: "2026-08-17T10:00:00.000Z",
+        modifications: [{ at: "2026-08-17T11:00:00.000Z", fields: ["content"] }],
+      },
+    };
+    const dbMock = fakeDb([withAudit]);
+    // select 两次：查存在 / 查更新后
+    vi.mocked(db)
+      .select.mockImplementationOnce(dbMock.select)
+      .mockImplementationOnce(fakeDb([{ ...withAudit, title: "新标题" }]).select);
+    vi.mocked(db).update.mockImplementation(dbMock.update as never);
+
+    const res = await app.request("/t1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "新标题" }),
+    });
+    expect(res.status).toBe(200);
+    const audit = dbMock.__sets[0]?.audit as {
+      modifications: { at: string; fields: string[] }[];
+    };
+    expect(audit.modifications).toHaveLength(2); // 原有 1 条 + 本次追加 1 条
+    expect(audit.modifications[1]).toMatchObject({ fields: ["title"] });
+    expect(typeof audit.modifications[1].at).toBe("string");
   });
 });
 
