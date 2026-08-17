@@ -139,15 +139,14 @@ describe("generateSceneWordContent", () => {
   it("主题回显偏离时反馈重试（第 2 次修正后通过）", async () => {
     const offTopic = withTopic(STORY_JSON, "森林露营");
     chatCompletionMock
-      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
+      .mockResolvedValueOnce(TOPIC_WORDS_JSON) // buildCandidates 主题词（循环外一次）
       .mockResolvedValueOnce(offTopic) // 第一次主题偏离
-      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
       .mockResolvedValueOnce(STORY_JSON); // 第二次修正
 
     const dto = await generateSceneWordContent({ topic: "科技创业", level: "CET4" });
     expect(dto.title).toBe("职场英语：读一个科技创业故事");
     // 重试时 prompt 应包含失败反馈
-    const retryPrompt = chatCompletionMock.mock.calls[3][0][0].content;
+    const retryPrompt = chatCompletionMock.mock.calls[2][0][0].content;
     expect(retryPrompt).toContain("主题偏离");
     expect(retryPrompt).toContain("科技创业");
   });
@@ -160,9 +159,8 @@ describe("generateSceneWordContent", () => {
       segments: [{ text: "奥斯丁在一家科技机构工作。" }],
     });
     chatCompletionMock
-      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
+      .mockResolvedValueOnce(TOPIC_WORDS_JSON) // buildCandidates 主题词（循环外一次）
       .mockResolvedValueOnce(poorStory)
-      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
       .mockResolvedValueOnce(STORY_JSON);
 
     const dto = await generateSceneWordContent({ topic: "科技创业", level: "CET4" });
@@ -180,9 +178,8 @@ describe("generateSceneWordContent", () => {
       ],
     });
     chatCompletionMock
-      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
+      .mockResolvedValueOnce(TOPIC_WORDS_JSON) // buildCandidates 主题词（循环外一次）
       .mockResolvedValueOnce(dupStory)
-      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
       .mockResolvedValueOnce(STORY_JSON);
 
     const dto = await generateSceneWordContent({ topic: "科技创业", level: "CET4" });

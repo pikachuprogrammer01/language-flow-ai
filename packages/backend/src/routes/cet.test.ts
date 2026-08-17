@@ -157,10 +157,10 @@ describe("randomWords", () => {
 
   it("frequency 全 0 时全表洗牌抽取（不固定前 200）", async () => {
     const rows = Array.from({ length: 250 }, (_, i) => makeWordRow(i, `word${i}`, null));
-    const result = await cetService.randomWords("CET4", 10, fakeDb(rows));
+    const result = await cetService.randomWords("CET4", 40, fakeDb(rows));
 
-    expect(result.words).toHaveLength(10);
-    // 全表洗牌：抽中的词可以出现在前 200 之外（池=全表）
+    expect(result.words).toHaveLength(40);
+    // 全表洗牌：抽中的词可以出现在前 200 之外（池=全表）；（0.8^40 ≈ 0.013% 随机失败率）
     const pickedBeyond200 = result.words.some((w) => Number(w.word.slice(4)) >= 200);
     expect(pickedBeyond200).toBe(true);
   });
