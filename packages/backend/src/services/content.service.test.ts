@@ -49,6 +49,7 @@ function dictHit(words: string[]) {
     expand: "扩张；扩展",
     improve: "改善；改进",
     market: "市场；销路",
+    explore: "探索；探险",
   };
   const matched = words.filter((w) => dict[w.toLowerCase()] !== undefined);
   const unmatched = words.filter((w) => !matched.includes(w));
@@ -216,6 +217,29 @@ describe("generateSceneWordContent", () => {
     expect(dto1.title).toBe("AI 创业");
     const dto2 = await generateSceneWordContent({ topic: "AI startup", level: "CET4" });
     expect(dto2.title).toBe("AI 创业");
+  });
+
+  it("模型自写的英文词（未注入）也补进标签", async () => {
+    // 故事含模型自写英文 explore（不在注入列表，无中文义项）→ 词库命中补标签
+    const story = JSON.stringify({
+      topic: "科技创业",
+      title: "t",
+      segments: [
+        {
+          text: "他在机构工作，签下合同，计划 explore 新产品市场，改善运营，扩张业务。",
+        },
+      ],
+    });
+    chatCompletionMock.mockResolvedValueOnce(TOPIC_WORDS_JSON).mockResolvedValueOnce(story);
+
+    const dto = await generateSceneWordContent({ topic: "科技创业", level: "CET4", wordCount: 3 });
+    expect(isSceneWord(dto)).toBe(true);
+    if (!isSceneWord(dto)) throw new Error("unexpected template");
+    const words = dto.content[0].words.map((w) => w.word);
+    // 注入词（establishment/contract/market/improve/expand）+ 模型自写词（explore）全部有标签
+    expect(words).toContain("establishment");
+    expect(words).toContain("contract");
+    expect(words).toContain("explore");
   });
 
   it("3 次均未通过验收时抛出可读原因", async () => {

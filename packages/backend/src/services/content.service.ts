@@ -223,18 +223,38 @@ interface DictFilteredSegment {
 }
 
 /** 注入流程：模型中文故事 + 候选词 → 扫描替换 → 分段组装 */
-function injectSegments(
+/** 从文本中提取英文单词（≥2 字母，去重保序） */
+function extractEnglishWords(text: string): string[] {
+  return [...new Set(text.match(/[a-zA-Z]{2,}/g) ?? [])];
+}
+
+/**
+ * 注入 + 补齐：候选词中文义项替换为英文词；再扫描文本中全部英文词（含模型自写），
+ * 词库命中的补进词汇标签（保证"文案英文词 ↔ 标签"一一对应，2026-08-17 用户反馈修复）
+ */
+async function injectSegments(
   segments: z.infer<typeof llmOutputSchema>["segments"],
   candidates: { word: string; meaning: string; level: "CET4" | "CET6" }[],
-): DictFilteredSegment[] {
+): Promise<DictFilteredSegment[]> {
   const result: DictFilteredSegment[] = [];
-  // 无命中段的文本也保留（文案完整性优先，词汇标签可为空）
   for (const seg of segments) {
     const text = seg.text ?? "";
     const { text: injectedText, injected } = injectFromDict(text, candidates);
-    if (injectedText) {
-      result.push({ text: injectedText, words: injected });
+    if (!injectedText) continue;
+
+    // 补齐：文本中所有英文词（模型自写的可能不在注入列表）
+    const have = new Set(injected.map((i) => i.word.toLowerCase()));
+    const extra = extractEnglishWords(injectedText).filter((w) => !have.has(w.toLowerCase()));
+    if (extra.length > 0) {
+      const { matchedWords } = await validateWords(extra, candidates[0]?.level ?? "CET4", db);
+      const extraWords = matchedWords
+        .filter((m) => !have.has(m.word.toLowerCase()))
+        .slice(0, Math.max(0, MAX_WORDS_PER_CONTENT - injected.length));
+      for (const m of extraWords) have.add(m.word.toLowerCase());
+      injected.push(...extraWords);
     }
+
+    result.push({ text: injectedText, words: injected });
   }
   return result;
 }
@@ -318,7 +338,7 @@ export async function generateSceneWordContent(input: GenerateSceneWordInput): P
         continue;
       }
 
-      const segments = injectSegments(llmOutput.data.segments, candidates);
+      const segments = await injectSegments(llmOutput.data.segments, candidates);
       const accept = acceptOutput(input, llmOutput.data, segments);
       if (!accept.ok) {
         lastFeedback = accept.reason ?? "输出不达标";
