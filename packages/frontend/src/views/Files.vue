@@ -74,18 +74,23 @@ function keyOf(f: { filename: string; type: string }): string {
   return `${f.type}/${f.filename}`;
 }
 
-const allFilteredSelected = computed(
-  () => filtered.value.length > 0 && filtered.value.every((f) => selected.value.has(keyOf(f))),
-);
+const allFilteredSelected = computed<boolean>({
+  get: () => filtered.value.length > 0 && filtered.value.every((f) => selected.value.has(keyOf(f))),
+  set: (checked: boolean) => {
+    // 全选 = 当前 Tab 可见的全部；取消 = 仅移除当前 Tab 的（跨 Tab 残留选中保留）
+    const next = new Set(selected.value);
+    for (const f of filtered.value) {
+      if (checked) next.add(keyOf(f));
+      else next.delete(keyOf(f));
+    }
+    selected.value = next;
+  },
+});
 
-function toggleAll(): void {
-  const next = new Set(selected.value);
-  if (allFilteredSelected.value) {
-    for (const f of filtered.value) next.delete(keyOf(f));
-  } else {
-    for (const f of filtered.value) next.add(keyOf(f));
-  }
-  selected.value = next;
+function switchFilter(next: "all" | "video" | "audio" | "bgm"): void {
+  // 切换分类时清空选中：全选语义 = 当前 Tab 可见文件，避免跨 Tab 残留导致误删
+  filter.value = next;
+  selected.value = new Set();
 }
 
 function toggle(f: { filename: string; type: "audio" | "video" | "bgm" }): void {
@@ -101,9 +106,16 @@ async function batchRemove(): Promise<void> {
   const hasReferenced = [...selected.value]
     .map((k) => files.value.find((f) => keyOf(f) === k))
     .some((f) => f?.inUse);
+  // 按分类统计，让用户看清删除范围（selected 可能跨分类）
+  const byType = { video: 0, audio: 0, bgm: 0 };
+  for (const k of selected.value) {
+    const [type] = k.split("/");
+    if (type === "video" || type === "audio" || type === "bgm") byType[type] += 1;
+  }
+  const scope = `视频 ${byType.video} 个、配音 ${byType.audio} 个、BGM ${byType.bgm} 个`;
   const tip = hasReferenced
-    ? `选中的 ${selected.value.size} 个文件中包含被记录引用的文件，删除后对应记录中的视频/音频将无法播放，确定删除？`
-    : `确定删除选中的 ${selected.value.size} 个文件？`;
+    ? `选中的 ${selected.value.size} 个文件（${scope}）中包含被记录引用的文件，删除后对应记录中的视频/音频将无法播放，确定删除？`
+    : `确定删除选中的 ${selected.value.size} 个文件（${scope}）？`;
   if (!window.confirm(tip)) return;
   try {
     const items = [...selected.value].map((k) => {
@@ -146,13 +158,13 @@ onMounted(load);
           :key="f"
           class="rounded-lg border px-3 py-1.5 text-sm"
           :class="filter === f ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'"
-          @click="filter = f"
+          @click="switchFilter(f)"
         >
           {{ f === "all" ? `全部（${files.length}）` : `${TYPE_LABEL[f]}（${files.filter((x) => x.type === f).length}）` }}
         </button>
         <span class="ml-auto flex items-center gap-2">
           <label v-if="filtered.length > 0" class="flex items-center gap-1 text-sm text-gray-600">
-            <input type="checkbox" :checked="allFilteredSelected" @change="toggleAll" />
+            <input type="checkbox" v-model="allFilteredSelected" />
             全选本页
           </label>
           <button
