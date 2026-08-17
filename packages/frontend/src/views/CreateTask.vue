@@ -35,9 +35,11 @@ const level = ref<GenerateInput["level"]>("CET4");
 /** 配音音色（PRD §10.1.1 配音可选） */
 const voice = ref("zh-CN-XiaoxiaoNeural");
 const voices = ref<{ id: string; name: string; gender: string }[]>([]);
-/** 音色试听（固定试听文本 + 当前音色合成播放） */
+/** 音色试听：固定试听文本 + 当前音色合成播放；播放中可暂停，切换音色自动停上一个（避免干扰） */
 const previewing = ref(false);
+const previewPlaying = ref(false);
 const previewText = "你好，欢迎来到四级词汇情景记忆课堂，今天我们一起学习吧。";
+let previewAudio: HTMLAudioElement | null = null;
 const step = ref<Step>("idle");
 const errorMsg = ref("");
 const title = ref("");
@@ -84,14 +86,31 @@ function pickTopic(t: string): void {
   topic.value = t;
 }
 
-/** 试听当前音色（合成固定试听文本并播放；PRD §10.1.1） */
+/** 停止当前试听播放（暂停并释放） */
+function stopPreview(): void {
+  if (previewAudio) {
+    previewAudio.pause();
+    previewAudio = null;
+  }
+  previewPlaying.value = false;
+}
+
+/** 试听当前音色（合成固定试听文本并播放；切换音色时先停掉上一个） */
 async function previewVoice(): Promise<void> {
+  stopPreview(); // 上一个音色立即停止，避免叠加干扰
   previewing.value = true;
   errorMsg.value = "";
   try {
     const audio = await previewVoiceApi(voice.value, previewText);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
-    new Audio(`${base}${audio.url}`).play();
+    const el = new Audio(`${base}${audio.url}`);
+    previewAudio = el;
+    el.onended = () => {
+      previewAudio = null;
+      previewPlaying.value = false;
+    };
+    await el.play();
+    previewPlaying.value = true;
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -209,9 +228,9 @@ async function run(): Promise<void> {
                 type="button"
                 class="shrink-0 rounded-lg bg-gray-100 px-3 py-2 text-sm hover:bg-gray-200 disabled:opacity-50"
                 :disabled="previewing"
-                @click="previewVoice"
+                @click="previewPlaying ? stopPreview() : previewVoice()"
               >
-                {{ previewing ? "试听中…" : "🔊 试听" }}
+                {{ previewing ? "试听中…" : previewPlaying ? "⏸ 暂停" : "🔊 试听" }}
               </button>
             </div>
           </div>

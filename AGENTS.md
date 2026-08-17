@@ -32,7 +32,6 @@ LLM 配置    Ollama 本地（qwen2.5:7b，纯本地离线方案 2026-08-17 用�
   packages/shared/src/     — 类型定义（同步更新所有引用方）
   packages/backend/src/    — 后端路由、service、DB、渲染器
   packages/frontend/src/   — Vue 页面、组件
-  dify/                    — Workflow YAML 文件
   *.config.*               — 工程配置文件（biome/lefthook/commitlint）
   PROGRESS.md              — 进度更新
 
@@ -87,12 +86,12 @@ docs/ 设计文档  >  SPEC.md  >  PRD.md  >  README.md  >  凭记忆猜测
 MUST:
   ✅ 所有代码用 TypeScript，禁止 JavaScript
   ✅ 纯函数优先，副作用集中在 service 层
-  ✅ 单个函数不超过 50 行（Dify Code 节点 main 函数例外）
+  ✅ 单个函数不超过 50 行
   ✅ 导出函数必须有显式返回类型注解
   ✅ 修改入参视为错误（immutable）
 
 MUST NOT:
-  ❌ 任何 any 类型（Dify Code 节点输入参数用 Record<string, unknown> 例外）
+  ❌ 任何 any 类型
   ❌ as 强转绕过类型错误
   ❌ @ts-ignore 或 @ts-expect-error（除非旁边有注释解释）
   ❌ 循环导入
@@ -139,7 +138,7 @@ Vue 组件      PascalCase       CreateTask.vue, TaskList.vue
 type(scope): 中文描述
 
 type     — feat / fix / refactor / docs / test / chore / style
-scope    — shared / backend / frontend / dify / docs
+scope    — shared / backend / frontend / docs
 描述     — 中文，祈使句，50 字以内
 
 示例：
@@ -242,7 +241,6 @@ PRD.md 变更 → SPEC.md 变更 → docs/ 对应设计文档变更 → 代码�
 ```
 ✅ 新增 API 端点必须同步新增测试文件
 ✅ 修改 shared 类型后运行 pnpm -r typecheck 确认全仓通过
-✅ 修改 Dify Workflow 后确认所有节点引用的变量名存在
 ✅ 测试文件与源文件同目录或 tests/ 同级目录
 ```
 

@@ -12,10 +12,9 @@
 设计阶段      [████████████] 100%  14 份设计文档 + PRD + SPEC + README
 工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / CI / pino
 shared 包     [████████████] 100%  enums + ContentDTO + Request/Response DTO + 类型守卫
-后端 API      [████░░░░░░░░]  40%  骨架 + TTS 配音 + 文件服务 + validate-words（含测试）
-Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
-前端          [██░░░░░░░░░░]  15%  骨架（Vite + Vue + Tailwind + 入口文件）
-测试          [██████░░░░░░]  60%  Vitest 就绪，26 用例（cet 13 + tts 13），待补 tts service 与渲染测试
+后端 API      [████████████] 100%  内容生成（V3 代码注入+验收）/ TTS（音色可选+试听）/ 渲染 / 任务 CRUD / 文件管理 / 主题推荐
+前端          [██████████░░]  85%  生成页（主题选择+AI推荐+音色试听）/ 记录列表与详情 / 文件管理（分类+批量）
+测试          [██████████░░]  85%  Vitest 94 用例（cet/tts/video/content/tasks/files/topics）
 部署          [░░░░░░░░░░░░]   0%
 ```
 
@@ -69,7 +68,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 | 16 | POST /api/cet/random-words + 测试（11 用例：service 4 + route 7，高频池 200 随机抽样） | ✅ 完成 |
 | 17 | POST /api/tts/generate（Edge TTS 配音 + 本地文件存储） | ✅ 完成 |
 | 17a | GET /files/audio\|video/:filename 静态文件服务（防路径穿越） | ✅ 完成 |
-| 17b | POST /api/tts/from-content（ContentArray 拼接 + 合成 + ffprobe 时长，Workflow B 入口） | ✅ 完成 |
+| 17b | POST /api/tts/from-content（ContentArray 拼接 + 合成 + ffprobe 时长） | ✅ 完成 |
 | 17c | tts 测试补齐（拼接纯函数 5 + 路由 8，共 13 用例） | ✅ 完成 |
 | 18 | POST /api/video/render（Playwright 截图 + FFmpeg 合成，三个模板 renderer）+ 测试（时长分配 7 + 路由 9 用例） | ✅ 完成 |
 | 19 | @hono/zod-openapi → openapi.json 自动生成（6 API 全收录，/doc Scalar UI，启动时写入 src/openapi.json） | ✅ 完成 |
@@ -109,7 +108,7 @@ Dify          [░░░░░░░░░░░░]   0%  4 个 Workflow
 - [x] 项目定位与需求（PRD.md）
 - [x] 技术选型（SPEC.md §2.2）
 - [x] ContentDTO 数据结构设计（04 文档）
-- [x] Dify Workflow 节点设计（05 文档）
+- [x] Dify Workflow 节点设计（05 文档，已废弃，由 docs/15 取代）
 - [x] 系统模块划分（03 文档）
 - [x] API 接口契约定义（SPEC.md §五）
 - [x] 模板设计规范（情景词汇阅读视频模板设计规范）

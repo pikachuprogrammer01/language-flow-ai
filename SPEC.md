@@ -25,32 +25,18 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                         后端 API + LLM                          │
+│                 后端 API + 本地 LLM（Ollama）                    │
 │                                                               │
-│  ┌─────────────────────────────────────────────────────┐     │
-│  │                  Workflow A：内容生成                  │     │
-│  │                                                     │     │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐          │     │
-│  │  │ A1       │  │ A2       │  │ A3       │          │     │
-│  │  │ scene_   │  │ word_    │  │ quiz     │          │     │
-│  │  │ word     │  │ card     │  │          │          │     │
-│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘          │     │
-│  │       └──────────────┼─────────────┘                │     │
-│  │                      │                              │     │
-│  │              输出: partial_dto                       │     │
-│  └──────────────────────┼──────────────────────────────┘     │
-│                         │                                    │
-│                         │  MVP 自动串联                        │
-│                         │                                    │
-│  ┌──────────────────────┼──────────────────────────────┐     │
-│  │                  Workflow B：媒体生产                  │     │
-│  │                      │                              │     │
-│  │              TTS → 视频渲染 → 输出: final_dto         │     │
-│  └─────────────────────────────────────────────────────┘     │
+│  ① 内容生成服务（content.service）                              │
+│     两阶段（主题词 → 故事）+ 代码注入英文词 + 词库验收 + 重试       │
+│     LLM 直连（OpenAI 兼容），无 Dify（2026-08-17 架构变更）       │
+│                     │                                          │
+│                     │  自动落库（contents 表 = 生成记录）          │
+│                     ▼                                          │
+│  ② TTS 服务（音色可选 + 试听）→ ③ 视频渲染服务（Playwright+FFmpeg）│
 │                                                               │
 └──────────────────────────┬───────────────────────────────────┘
                            │
-                           │  HTTP Request 节点调用
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
 │                      后端 API 服务                             │
@@ -64,8 +50,8 @@
 │                                                               │
 │  ┌──────────────────────────────────────────────────────┐    │
 │  │                   数据存储层                            │    │
-│  │   ContentDTO 持久化（MySQL / PostgreSQL）              │    │
-│  │   四六级词库（独立表）                                   │    │
+│  │   contents 表（生成记录 + ContentDTO JSON）              │    │
+│  │   四六级词库（cet_words 表）                            │    │
 │  └──────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -419,7 +405,7 @@ POST /api/cet/random-words
 
 ### 5.2 TTS 服务
 
-TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-content`（Workflow B 使用，含拼接）。
+TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-content`（ContentArray 拼接合成，场景内容用）。
 
 #### 5.2.1 POST /api/tts/generate — 底层文本合成
 
@@ -442,7 +428,7 @@ TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-conte
 }
 ```
 
-#### 5.2.2 POST /api/tts/from-content — ContentArray 拼接合成（Workflow B 使用）
+#### 5.2.2 POST /api/tts/from-content — ContentArray 拼接合成（场景内容配音入口）
 
 **请求体**：
 
@@ -504,7 +490,7 @@ TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-conte
 POST /api/video/render
 ```
 
-**请求体**：完整的 ContentDTO（含 audio 字段，即 Workflow B 的 dto_with_audio）。
+**请求体**：完整的 ContentDTO（含 audio 字段，即渲染入参）。
 
 ```typescript
 // 完整的 ContentDTO
@@ -810,14 +796,10 @@ project-root/
 │           │   └── ui/            # shadcn-vue 组件 ⏳ 待生成
 │           └── router.ts
 │
-└── dify/                           # ⏳ 待实现（#20-#24）
-    ├── content_generation/
-    │   ├── scene_word.yml         # Workflow A1
-    │   ├── word_card.yml          # Workflow A2
-    │   └── quiz.yml               # Workflow A3
-    └── media_production/
-        └── media_production.yml   # Workflow B
 ```
+
+> 目录结构 2026-08-17 更新：dify/ 目录已废弃（去 Dify 架构，见 §12.3）；实际结构以仓库为准
+> （packages/backend + packages/frontend + uploads + docs）。
 
 ---
 
@@ -834,7 +816,7 @@ project-root/
 - [x] `POST /api/cet/validate-words` — 候选词批量验证 ✅
 - [ ] `POST /api/cet/random-words` — 按等级随机抽取
 - [x] `POST /api/tts/generate` — 底层文本合成 ✅
-- [x] `POST /api/tts/from-content` — ContentArray 拼接合成（Workflow B 入口）✅
+- [x] `POST /api/tts/from-content` — ContentArray 拼接合成 ✅
 - [ ] `POST /api/video/render` — HTML 模板渲染 + FFmpeg 合成
 - [ ] OpenAPI 3.1 规范自动生成（`@hono/zod-openapi`）
 
@@ -876,8 +858,8 @@ project-root/
 |------|------|
 | DTO | Data Transfer Object，层间数据结构 |
 | ContentDTO | 统一的视频内容数据载体 |
-| partial_dto | Workflow A 输出的半成品（缺 audio/video） |
-| final_dto | Workflow B 输出的完整 DTO |
+| partial_dto | 原 Workflow A 输出的半成品（缺 audio/video，术语保留供历史文档阅读） |
+| final_dto | 原 Workflow B 输出的完整 DTO（术语保留供历史文档阅读） |
 | Dify（已废弃） | 原 AI 编排平台，2026-08-17 起由后端直连 LLM 取代 |
 | TTS | Text-to-Speech，文本转语音 |
 | CET4/CET6 | 大学英语四六级 |

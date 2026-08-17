@@ -19,23 +19,19 @@
 ## 整体流程
 
 ```
-用户输入（主题/模板/等级）
+用户输入（主题/等级/音色）
        │
        ▼
-┌──────────────────────┐
-│  Workflow A：内容生成  │  三个模板各一个 Workflow
-│  AI 生成 → 词库校验    │  输出 partial_dto
-└─────────┬────────────┘
-          │
-          ▼  （MVP 自动串联 / 后续可插入人工审核）
-          │
-┌──────────────────────┐
-│  Workflow B：媒体生产  │  三个模板共用
-│  TTS 配音 → 视频渲染   │  输出 final_dto
-└─────────┬────────────┘
-          │
-          ▼
-      完整的 ContentDTO + MP4
+┌──────────────────────────────┐
+│  后端 API + 本地 LLM（Ollama） │
+│  ① 内容生成：两阶段 + 代码注入  │
+│     + 词库验收（自动落库记录）   │
+│  ② TTS 配音（音色可选 + 试听）  │
+│  ③ 视频渲染（Playwright+FFmpeg）│
+└──────────────┬───────────────┘
+               │
+               ▼
+        ContentDTO + MP4（生成记录可在平台管理）
 ```
 
 ## 技术方案
@@ -114,24 +110,18 @@ language-flow-ai/
 │       ├── vitest.config.ts
 │       ├── env.d.ts              # Vue SFC + Vite 类型声明
 │       └── src/
-│           ├── api/             # ⏳ 待实现（#26）
-│           │   ├── client.ts     # openapi-fetch 类型安全客户端
-│           │   └── schema.d.ts   # openapi-typescript 自动生成
-│           ├── pages/           # ⏳ 待实现（#28-#30）
-│           │   ├── CreateTask.vue
-│           │   ├── TaskList.vue
-│           │   └── TaskDetail.vue
+│           ├── api/
+│           │   ├── client.ts     # openapi-fetch 类型安全客户端 ✅
+│           │   └── schema.d.ts   # openapi-typescript 自动生成（不入库）
+│           ├── views/
+│           │   ├── CreateTask.vue  # 生成页：主题选择+AI推荐+音色试听 ✅
+│           │   ├── TaskList.vue    # 生成记录列表 ✅
+│           │   ├── TaskDetail.vue  # 详情+播放+重新配音 ✅
+│           │   └── Files.vue       # 文件管理（分类+批量删除）✅
 │           ├── components/
 │           │   └── ui/           # shadcn-vue 组件 ⏳ 待生成
-│           └── router.ts         # 当前仅 / → App，待重写（#26）
-
-dify/                              # ⏳ 待实现（#20-#24）
-├── content_generation/
-│   ├── scene_word.yml           # Workflow A1：情景背词
-│   ├── word_card.yml            # Workflow A2：单词卡片
-│   └── quiz.yml                 # Workflow A3：选择题
-└── media_production/
-    └── media_production.yml     # Workflow B：TTS + 视频渲染（三模板共用）
+│           ├── App.vue           # 全局导航栏 ✅
+│           └── router.ts         # / /tasks /tasks/:id /files ✅
 
 docs/                            ← 设计文档
 ├── 01_项目概述文档.txt
@@ -276,7 +266,7 @@ git push
 type(scope): 中文描述
 
 type  — feat / fix / refactor / docs / test / chore / style
-scope — shared / backend / frontend / dify / docs
+scope — shared / backend / frontend / docs
 ```
 
 示例：`feat(backend): 实现 /api/cet/random-words 接口`
