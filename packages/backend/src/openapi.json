@@ -1427,7 +1427,7 @@
         }
       }
     },
-    "/api/tasks/:id": {
+    "/api/tasks/{id}": {
       "get": {
         "tags": [
           "tasks"

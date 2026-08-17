@@ -153,7 +153,7 @@ tasks.openapi(listRoute, async (c) => {
 
 const detailRoute = createRoute({
   method: "get",
-  path: "/:id",
+  path: "/{id}",
   request: { params: idParamSchema },
   responses: {
     200: {
@@ -179,7 +179,7 @@ tasks.openapi(detailRoute, async (c) => {
 
 const patchRoute = createRoute({
   method: "patch",
-  path: "/:id",
+  path: "/{id}",
   request: {
     params: idParamSchema,
     body: { content: { "application/json": { schema: patchBodySchema } } },
@@ -214,7 +214,7 @@ tasks.openapi(patchRoute, async (c) => {
 
 const deleteRoute = createRoute({
   method: "delete",
-  path: "/:id",
+  path: "/{id}",
   request: { params: idParamSchema },
   responses: {
     200: {

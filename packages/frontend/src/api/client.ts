@@ -83,7 +83,7 @@ export async function listTasks(
 
 /** 生成记录详情（ContentDTO 全量） */
 export async function getTask(id: string) {
-  const { data, error, response } = await client.GET("/api/tasks/:id", {
+  const { data, error, response } = await client.GET("/api/tasks/{id}", {
     params: { path: { id } },
   });
   if (error || !response.ok) throw new Error(`查询任务详情失败（HTTP ${response.status}）`);
@@ -109,7 +109,7 @@ export async function updateTask(
       | "failed";
   },
 ) {
-  const { data, error, response } = await client.PATCH("/api/tasks/:id", {
+  const { data, error, response } = await client.PATCH("/api/tasks/{id}", {
     params: { path: { id } },
     body,
   });
@@ -120,7 +120,7 @@ export async function updateTask(
 
 /** 删除生成记录 */
 export async function deleteTask(id: string) {
-  const { data, error, response } = await client.DELETE("/api/tasks/:id", {
+  const { data, error, response } = await client.DELETE("/api/tasks/{id}", {
     params: { path: { id } },
   });
   if (error || !response.ok) throw new Error(`删除任务失败（HTTP ${response.status}）`);
