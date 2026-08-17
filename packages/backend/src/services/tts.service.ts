@@ -174,6 +174,42 @@ function dateToString(): string {
 
 type JsonRecord = Record<string, unknown>;
 
+/** 词性缩写 → 中文（朗读用，覆盖常见缩写与连写：adv.→副词、vt.&vi.→及物和不及物动词） */
+const POS_ZH: Record<string, string> = {
+  n: "名词",
+  v: "动词",
+  vt: "及物动词",
+  vi: "不及物动词",
+  vbl: "动词",
+  adj: "形容词",
+  a: "形容词",
+  adv: "副词",
+  ad: "副词",
+  prep: "介词",
+  conj: "连词",
+  pron: "代词",
+  num: "数词",
+  art: "冠词",
+  aux: "助动词",
+  int: "感叹词",
+  interj: "感叹词",
+  pref: "前缀",
+  suf: "后缀",
+  abbr: "缩写",
+};
+
+/** 词性中文映射：拆分连写（vt.vi. / aux.v.&vi. / a.&ad.）逐个映射后拼接 */
+function posToChinese(pos: string): string {
+  const tokens = pos
+    .toLowerCase()
+    .replace(/\./g, " ")
+    .replace(/&/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  const mapped = tokens.map((t) => POS_ZH[t] ?? t).filter(Boolean);
+  return mapped.join("、") || pos;
+}
+
 function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -232,11 +268,21 @@ export function buildTtsText(
     case "word_card":
       return content
         .map((card) => {
-          const parts = [str(card.word), str(card.pos), str(card.example)]
+          // 全中文朗读（用户确认 2026-08-18）：词性映射中文 + 释义中文 + 例句 + 例句翻译
+          const word = str(card.word);
+          const posZh = posToChinese(str(card.pos));
+          const meaning = str(card.meaning);
+          const example = str(card.example);
+          const exampleMeaning = str(card.exampleMeaning);
+          const head = [word, posZh ? `${posZh}，${meaning}` : meaning]
             .map(stripTrailingPunct)
             .filter(Boolean)
-            .join(". ");
-          return parts ? `${parts}.` : "";
+            .join("，");
+          const parts = [head, example, exampleMeaning]
+            .map(stripTrailingPunct)
+            .filter(Boolean)
+            .join("。");
+          return parts ? `${parts}。` : "";
         })
         .filter(Boolean)
         .join(" ");

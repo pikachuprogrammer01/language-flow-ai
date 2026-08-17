@@ -52,18 +52,47 @@ describe("buildTtsText", () => {
     expect(text).toBe("纯文本段。");
   });
 
-  it("word_card：逐卡拼接 word. pos. example.", () => {
+  it("word_card：全中文朗读（词性映射中文 + 释义 + 例句 + 例句翻译）", () => {
     const text = buildTtsText(
       [
-        { word: "elaborate", pos: "adj.", example: "She made elaborate preparations." },
-        { word: "contract", pos: "n.", example: "He signed a contract." },
+        {
+          word: "elaborate",
+          pos: "adj.",
+          meaning: "精心制作的",
+          example: "She made elaborate preparations.",
+          exampleMeaning: "她做了精心的准备。",
+        },
+        {
+          word: "contract",
+          pos: "n.",
+          meaning: "合同",
+          example: "He signed a contract.",
+          exampleMeaning: "他签了一份合同。",
+        },
       ],
       "word_card",
     );
 
     expect(text).toBe(
-      "elaborate. adj. She made elaborate preparations. contract. n. He signed a contract.",
+      "elaborate，形容词，精心制作的。She made elaborate preparations。她做了精心的准备。 contract，名词，合同。He signed a contract。他签了一份合同。",
     );
+  });
+
+  it("word_card：连写词性映射（vt.&vi. → 及物动词、不及物动词）", () => {
+    const text = buildTtsText(
+      [
+        {
+          word: "resolve",
+          pos: "vt.&vi.",
+          meaning: "决定",
+          example: "I resolve to try.",
+          exampleMeaning: "我决心尝试。",
+        },
+      ],
+      "word_card",
+    );
+
+    expect(text).toBe("resolve，及物动词、不及物动词，决定。I resolve to try。我决心尝试。");
   });
 
   it("quiz：逐题拼接 stem. A. opt0. B. opt1. C. opt2. D. opt3.", () => {
@@ -120,12 +149,14 @@ describe("POST /api/tts", () => {
 
   it("from-content 200：voice 不传用默认音色", async () => {
     await postJson("/from-content", {
-      content: [{ word: "hi", pos: "int.", example: "Hi there." }],
+      content: [
+        { word: "hi", pos: "int.", meaning: "嗨", example: "Hi there.", exampleMeaning: "你好。" },
+      ],
       template: "word_card",
     });
 
     expect(ttsService.synthesizeSpeech).toHaveBeenCalledWith(
-      "hi. int. Hi there.",
+      "hi，感叹词，嗨。Hi there。你好。",
       "zh-CN-XiaoxiaoNeural",
     );
   });

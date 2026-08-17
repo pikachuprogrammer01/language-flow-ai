@@ -38,7 +38,14 @@ export async function synthesizeFromContent(
   const { data, error, response } = await client.POST("/api/tts/from-content", {
     body: { template, content, title, voice },
   });
-  if (error || !response.ok) throw new Error(`配音失败（HTTP ${response.status}）`);
+  if (error || !response.ok) {
+    // error 含 zod 校验详情（如字段缺失），拼进提示便于排查
+    const detail =
+      typeof error === "object" && error !== null
+        ? JSON.stringify(error).slice(0, 300)
+        : String(error ?? "");
+    throw new Error(`配音失败（HTTP ${response.status}）${detail ? `：${detail}` : ""}`);
+  }
   if (!data) throw new Error("配音失败：空响应");
   return data.audio;
 }

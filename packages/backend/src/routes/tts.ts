@@ -105,7 +105,14 @@ async function saveAudio(
 
 // ── 路由注册 ──
 
-export const tts = new OpenAPIHono()
+export const tts = new OpenAPIHono({
+  // 校验失败打日志（定位前端 400 根因）
+  defaultHook: (result, c) => {
+    if (!result.success) {
+      logger.warn({ issues: result.error.issues, path: c.req.path }, "tts 请求校验失败");
+    }
+  },
+})
   .openapi(generateRoute, async (c): Promise<Response> => {
     const { text, voice } = c.req.valid("json");
     try {
