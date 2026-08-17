@@ -5,7 +5,7 @@
  */
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { ContentDTO, TemplateType } from "@ai-english/shared";
@@ -14,6 +14,7 @@ import { QuizRenderer } from "../renderer/quiz.renderer";
 import type { RenderFrame, TemplateRenderer } from "../renderer/renderer.interface";
 import { SceneWordRenderer } from "../renderer/scene-word.renderer";
 import { WordCardRenderer } from "../renderer/word-card.renderer";
+import { buildQuizItemText, getAudioDuration, synthesizeSpeech } from "./tts.service";
 
 const execFileAsync = promisify(execFile);
 
@@ -129,6 +130,70 @@ function localFilePathFromUrl(url: string, kind: "audio" | "bgm" = "audio"): str
   return join(UPLOADS_DIR, kind, filename);
 }
 
+/**
+ * quiz 音画对齐（用户确认 2026-08-18）：逐题合成朗读音频，
+ * 每题音频 + 静音（1s 缓冲 + 3.3s 答案帧）交替拼接为对齐音频，
+ * 画面切到答案帧时无朗读、下一题音频在题目帧起点才继续
+ */
+async function prepareQuizAudio(
+  dto: ContentDTO,
+  workDir: string,
+): Promise<{ audioPath: string; questionDurations: number[] } | null> {
+  if (dto.template !== "quiz") return null;
+  const items = dto.content as unknown as { stem?: unknown; options?: unknown }[];
+  const voice = (dto.voice as { id?: string } | undefined)?.id;
+  const inputs: string[] = [];
+  const questionDurations: number[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const text = buildQuizItemText(items[i] as unknown as Record<string, unknown>);
+    if (!text) continue;
+    const buf = await synthesizeSpeech(text, voice);
+    const filePath = join(workDir, `quiz-q${i}.aiff`);
+    await writeFile(filePath, buf);
+    questionDurations.push(await getAudioDuration(filePath));
+    inputs.push(filePath);
+  }
+  if (inputs.length === 0) return null;
+  // 每题后接静音（1s 缓冲 + 2.5s 答案 + 0.8s 题间间隔），与 renderer 帧时长一致
+  const SILENCE = 4.3;
+  const silencePath = join(workDir, "quiz-silence.aiff");
+  await execFileAsync(
+    "ffmpeg",
+    [
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "anullsrc=r=22050:cl=mono",
+      "-t",
+      String(SILENCE),
+      "-f",
+      "aiff",
+      silencePath,
+    ],
+    { timeout: 30_000 },
+  );
+  const concatInputs = inputs.flatMap((f) => ["-i", f, "-i", silencePath]);
+  const concatFilter = `[${Array.from({ length: inputs.length * 2 }, (_, i) => `${i}:a`).join("][")}]concat=n=${inputs.length * 2}:v=0:a=1[aout]`;
+  const alignedPath = join(workDir, "quiz-aligned.aiff");
+  await execFileAsync(
+    "ffmpeg",
+    [
+      "-y",
+      ...concatInputs,
+      "-filter_complex",
+      concatFilter,
+      "-map",
+      "[aout]",
+      "-f",
+      "aiff",
+      alignedPath,
+    ],
+    { timeout: 60_000 },
+  );
+  return { audioPath: alignedPath, questionDurations };
+}
+
 /** 渲染 ContentDTO 为 MP4 视频，返回产物元数据 */
 export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
   const { audio } = dto;
@@ -143,7 +208,17 @@ export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
   const outputPath = join(UPLOADS_DIR, "video", `${randomUUID()}.mp4`);
   try {
     const renderer = renderers[dto.template];
-    const result = await renderer.render(dto, workDir);
+    // quiz 音画对齐：逐题合成音频（每题朗读与题目帧精确同步）
+    let audioPath = localFilePathFromUrl(audio.url);
+    let renderExtra: { questionDurations?: number[] } | undefined;
+    if (dto.template === "quiz") {
+      const prepared = await prepareQuizAudio(dto, workDir);
+      if (prepared) {
+        audioPath = prepared.audioPath;
+        renderExtra = { questionDurations: prepared.questionDurations };
+      }
+    }
+    const result = await renderer.render(dto, workDir, renderExtra);
 
     await mkdir(dirname(outputPath), { recursive: true });
     try {
@@ -151,7 +226,7 @@ export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
       const bgm = dto.style?.bgm;
       await composeVideo(
         result.frames,
-        localFilePathFromUrl(audio.url),
+        audioPath,
         outputPath,
         bgm ? localFilePathFromUrl(bgm, "bgm") : undefined,
         result.beepTimes,

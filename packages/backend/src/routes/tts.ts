@@ -19,6 +19,16 @@ const ttsSchema = z.object({
 });
 
 /** 常用中文配音（edge-tts 支持，2026-08-17 整理；PRD §10.1.1 配音可选） */
+/** Mac 本地音色（say 可用中文音色：Tingting 普通话；Sinji/Meijia 粤语；Eddy 等需下载暂不可用） */
+export const MAC_VOICES = [
+  { id: "Tingting", name: "婷婷（普通话·本地）", gender: "女" },
+  { id: "Sinji", name: "阿欣（粤语·本地）", gender: "女" },
+  { id: "Meijia", name: "美佳（粤语·本地）", gender: "女" },
+];
+
+/** TTS 引擎（与 tts.service 对齐：mac 默认 / edge 可选） */
+const TTS_ENGINE = process.env.TTS_ENGINE ?? "edge"; // edge 默认（音色多）；mac 可经 env 切换（本地稳定）
+
 export const TTS_VOICES = [
   { id: "zh-CN-XiaoxiaoNeural", name: "晓晓（女·温暖）", gender: "女" },
   { id: "zh-CN-XiaoyiNeural", name: "晓伊（女·活泼）", gender: "女" },
@@ -165,5 +175,9 @@ export const tts = new OpenAPIHono({
       },
       tags: ["tts"],
     }),
-    async (c) => c.json({ voices: TTS_VOICES, default: "zh-CN-XiaoxiaoNeural" }),
+    async (c) =>
+      c.json({
+        voices: TTS_ENGINE === "mac" ? MAC_VOICES : TTS_VOICES,
+        default: TTS_ENGINE === "mac" ? "Tingting" : "zh-CN-XiaoxiaoNeural",
+      }),
   );

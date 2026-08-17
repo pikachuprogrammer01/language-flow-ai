@@ -27,7 +27,11 @@ function renderQuizHtml(template: string, q: QuizItem, showAnswer: boolean): str
 }
 
 export class QuizRenderer implements TemplateRenderer {
-  async render(dto: ContentDTO, workDir: string): Promise<RenderResult> {
+  async render(
+    dto: ContentDTO,
+    workDir: string,
+    extra?: { questionDurations?: number[] },
+  ): Promise<RenderResult> {
     if (!isQuiz(dto)) {
       throw new Error("QuizRenderer 收到非 quiz 模板内容");
     }
@@ -48,17 +52,19 @@ export class QuizRenderer implements TemplateRenderer {
     }
 
     const paths = await screenshotHtmls(htmlList, workDir);
-    // 题目帧 = 该题朗读比例 × 配音总时长 + 1s 缓冲（读完所有选项再等 1 秒才显示答案，用户确认 2026-08-18）
-    // 答案帧固定 2.5s（解析阅读）；答案帧起点插入提示音
-    const totalRead = readWeights.reduce((n, w) => n + w, 0) || 1;
+    // 题目帧 = 该题朗读实际时长 + 1s 缓冲（音画精确对齐，用户确认 2026-08-18）
+    // 无精确时长（旧链路）时按字符比例估算兜底；答案帧固定 2.5s（解析阅读）；题间 0.8s 间隔
     const ANSWER_DURATION = 2.5;
     const QUESTION_PAUSE = 1.0;
-    const QUESTION_GAP = 0.8; // 题间间隔（答案帧后停顿，防切太快，用户确认 2026-08-18）
+    const QUESTION_GAP = 0.8;
+    const exact = extra?.questionDurations ?? null;
+    const totalRead = readWeights.reduce((n, w) => n + w, 0) || 1;
     const durations: number[] = [];
     const beepTimes: number[] = [];
     let cursor = 0;
     for (let i = 0; i < items.length; i++) {
-      const questionDuration = (readWeights[i] / totalRead) * audio.duration + QUESTION_PAUSE;
+      const questionDuration =
+        (exact?.[i] ?? (readWeights[i] / totalRead) * audio.duration) + QUESTION_PAUSE;
       durations.push(questionDuration);
       cursor += questionDuration;
       beepTimes.push(cursor); // 答案帧起点：提示音

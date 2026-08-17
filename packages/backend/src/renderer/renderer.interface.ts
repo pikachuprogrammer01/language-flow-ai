@@ -20,5 +20,10 @@ export interface RenderResult {
 }
 
 export interface TemplateRenderer {
-  render(dto: ContentDTO, workDir: string): Promise<RenderResult>;
+  /** extra：渲染器扩展参数（quiz 音画对齐时传每题朗读时长） */
+  render(
+    dto: ContentDTO,
+    workDir: string,
+    extra?: { questionDurations?: number[] },
+  ): Promise<RenderResult>;
 }

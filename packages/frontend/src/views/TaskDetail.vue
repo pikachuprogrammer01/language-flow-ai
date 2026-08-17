@@ -316,6 +316,10 @@ onMounted(load);
 listVoices()
   .then((data) => {
     voices.value = data.voices;
+    // 当前音色不在列表（引擎切换后旧 id 失效）时切到默认
+    if (!voices.value.some((v) => v.id === voice.value)) {
+      voice.value = data.default ?? voices.value[0]?.id ?? "";
+    }
   })
   .catch(() => {});
 

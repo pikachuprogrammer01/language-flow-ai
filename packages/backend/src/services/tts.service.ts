@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import type { TemplateType } from "@ai-english/shared";
 import WebSocket, { type RawData } from "ws";
@@ -36,14 +39,35 @@ function buildEdgeTtsUrl(): string {
 }
 
 // 中文女声 — 微软最高质量中文神经语音
-const DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural";
+/** TTS 引擎：mac（Mac 本地 say，稳定离线，默认）/ edge（微软 Edge TTS，音色多但不稳定） */
+const TTS_ENGINE = process.env.TTS_ENGINE ?? "edge"; // edge 默认（音色多）；mac 可经 env 切换（本地稳定）
+export const DEFAULT_VOICE = TTS_ENGINE === "mac" ? "Tingting" : "zh-CN-XiaoxiaoNeural";
 
 /**
  * 通过 WebSocket 连接 Edge TTS 服务，将中文文本合成 MP3
  * 返回音频 Buffer，可直接写入文件或返回前端
  */
-/** 单次合成（含一次自动重试：Edge TTS 偶发断开/无数据，2026-08-18 用户反馈 500 后无法继续） */
+/** Mac 本地合成（say 命令，稳定离线；输出 AIFF 22050Hz mono） */
+async function synthesizeWithSay(text: string, voice: string): Promise<Buffer> {
+  const workDir = await mkdtemp(join(tmpdir(), "lf-say-"));
+  const outPath = join(workDir, "out.aiff");
+  try {
+    await execFileAsync("say", ["-v", voice, "-o", outPath, text], { timeout: 60_000 });
+    const buf = await readFile(outPath);
+    if (buf.length === 0) {
+      throw new Error(`say 合成结果为空（音色 ${voice} 可能未安装/未下载）`);
+    }
+    return buf;
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+/** 合成（mac 引擎本地稳定；edge 引擎含一次自动重试：偶发断开/无数据） */
 export async function synthesizeSpeech(text: string, voice = DEFAULT_VOICE): Promise<Buffer> {
+  if (TTS_ENGINE === "mac") {
+    return synthesizeWithSay(text, voice);
+  }
   try {
     return await synthesizeOnce(text, voice);
   } catch (err) {
@@ -222,6 +246,21 @@ function escapeRegExp(value: string): string {
  * 空 segment/空字段自动跳过（对应"空 segment 丢弃"约定，SPEC §6.2.6）
  * @param title 可选：scene_word 模板先朗读标题（英文词同样逆替换为中文）
  */
+/** 单题朗读文本（quiz 音画对齐：每题独立合成时用；含题干 + A-D 选项，词性前缀剥离） */
+export function buildQuizItemText(q: JsonRecord): string {
+  const options = Array.isArray(q.options) ? (q.options as unknown[]) : [];
+  // 选项上限 4 个（QuizItem 契约），超出截断避免字母越界（A-D）
+  const optionText = options
+    .slice(0, 4)
+    .map(
+      (opt, i) => `${String.fromCharCode(65 + i)}. ${stripTrailingPunct(stripPosPrefix(str(opt)))}`,
+    )
+    .join(". ");
+  if (!optionText) return "";
+  const stem = ensureEndPunct(str(q.stem));
+  return stem ? `${stem} ${optionText}.` : `${optionText}.`;
+}
+
 export function buildTtsText(
   content: JsonRecord[],
   template: TemplateType,
@@ -270,20 +309,7 @@ export function buildTtsText(
         .join(" ");
     case "quiz":
       return content
-        .map((q) => {
-          const options = Array.isArray(q.options) ? (q.options as unknown[]) : [];
-          // 选项上限 4 个（QuizItem 契约），超出截断避免字母越界（A-D）
-          const optionText = options
-            .slice(0, 4)
-            .map(
-              (opt, i) =>
-                `${String.fromCharCode(65 + i)}. ${stripTrailingPunct(stripPosPrefix(str(opt)))}`,
-            )
-            .join(". ");
-          if (!optionText) return "";
-          const stem = ensureEndPunct(str(q.stem));
-          return stem ? `${stem} ${optionText}.` : `${optionText}.`;
-        })
+        .map((q) => buildQuizItemText(q as JsonRecord))
         .filter(Boolean)
         .join(" ");
   }
