@@ -9,6 +9,7 @@ import {
   type RenderVideoInput,
   deleteTask,
   getTask,
+  listFiles,
   listVoices,
   renderVideo,
   synthesizeFromContent,
@@ -32,6 +33,9 @@ const editing = ref(false);
 const editTitle = ref("");
 const editTexts = ref<string[]>([]);
 const saving = ref(false);
+/** 重新组装：BGM 选择（来自文件管理 bgm 素材，组装新视频时混音） */
+const bgmFiles = ref<{ filename: string }[]>([]);
+const bgm = ref("");
 
 interface WordInfo {
   word: string;
@@ -95,7 +99,12 @@ async function saveEdit(): Promise<void> {
     task.value = refreshed;
     revoicing.value = true;
     const audio = await synthesizeFromContent("scene_word", content, editTitle.value, voice.value);
-    const dto: RenderVideoInput = { ...refreshed, template: "scene_word", audio };
+    const dto: RenderVideoInput = {
+      ...refreshed,
+      template: "scene_word",
+      audio,
+      style: { ...(refreshed.style ?? {}), bgm },
+    };
     if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
     const video = await renderVideo(dto);
     await updateTask(String(route.params.id), { audio, video, status: "completed" });
@@ -189,7 +198,12 @@ async function revoice(): Promise<void> {
       voice.value,
     );
     // render 需要完整 ContentDTO（audio 必填）；守卫后传宽松 Record（后端 zod 兜底）
-    const dto: RenderVideoInput = { ...t, template: "scene_word", audio };
+    const dto: RenderVideoInput = {
+      ...t,
+      template: "scene_word",
+      audio,
+      style: { ...(t.style ?? {}), bgm },
+    };
     if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
     const video = await renderVideo(dto);
     await updateTask(String(route.params.id), { audio, video, status: "completed" });
@@ -217,6 +231,13 @@ onMounted(load);
 listVoices()
   .then((data) => {
     voices.value = data.voices;
+  })
+  .catch(() => {});
+
+// 加载 BGM 素材列表（重新组装视频用；失败静默）
+listFiles({ type: "bgm" })
+  .then((data) => {
+    bgmFiles.value = data.files;
   })
   .catch(() => {});
 </script>
@@ -274,10 +295,14 @@ listVoices()
       </div>
       <p v-else class="mt-6 rounded-lg bg-gray-50 p-4 text-center text-sm text-gray-400">该记录尚未生成视频</p>
 
-      <!-- 重新配音（PRD §10.1.1） -->
+      <!-- 重新配音 + 组装（PRD §10.1.1 + 文件引用组装） -->
       <div class="mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-4">
         <select v-model="voice" class="rounded-lg border px-3 py-2 text-sm" :disabled="revoicing">
           <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
+        </select>
+        <select v-model="bgm" class="rounded-lg border px-3 py-2 text-sm" :disabled="revoicing">
+          <option value="">无 BGM</option>
+          <option v-for="b in bgmFiles" :key="b.filename" :value="`/files/bgm/${b.filename}`">{{ b.filename }}</option>
         </select>
         <button
           class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
@@ -286,7 +311,7 @@ listVoices()
         >
           {{ revoicing ? "重新配音渲染中…" : "重新配音并渲染" }}
         </button>
-        <span class="text-xs text-gray-500">用新音色重新合成配音并重渲染视频</span>
+        <span class="text-xs text-gray-500">选音色 + BGM（可无），重新组装新视频</span>
       </div>
 
       <!-- 词汇 -->

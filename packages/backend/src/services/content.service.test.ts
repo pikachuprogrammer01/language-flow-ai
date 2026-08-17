@@ -153,7 +153,7 @@ describe("generateSceneWordContent", () => {
   });
 
   it("词数不足时反馈重试", async () => {
-    // 故事只含"机构"（注入后 1 词 < min 2）
+    // 故事只含"机构"（注入后 1 词 < min 5）
     const poorStory = JSON.stringify({
       topic: "科技创业",
       title: "t",
@@ -162,6 +162,26 @@ describe("generateSceneWordContent", () => {
     chatCompletionMock
       .mockResolvedValueOnce(TOPIC_WORDS_JSON)
       .mockResolvedValueOnce(poorStory)
+      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
+      .mockResolvedValueOnce(STORY_JSON);
+
+    const dto = await generateSceneWordContent({ topic: "科技创业", level: "CET4" });
+    expect(dto.content.length).toBeGreaterThan(0);
+  });
+
+  it("同词多段重复只算一个（唯一词不足 5 则重试）", async () => {
+    // 段 1/段 2 都含"机构"→ market 等词只注入一次；唯一次数 4（机构/合同/扩张/改善）< 5 → 重试
+    const dupStory = JSON.stringify({
+      topic: "科技创业",
+      title: "t",
+      segments: [
+        { text: "奥斯丁在一家科技机构工作，签下合同，计划扩张业务。" },
+        { text: "他继续在这家机构努力，改善运营。" },
+      ],
+    });
+    chatCompletionMock
+      .mockResolvedValueOnce(TOPIC_WORDS_JSON)
+      .mockResolvedValueOnce(dupStory)
       .mockResolvedValueOnce(TOPIC_WORDS_JSON)
       .mockResolvedValueOnce(STORY_JSON);
 

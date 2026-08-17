@@ -304,9 +304,9 @@ function acceptOutput(
       reason: `主题偏离：要求围绕「${input.topic}」，你输出的主题是「${llmOutput.topic}」。请重新围绕「${input.topic}」编写故事。`,
     };
   }
-  // 硬约束：每篇 ≥5 词（用户要求，不足即失败重试）
+  // 硬约束：每篇 ≥5 个唯一英文词（与展示的词汇标签一致；同词多段重复只算一个，2026-08-17 修复）
   const minWords = MIN_WORDS_PER_CONTENT;
-  const total = filtered.reduce((n, s) => n + s.words.length, 0);
+  const total = new Set(filtered.flatMap((s) => s.words.map((w) => w.word.toLowerCase()))).size;
   if (total < minWords) {
     return {
       ok: false,

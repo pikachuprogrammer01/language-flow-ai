@@ -4,7 +4,10 @@
  * 数据源：GET /api/files（分类 + inUse 标记）+ DELETE /api/files/:filename?type=
  */
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { batchDeleteFiles, deleteFile, listFiles } from "../api/client";
+
+const router = useRouter();
 
 const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
 const files = ref<
@@ -14,6 +17,7 @@ const files = ref<
     size: number;
     mtime: string;
     inUse: boolean;
+    referencedBy: { id: string; title: string }[];
   }[]
 >([]);
 const filter = ref<"all" | "video" | "audio" | "bgm">("all");
@@ -192,7 +196,20 @@ onMounted(load);
                   <span class="rounded bg-gray-100 px-1.5 py-0.5">{{ TYPE_LABEL[f.type] }}</span>
                   <span>{{ fmtSize(f.size) }}</span>
                   <span>{{ new Date(f.mtime).toLocaleString("zh-CN") }}</span>
-                  <span v-if="f.inUse" class="text-blue-600">被记录引用</span>
+                  <!-- 引用详情：被哪些生成记录使用（点击跳转） -->
+                  <span v-if="f.referencedBy.length > 0" class="flex flex-wrap items-center gap-1">
+                    <span class="text-blue-600">被引用：</span>
+                    <button
+                      v-for="r in f.referencedBy.slice(0, 2)"
+                      :key="r.id"
+                      class="max-w-[160px] truncate rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 hover:bg-blue-100"
+                      :title="r.title"
+                      @click="router.push(`/tasks/${r.id}`)"
+                    >
+                      {{ r.title }}
+                    </button>
+                    <span v-if="f.referencedBy.length > 2" class="text-gray-400">等 {{ f.referencedBy.length }} 条</span>
+                  </span>
                   <span v-else class="text-orange-500">未引用</span>
                 </div>
               </div>

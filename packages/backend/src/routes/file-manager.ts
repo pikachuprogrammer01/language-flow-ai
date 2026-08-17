@@ -17,15 +17,26 @@ const UPLOADS_DIR = join(import.meta.dirname, "../../uploads");
 export const FILE_TYPES = ["audio", "video", "bgm"] as const;
 export type FileType = (typeof FILE_TYPES)[number];
 
-/** 收集生成记录引用的文件名（audio/video URL 的 basename），用于 inUse 标记 */
-async function referencedFiles(): Promise<Set<string>> {
-  const rows = await db.select({ audio: contents.audio, video: contents.video }).from(contents);
-  const refs = new Set<string>();
+/** 收集生成记录引用的文件名与引用记录（audio/video URL 的 basename），用于 inUse + 引用详情 */
+async function referencedFiles(): Promise<Map<string, { id: string; title: string }[]>> {
+  const rows = await db
+    .select({
+      id: contents.id,
+      title: contents.title,
+      audio: contents.audio,
+      video: contents.video,
+    })
+    .from(contents);
+  const refs = new Map<string, { id: string; title: string }[]>();
   for (const r of rows) {
     for (const field of [r.audio, r.video]) {
       if (field && typeof field === "object" && "url" in field) {
         const url = String(field.url ?? "");
-        if (url.startsWith("/files/")) refs.add(basename(url));
+        if (!url.startsWith("/files/")) continue;
+        const name = basename(url);
+        const list = refs.get(name) ?? [];
+        list.push({ id: r.id, title: r.title });
+        refs.set(name, list);
       }
     }
   }
@@ -51,6 +62,7 @@ const listRoute = createRoute({
                 size: z.number(),
                 mtime: z.string(),
                 inUse: z.boolean(),
+                referencedBy: z.array(z.object({ id: z.string(), title: z.string() })),
               }),
             ),
           }),
@@ -72,6 +84,7 @@ fileManager.openapi(listRoute, async (c) => {
       size: number;
       mtime: string;
       inUse: boolean;
+      referencedBy: { id: string; title: string }[];
     }[] = [];
     for (const dir of FILE_TYPES) {
       if (type && type !== dir) continue;
@@ -87,6 +100,7 @@ fileManager.openapi(listRoute, async (c) => {
             size: info.size,
             mtime: info.mtime.toISOString(),
             inUse: refs.has(name),
+            referencedBy: refs.get(name) ?? [],
           });
         } catch {
           // 文件已被删除，跳过

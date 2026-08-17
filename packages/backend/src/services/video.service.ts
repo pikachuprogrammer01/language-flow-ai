@@ -42,6 +42,7 @@ export async function composeVideo(
   frames: RenderFrame[],
   audioPath: string,
   outputPath: string,
+  bgmPath?: string,
 ): Promise<void> {
   const inputs = frames.flatMap((f) => [
     "-loop",
@@ -53,17 +54,25 @@ export async function composeVideo(
   ]);
   const scaleFilters = frames.map((_, i) => `[${i + 1}:v]scale=1080:1920,setsar=1[v${i}]`);
   const concatFilter = `${frames.map((_, i) => `[v${i}]`).join("")}concat=n=${frames.length}:v=1:a=0[vout]`;
+  // BGM 混音（可选）：循环背景音乐、降音量后与配音混合（配音为主，BGM 垫底）
+  const bgmArgs = bgmPath ? ["-stream_loop", "-1", "-i", bgmPath] : [];
+  const audioFilter = bgmPath
+    ? `[0:a]volume=1.0[a0];[${frames.length + 1}:a]volume=0.12,afade=t=out:st=${frames.reduce((n, f) => n + f.duration, 0) - 2}:d=2[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]`
+    : "";
   const args = [
     "-y",
     "-i",
     audioPath,
     ...inputs,
+    ...bgmArgs,
     "-filter_complex",
-    `${scaleFilters.join(";")};${concatFilter}`,
+    bgmPath
+      ? `${scaleFilters.join(";")};${concatFilter};${audioFilter}`
+      : `${scaleFilters.join(";")};${concatFilter}`,
     "-map",
     "[vout]",
     "-map",
-    "0:a",
+    bgmPath ? "[aout]" : "0:a",
     "-r",
     "25",
     "-c:v",
@@ -86,13 +95,13 @@ export async function composeVideo(
   await execFileAsync("ffmpeg", args, { timeout: 120_000 });
 }
 
-/** /files/audio/xxx.mp3 → uploads/audio/xxx.mp3（只取 basename，防路径穿越） */
-function localFilePathFromUrl(url: string): string {
+/** /files/audio|bgm/xxx.mp3 → uploads 对应目录的本地路径（只取 basename + 白名单目录，防路径穿越） */
+function localFilePathFromUrl(url: string, kind: "audio" | "bgm" = "audio"): string {
   const filename = basename(new URL(url, "http://local").pathname);
   if (!filename || filename.includes("..")) {
     throw new Error(`非法的媒体 URL: ${url}`);
   }
-  return join(UPLOADS_DIR, "audio", filename);
+  return join(UPLOADS_DIR, kind, filename);
 }
 
 /** 渲染 ContentDTO 为 MP4 视频，返回产物元数据 */
@@ -113,7 +122,14 @@ export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
 
     await mkdir(dirname(outputPath), { recursive: true });
     try {
-      await composeVideo(result.frames, localFilePathFromUrl(audio.url), outputPath);
+      // style.bgm（可选）：组装时选择背景音乐混音（docs/13 素材清单；BGM 音量 0.12 垫底）
+      const bgm = dto.style?.bgm;
+      await composeVideo(
+        result.frames,
+        localFilePathFromUrl(audio.url),
+        outputPath,
+        bgm ? localFilePathFromUrl(bgm, "bgm") : undefined,
+      );
     } catch (err) {
       // FFmpeg 失败：删除半成品 MP4，不保留（docs/10 §七）
       await rm(outputPath, { force: true }).catch(() => {});
