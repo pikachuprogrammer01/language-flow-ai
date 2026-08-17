@@ -206,3 +206,14 @@ MVP 阶段由后端 service 硬编码映射（`female_01 → zh-CN-XiaoxiaoNeura
 - [ ] `POST /api/tts/generate` 保持兼容（text 合成 + `{success, filename, url}`）
 - [x] text > 500 字符返回 400；content 拼不出文本返回 400（from-content 拼接文本超 500 也返回 400）
 - [ ] 音色映射表 4 个 ID 均可对应有效 Edge 音色
+
+---
+
+## 更新记录（2026-08-18）
+
+- **混合音色**：`GET /api/tts/voices` 返回 Edge 8 音色 + Mac 本地 3 音色（婷婷 Tingting/阿欣 Sinji/美佳 Meijia），按 voice id 自动分发引擎（`isMacVoice`）；默认 zh-CN-XiaoxiaoNeural
+- **语速**：`rate` 参数（0.5~2，默认 1）——Edge 走 SSML prosody rate，Mac 走 `say -r`（基准 175 wpm × rate）
+- **词性不朗读**：释义开头的词性前缀（n./vt./adj./adv. 等）在朗读前剥离（word_card 与 quiz 选项）
+- **拼接上限**：500 → 2000 字符（中文朗读后 word_card/quiz 内容变长）
+- **Edge 稳定性**：合成失败自动重试 1 次；前端生成/配音/渲染三步拆分可单独重试
+- quiz 配音逐题合成（音画对齐，见 docs/10）

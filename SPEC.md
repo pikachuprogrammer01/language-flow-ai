@@ -60,7 +60,7 @@
 
 | 层 | 选型 | 说明 |
 |----|------|------|
-| 流程编排 | 无（后端 service 直连 LLM） | 内容生成：llm.service 调 OpenAI 兼容 API（Ollama 本地，docs/14） |
+| 流程编排 | 无（后端 service 直连 LLM） | 内容生成：llm.service 调 OpenAI 兼容 API（Ollama 本地，docs/14）；三模板（scene_word/word_card/quiz）生成器 + 审计档案 |
 | 后端语言 | TypeScript (Node.js) | 后端 API 服务统一语言 |
 | 后端框架 | Hono | 轻量 TS-first Web 框架，原生 Zod 集成，Edge-ready |
 | 数据校验 | Zod | 运行时类型校验，与 Hono zValidator 中间件配合 |
@@ -69,13 +69,13 @@
 | 前端框架 | Vue 3.5 + Composition API | `<script setup lang="ts">` 语法，与后端共享 TS 类型 |
 | UI 组件库 | shadcn-vue | Vue 版 shadcn/ui，Radix Vue 底座，源码归己 |
 | 前端样式 | Tailwind CSS 4 | 原子化 CSS，与 shadcn-vue 原生配合 |
-| 前端路由 | Vue Router 4 | CSR 三页面路由，无需 SSR |
+| 前端路由 | Vue Router 4 | CSR 多页面路由：新建视频 / 生成记录 / 文件管理 / 视频资产 / 审计管理 |
 | 前端请求 | TanStack Vue Query | API 请求缓存/loading/error 状态管理 |
 | 前端构建 | Vite 6 | 原生 TS 支持，HMR 秒级 |
 | API 文档 | @hono/zod-openapi + Scalar | 从 Hono 路由 + Zod schema 自动生成 OpenAPI 3.1 规范 |
 | API 客户端 | openapi-typescript + openapi-fetch | 从 OpenAPI spec 自动生成类型安全的前端请求客户端 |
 | 共享类型 | pnpm workspace shared 包 | ContentDTO 类型一次定义，前后端复用 |
-| AI 模型 | GPT-4o / Claude 3.5 Sonnet | 必须支持 JSON Structured Output |
+| AI 模型 | Ollama qwen2.5:7b（本地） | 纯本地推理（用户决策 2026-08-17）；三模板生成均走 LLM，词汇准确性由词库决定 |
 | 视频渲染 | HTML + Playwright + FFmpeg | 模板渲染 → 截图 → 合成 |
 | 文件存储 | S3 兼容对象存储 / CDN | 存储音频和视频文件 |
 | 测试框架 | Vitest 3 | backend 用 node 环境，frontend 用 jsdom |
@@ -137,6 +137,8 @@ npx scalar-reference openapi.json --port 3001
 ### 2.4 完整技术栈
 
 ---
+
+> **TTS 引擎（2026-08-18）**：音色按 id 自动分发——Edge TTS（8 音色，默认）或 Mac 本地 say（Tingting/Sinji/Meijia，离线稳定）；语速倍率 rate（0.5-2，SSML prosody / say -r）；Edge 合成失败自动重试 1 次。
 
 ## 三、枚举与类型定义
 
@@ -406,6 +408,7 @@ POST /api/cet/random-words
 ### 5.2 TTS 服务
 
 TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-content`（ContentArray 拼接合成，场景内容用）。
+`GET /api/tts/voices` 返回混合音色列表（Edge 8 + Mac 本地 3：婷婷/阿欣/美佳）与默认音色；词性缩写不朗读（释义前缀剥离，2026-08-18 用户确认）。
 
 #### 5.2.1 POST /api/tts/generate — 底层文本合成
 
@@ -413,8 +416,9 @@ TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-conte
 
 ```typescript
 {
-  text: string;            // 待朗读的纯文本（1~500 字符）
-  voice: string;           // Edge TTS 音色名，默认 "zh-CN-XiaoxiaoNeural"
+  text: string;            // 待朗读的纯文本（1~2000 字符，2026-08-18 中文朗读内容变长后上调）
+  voice: string;           // 音色名（Edge 8 + Mac 本地 3 混合列表），默认 "zh-CN-XiaoxiaoNeural"
+  rate: number;            // 语速倍率 0.5~2（可选，默认 1；Edge SSML prosody / Mac say -r）
 }
 ```
 
@@ -436,7 +440,8 @@ TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-conte
 {
   content: ContentArray;   // 同 ContentDTO.content
   template: TemplateType;  // scene_word | word_card | quiz，决定拼接方式
-  voice: string;           // Edge TTS 音色名，默认 "zh-CN-XiaoxiaoNeural"
+  voice: string;           // 音色名（Edge 8 + Mac 3 混合，按 id 自动分发引擎），默认 "zh-CN-XiaoxiaoNeural"
+  rate: number;            // 语速倍率 0.5~2（可选，默认 1）
 }
 ```
 
@@ -708,6 +713,7 @@ interface PaginatedResponse<T> {
 | voice | JSON | VoiceConfig |
 | audio | JSON NULL | AudioInfo |
 | video | JSON NULL | VideoInfo |
+| audit | JSON NULL | 生成审计档案（PRD 10.1.4）：input/候选词来源/重试历史/修改日志 |
 | status | VARCHAR(32) | ContentStatus |
 | created_at | DATETIME(3) | ISO 8601 UTC |
 | updated_at | DATETIME(3) | ISO 8601 UTC |
@@ -723,6 +729,8 @@ interface PaginatedResponse<T> {
 | frequency | FLOAT DEFAULT 0 | 词频（0~1） |
 
 **索引**：`idx_level_freq(level, frequency)`
+
+> **词库规模（2026-08-18）**：5999 词（CET4 4686 含高中基础词补齐 + CET6 1313 增量）；抽词池过滤功能词（art./prep./conj. 等词性前缀）且 frequency 全 0 时全表洗牌（不固定前 200）。
 （实现以 `db/schema.ts` 为准，与 docs/09 一致）
 
 ---
