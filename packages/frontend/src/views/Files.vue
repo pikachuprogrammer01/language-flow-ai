@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { toast } from "sonner";
 /**
  * 文件管理页 — 分类管理（视频=成片 / 配音=生成的音频 / BGM=背景音乐素材）
  * 数据源：GET /api/files（分类 + inUse 标记）+ DELETE /api/files/:filename?type=
@@ -6,6 +7,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { batchDeleteFiles, deleteFile, listFiles } from "../api/client";
+import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 
 const router = useRouter();
 
@@ -25,6 +27,15 @@ const loading = ref(true);
 const errorMsg = ref("");
 /** 批量选择（key = type/filename） */
 const selected = ref<Set<string>>(new Set());
+/** 删除确认对话框状态 */
+const confirmOpen = ref(false);
+const pendingDelete = ref<{
+  filename: string;
+  type: "audio" | "video" | "bgm";
+  inUse: boolean;
+} | null>(null);
+const batchOpen = ref(false);
+const batchTip = ref("");
 
 const TYPE_LABEL: Record<string, string> = {
   video: "视频（成片）",
@@ -62,15 +73,22 @@ async function remove(f: {
   type: "audio" | "video" | "bgm";
   inUse: boolean;
 }): Promise<void> {
-  const tip = f.inUse
-    ? "该文件被生成记录引用，删除后记录中的视频/音频将无法播放，确定删除？"
-    : "确定删除该文件？";
-  if (!window.confirm(tip)) return;
+  // 确认对话框（ConfirmDialog 状态在模板中管理）
+  pendingDelete.value = { filename: f.filename, type: f.type, inUse: f.inUse };
+  confirmOpen.value = true;
+}
+
+/** 执行单个删除（ConfirmDialog 确认后） */
+async function doRemove(): Promise<void> {
+  if (!pendingDelete.value) return;
   try {
-    await deleteFile(f.filename, f.type);
+    await deleteFile(pendingDelete.value.filename, pendingDelete.value.type);
     await load();
+    toast.success("文件已删除");
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    pendingDelete.value = null;
   }
 }
 
@@ -117,10 +135,15 @@ async function batchRemove(): Promise<void> {
     if (type === "video" || type === "audio" || type === "bgm") byType[type] += 1;
   }
   const scope = `视频 ${byType.video} 个、配音 ${byType.audio} 个、BGM ${byType.bgm} 个`;
-  const tip = hasReferenced
-    ? `选中的 ${selected.value.size} 个文件（${scope}）中包含被记录引用的文件，删除后对应记录中的视频/音频将无法播放，确定删除？`
+  // 批量删除确认信息 → 对话框
+  batchTip.value = hasReferenced
+    ? `选中的 ${selected.value.size} 个文件（${scope}）中包含被记录引用的文件，删除后对应记录中的视频/音频将无法播放`
     : `确定删除选中的 ${selected.value.size} 个文件（${scope}）？`;
-  if (!window.confirm(tip)) return;
+  batchOpen.value = true;
+}
+
+/** 执行批量删除（ConfirmDialog 确认后） */
+async function doBatchRemove(): Promise<void> {
   try {
     const items = [...selected.value].map((k) => {
       const [type, filename] = k.split("/");
@@ -130,7 +153,11 @@ async function batchRemove(): Promise<void> {
     selected.value = new Set();
     await load();
     if (result.errors.length > 0) {
-      errorMsg.value = `已删除 ${result.deleted} 个；${result.errors.length} 个失败（${result.errors.map((e) => e.filename).join("、")}）`;
+      toast.error(
+        `已删除 ${result.deleted} 个；${result.errors.length} 个失败（${result.errors.map((e) => e.filename).join("、")}）`,
+      );
+    } else {
+      toast.success(`已删除 ${result.deleted} 个文件`);
     }
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
@@ -228,4 +255,22 @@ onMounted(load);
       <p v-if="filtered.length === 0" class="py-10 text-center text-gray-400">没有匹配的文件</p>
     </template>
   </div>
+
+  <!-- 删除确认对话框（shadcn-vue AlertDialog，替代原生 confirm） -->
+  <ConfirmDialog
+    v-model:open="confirmOpen"
+    title="删除文件"
+    :description="pendingDelete?.inUse ? '该文件被生成记录引用，删除后记录中的视频/音频将无法播放' : '确定删除该文件？'"
+    confirm-text="删除"
+    destructive
+    @confirm="doRemove"
+  />
+  <ConfirmDialog
+    v-model:open="batchOpen"
+    title="批量删除"
+    :description="batchTip"
+    confirm-text="删除"
+    destructive
+    @confirm="doBatchRemove"
+  />
 </template>

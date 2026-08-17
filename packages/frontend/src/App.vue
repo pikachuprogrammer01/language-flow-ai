@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// Language Flow AI — 入口组件（全局导航栏）
+// Language Flow AI — 入口组件（全局导航栏 + Toast）
+import { Toaster } from "sonner";
 </script>
 
 <template>
   <div class="min-h-screen bg-gray-50 text-gray-900">
+    <Toaster position="top-center" rich-colors />
     <nav class="border-b bg-white">
       <div class="mx-auto flex max-w-5xl items-center gap-6 px-6 py-3">
         <span class="text-lg font-bold">Language Flow AI</span>

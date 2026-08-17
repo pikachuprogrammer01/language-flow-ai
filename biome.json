@@ -35,7 +35,12 @@
       "suspicious": {
         "noExplicitAny": "error",
         "noArrayIndexKey": "warn",
-        "noConsole": { "level": "error", "options": { "allow": [] } }
+        "noConsole": {
+          "level": "error",
+          "options": {
+            "allow": []
+          }
+        }
       },
       "style": {
         "noNonNullAssertion": "error",
@@ -62,7 +67,9 @@
       "include": ["packages/backend/scripts/**"],
       "linter": {
         "rules": {
-          "suspicious": { "noConsole": "off" }
+          "suspicious": {
+            "noConsole": "off"
+          }
         }
       }
     },
@@ -70,7 +77,19 @@
       "include": ["packages/frontend/src/**/*.vue"],
       "linter": {
         "rules": {
-          "correctness": { "noUnusedVariables": "off" }
+          "correctness": {
+            "noUnusedVariables": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["*.vue"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedImports": "off"
+          }
         }
       }
     }

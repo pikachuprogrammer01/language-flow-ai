@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { toast } from "sonner";
 /**
  * 任务详情页 — 生成记录详情 + 视频播放（完整链路产物回溯）
  * 数据源：GET /api/tasks/:id（ContentDTO 全量）
@@ -15,6 +16,7 @@ import {
   synthesizeFromContent,
   updateTask,
 } from "../api/client";
+import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -36,6 +38,10 @@ const saving = ref(false);
 /** 重新组装：BGM 选择（来自文件管理 bgm 素材，组装新视频时混音） */
 const bgmFiles = ref<{ filename: string }[]>([]);
 const bgm = ref("");
+/** 确认对话框状态（重新配音确认 + 删除确认） */
+const revoiceOpen = ref(false);
+const revoiceConfirmTip = ref("");
+const confirmOpen = ref(false);
 
 interface WordInfo {
   word: string;
@@ -180,12 +186,14 @@ watch(() => route.params.id, load);
 /** 重新配音：用记录正文 + 新音色重合成音频 → 重渲染视频 → 回写记录 */
 async function revoice(): Promise<void> {
   if (!task.value) return;
-  if (
-    !window.confirm(
-      `用「${voices.value.find((v) => v.id === voice.value)?.name ?? voice.value}」重新配音并重新渲染视频？`,
-    )
-  )
-    return;
+  // 确认对话框（模板中 ConfirmDialog）
+  revoiceConfirmTip.value = `用「${voices.value.find((v) => v.id === voice.value)?.name ?? voice.value}」重新配音并重新渲染视频？`;
+  revoiceOpen.value = true;
+}
+
+/** 执行重新配音渲染（确认后） */
+async function doRevoice(): Promise<void> {
+  if (!task.value) return;
   revoicing.value = true;
   errorMsg.value = "";
   try {
@@ -216,9 +224,15 @@ async function revoice(): Promise<void> {
 }
 
 async function remove(): Promise<void> {
-  if (!window.confirm("确定删除这条生成记录吗？")) return;
+  // 确认对话框（模板中 ConfirmDialog）
+  confirmOpen.value = true;
+}
+
+/** 执行删除（确认后） */
+async function doRemove(): Promise<void> {
   try {
     await deleteTask(String(route.params.id));
+    toast.success("记录已删除");
     router.push("/tasks");
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
@@ -353,4 +367,21 @@ listFiles({ type: "bgm" })
       </div>
     </template>
   </div>
+
+  <!-- 确认对话框（shadcn-vue AlertDialog） -->
+  <ConfirmDialog
+    v-model:open="revoiceOpen"
+    title="重新配音并渲染"
+    :description="revoiceConfirmTip"
+    confirm-text="开始渲染"
+    @confirm="doRevoice"
+  />
+  <ConfirmDialog
+    v-model:open="confirmOpen"
+    title="删除生成记录"
+    description="确定删除这条生成记录吗？"
+    confirm-text="删除"
+    destructive
+    @confirm="doRemove"
+  />
 </template>

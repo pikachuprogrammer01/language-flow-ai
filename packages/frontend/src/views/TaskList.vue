@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { toast } from "sonner";
 /**
  * 任务列表页 — 生成记录管理（列表 / 查看详情 / 删除 / 新建入口）
  * 数据源：GET /api/tasks（status 过滤 + 分页）
@@ -8,6 +9,9 @@ import { useRouter } from "vue-router";
 import { deleteTask, listTasks } from "../api/client";
 
 const router = useRouter();
+/** 删除确认对话框状态 */
+const confirmOpen = ref(false);
+const pendingDeleteId = ref("");
 const tasks = ref<
   {
     id: string;
@@ -51,12 +55,21 @@ async function load(): Promise<void> {
 }
 
 async function remove(id: string): Promise<void> {
-  if (!window.confirm("确定删除这条生成记录吗？")) return;
+  // 确认对话框（状态在模板中管理）
+  pendingDeleteId.value = id;
+  confirmOpen.value = true;
+}
+
+/** 执行删除（ConfirmDialog 确认后） */
+async function doRemove(): Promise<void> {
   try {
-    await deleteTask(id);
+    await deleteTask(pendingDeleteId.value);
     await load();
+    toast.success("记录已删除");
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    pendingDeleteId.value = "";
   }
 }
 
@@ -119,4 +132,14 @@ onMounted(load);
       </li>
     </ul>
   </div>
+
+  <!-- 删除确认对话框（shadcn-vue AlertDialog） -->
+  <ConfirmDialog
+    v-model:open="confirmOpen"
+    title="删除生成记录"
+    description="确定删除这条生成记录吗？"
+    confirm-text="删除"
+    destructive
+    @confirm="doRemove"
+  />
 </template>
