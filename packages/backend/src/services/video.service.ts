@@ -131,41 +131,46 @@ function localFilePathFromUrl(url: string, kind: "audio" | "bgm" = "audio"): str
 }
 
 /**
- * quiz 音画对齐（用户确认 2026-08-18）：逐题合成朗读音频，
- * 每题音频 + 静音（1s 缓冲 + 3.3s 答案帧）交替拼接为对齐音频，
- * 画面切到答案帧时无朗读、下一题音频在题目帧起点才继续
+ * 逐项合成音画对齐（quiz 逐题 / word_card 逐卡，用户确认 2026-08-18）：
+ * 每项音频 + 静音间隔拼接为对齐音频——画面帧时长 = 该项实际朗读时长 + 间隔（不估算，读完即切）
+ * quiz：间隔 4.3s（1s 缓冲 + 2.5s 答案 + 0.8s 题间）；word_card：间隔 1.2s（卡间缓冲）
  */
-async function prepareQuizAudio(
+async function preparePerItemAudio(
   dto: ContentDTO,
   workDir: string,
-): Promise<{ audioPath: string; questionDurations: number[] } | null> {
-  if (dto.template !== "quiz") return null;
-  const items = dto.content as unknown as { stem?: unknown; options?: unknown }[];
+): Promise<{ audioPath: string; itemDurations: number[] } | null> {
+  if (dto.template !== "quiz" && dto.template !== "word_card") return null;
+  const items = dto.content as unknown as Record<string, unknown>[];
   const voice = (dto.voice as { id?: string } | undefined)?.id;
+  const itemToText =
+    dto.template === "quiz"
+      ? (item: Record<string, unknown>) => buildQuizItemText(item)
+      : (item: Record<string, unknown>) =>
+          `${item.word ?? ""} ${item.meaning ?? ""} ${item.example ?? ""} ${item.exampleMeaning ?? ""}`;
+  const GAP = dto.template === "quiz" ? 4.3 : 1.2;
+  const prefix = dto.template === "quiz" ? "quiz" : "card";
   const inputs: string[] = [];
-  const questionDurations: number[] = [];
+  const itemDurations: number[] = [];
   for (let i = 0; i < items.length; i++) {
-    const text = buildQuizItemText(items[i] as unknown as Record<string, unknown>);
+    const text = itemToText(items[i]);
     if (!text) continue;
     try {
       const buf = await synthesizeSpeech(text, voice);
-      const filePath = join(workDir, `quiz-q${i}.aiff`);
+      const filePath = join(workDir, `${prefix}-${i}.aiff`);
       await writeFile(filePath, buf);
-      questionDurations.push(await getAudioDuration(filePath));
+      itemDurations.push(await getAudioDuration(filePath));
       inputs.push(filePath);
     } catch (err) {
-      // 单题合成失败（Edge 波动）：整体回退旧链路（整段音频 + 比例帧时长），不阻塞渲染
+      // 单项合成失败（Edge 波动）：整体回退旧链路（整段音频 + 估算帧时长），不阻塞渲染
       logger.warn(
-        { err: err instanceof Error ? err.message : String(err), i },
-        "quiz 逐题合成失败，回退整段音频",
+        { err: err instanceof Error ? err.message : String(err), i, template: dto.template },
+        "逐项合成失败，回退整段音频",
       );
       return null;
     }
   }
   if (inputs.length === 0) return null;
-  // 每题后接静音（1s 缓冲 + 2.5s 答案 + 0.8s 题间间隔），与 renderer 帧时长一致
-  const SILENCE = 4.3;
-  const silencePath = join(workDir, "quiz-silence.aiff");
+  const silencePath = join(workDir, `${prefix}-silence.aiff`);
   await execFileAsync(
     "ffmpeg",
     [
@@ -175,7 +180,7 @@ async function prepareQuizAudio(
       "-i",
       "anullsrc=r=22050:cl=mono",
       "-t",
-      String(SILENCE),
+      String(GAP),
       "-f",
       "aiff",
       silencePath,
@@ -184,7 +189,7 @@ async function prepareQuizAudio(
   );
   const concatInputs = inputs.flatMap((f) => ["-i", f, "-i", silencePath]);
   const concatFilter = `[${Array.from({ length: inputs.length * 2 }, (_, i) => `${i}:a`).join("][")}]concat=n=${inputs.length * 2}:v=0:a=1[aout]`;
-  const alignedPath = join(workDir, "quiz-aligned.aiff");
+  const alignedPath = join(workDir, `${prefix}-aligned.aiff`);
   await execFileAsync(
     "ffmpeg",
     [
@@ -200,7 +205,7 @@ async function prepareQuizAudio(
     ],
     { timeout: 60_000 },
   );
-  return { audioPath: alignedPath, questionDurations };
+  return { audioPath: alignedPath, itemDurations };
 }
 
 /** 渲染 ContentDTO 为 MP4 视频，返回产物元数据 */
@@ -217,15 +222,13 @@ export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
   const outputPath = join(UPLOADS_DIR, "video", `${randomUUID()}.mp4`);
   try {
     const renderer = renderers[dto.template];
-    // quiz 音画对齐：逐题合成音频（每题朗读与题目帧精确同步）
+    // 音画对齐：quiz 逐题 / word_card 逐卡合成（帧时长 = 实际朗读时长 + 间隔，不估算）
     let audioPath = localFilePathFromUrl(audio.url);
-    let renderExtra: { questionDurations?: number[] } | undefined;
-    if (dto.template === "quiz") {
-      const prepared = await prepareQuizAudio(dto, workDir);
-      if (prepared) {
-        audioPath = prepared.audioPath;
-        renderExtra = { questionDurations: prepared.questionDurations };
-      }
+    let renderExtra: { itemDurations?: number[] } | undefined;
+    const prepared = await preparePerItemAudio(dto, workDir);
+    if (prepared) {
+      audioPath = prepared.audioPath;
+      renderExtra = { itemDurations: prepared.itemDurations };
     }
     const result = await renderer.render(dto, workDir, renderExtra);
 
@@ -247,13 +250,15 @@ export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
     }
 
     const { size } = await stat(outputPath);
+    // 实际时长以输出文件 ffprobe 为准（逐项合成后帧总和可能 ≠ 传入 audio.duration）
+    const actualDuration = await getAudioDuration(outputPath);
     logger.info(
-      { template: dto.template, frames: result.frames.length, duration: result.totalDuration },
+      { template: dto.template, frames: result.frames.length, duration: actualDuration },
       "video rendered",
     );
     return {
       url: `/files/video/${basename(outputPath)}`,
-      duration: result.totalDuration,
+      duration: actualDuration,
       resolution: "1080x1920",
       format: "mp4",
       size,

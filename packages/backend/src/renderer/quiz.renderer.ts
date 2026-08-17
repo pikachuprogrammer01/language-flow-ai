@@ -31,7 +31,7 @@ export class QuizRenderer implements TemplateRenderer {
   async render(
     dto: ContentDTO,
     workDir: string,
-    extra?: { questionDurations?: number[] },
+    extra?: { itemDurations?: number[] },
   ): Promise<RenderResult> {
     if (!isQuiz(dto)) {
       throw new Error("QuizRenderer 收到非 quiz 模板内容");
@@ -58,7 +58,7 @@ export class QuizRenderer implements TemplateRenderer {
     const ANSWER_DURATION = 2.5;
     const QUESTION_PAUSE = 1.0;
     const QUESTION_GAP = 0.8;
-    const exact = extra?.questionDurations ?? null;
+    const exact = extra?.itemDurations ?? null;
     // 回退链路（无逐题精确时长）：按朗读估算分配（保守宁慢勿快，画面不抢跑音频）
     const ests = items.map((q) => estimateSpeechSeconds(q.stem + q.options.join("")));
     const totalEst = ests.reduce((n, w) => n + w, 0) || 1;

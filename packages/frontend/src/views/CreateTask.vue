@@ -276,6 +276,8 @@ async function saveEdit(): Promise<void> {
     editMode.value = false;
     // 更新记录内容
     await updateTask(dtoId.value, { title: title.value, content });
+    // 关键：同步快照，后续「重新配音/渲染视频」用新文案而非生成时的旧快照
+    dtoSnapshot.value = { ...dtoSnapshot.value, title: title.value, content };
     // 重新配音 + 渲染（当前音色/语速/BGM，按模板）
     step.value = "rendering";
     const audio = await synthesizeFromContent(

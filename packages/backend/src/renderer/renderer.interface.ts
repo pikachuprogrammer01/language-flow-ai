@@ -24,6 +24,6 @@ export interface TemplateRenderer {
   render(
     dto: ContentDTO,
     workDir: string,
-    extra?: { questionDurations?: number[] },
+    extra?: { itemDurations?: number[] },
   ): Promise<RenderResult>;
 }
