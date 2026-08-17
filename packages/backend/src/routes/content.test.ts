@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as contentService from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
+import * as wordCardService from "../services/word-card.service";
 import { content } from "./content";
 
 // content.ts 现在会在生成成功后落库（db.insert），测试环境无 DATABASE_URL
@@ -14,7 +15,12 @@ vi.mock("../services/content.service", () => ({
   generateSceneWordContent: vi.fn(),
 }));
 
+vi.mock("../services/word-card.service", () => ({
+  generateWordCardContent: vi.fn(),
+}));
+
 const generateMock = vi.mocked(contentService.generateSceneWordContent);
+const wordCardMock = vi.mocked(wordCardService.generateWordCardContent);
 
 const DTO = {
   id: "cnt_20260817_000001",
@@ -56,7 +62,27 @@ describe("POST /api/content/generate", () => {
     const body = await res.json();
     expect(body.content.template).toBe("scene_word");
     expect(body.content.status).toBe("content_ready");
-    expect(generateMock).toHaveBeenCalledWith({ topic: "科技创业", level: "CET4" });
+    expect(generateMock).toHaveBeenCalledWith({
+      topic: "科技创业",
+      level: "CET4",
+      template: "scene_word",
+    });
+  });
+
+  it("template=word_card 时走单词卡片生成器", async () => {
+    wordCardMock.mockResolvedValue({ ...DTO, template: "word_card" } as never);
+
+    const res = await postGenerate({
+      topic: "生活场景",
+      level: "CET4",
+      template: "word_card",
+    });
+    expect(res.status).toBe(200);
+    expect(wordCardMock).toHaveBeenCalledWith({
+      topic: "生活场景",
+      level: "CET4",
+      template: "word_card",
+    });
   });
 
   it("缺少 topic 返回 400", async () => {

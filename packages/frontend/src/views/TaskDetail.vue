@@ -157,6 +157,21 @@ interface AuditInfo {
   modifications?: { at?: string; fields?: string[] }[];
 }
 
+/** 模板判定：word_card 记录（详情只读展示卡片，无逐段编辑） */
+const isWordCardTask = computed<boolean>(() => task.value?.template === "word_card");
+
+/** word_card 卡片（宽松解析：word/pos/meaning/example 来自卡片段） */
+const wordCards = computed<{ word: string; pos: string; meaning: string; text: string }[]>(() => {
+  const c = task.value?.content;
+  if (!Array.isArray(c)) return [];
+  return c.map((seg) => ({
+    word: String((seg as { word?: unknown }).word ?? ""),
+    pos: String((seg as { pos?: unknown }).pos ?? ""),
+    meaning: String((seg as { meaning?: unknown }).meaning ?? ""),
+    text: String((seg as { text?: unknown }).text ?? ""),
+  }));
+});
+
 const audit = computed<AuditInfo | null>(() => {
   const a = task.value?.audit;
   return a && typeof a === "object" ? (a as AuditInfo) : null;
@@ -209,7 +224,7 @@ async function revoice(): Promise<void> {
 /** 执行重新配音渲染（确认后） */
 async function doRevoice(): Promise<void> {
   if (!task.value) return;
-  if (editing.value && editTexts.value.some((x) => !x.trim())) {
+  if (!isWordCardTask.value && editing.value && editTexts.value.some((x) => !x.trim())) {
     errorMsg.value = "正文不能有空段";
     return;
   }
@@ -218,17 +233,28 @@ async function doRevoice(): Promise<void> {
   try {
     const t = task.value;
     // 编辑态：用编辑中的文案并一并保存（否则修改只存在本地，刷新即丢失）
-    const content = editing.value
-      ? segments.value.map((seg, i) => ({ ...seg, text: editTexts.value[i] ?? seg.text }))
-      : Array.isArray(t.content)
+    const isCard = t.template === "word_card";
+    // 编辑态（仅 scene_word）：用编辑中的文案并一并保存；word_card 用记录内容
+    const content = isCard
+      ? Array.isArray(t.content)
         ? t.content
-        : [];
+        : []
+      : editing.value
+        ? segments.value.map((seg, i) => ({ ...seg, text: editTexts.value[i] ?? seg.text }))
+        : Array.isArray(t.content)
+          ? t.content
+          : [];
     const title = editing.value ? editTitle.value : String(t.title ?? "");
-    const audio = await synthesizeFromContent("scene_word", content, title, voice.value);
+    const audio = await synthesizeFromContent(
+      t.template === "word_card" ? "word_card" : "scene_word",
+      content,
+      title,
+      voice.value,
+    );
     // render 需要完整 ContentDTO（audio 必填）；守卫后传宽松 Record（后端 zod 兜底）
     const dto: RenderVideoInput = {
       ...t,
-      template: "scene_word",
+      template: t.template === "word_card" ? "word_card" : "scene_word",
       audio,
       style: { ...(t.style ?? {}), bgm: bgm.value },
     };
@@ -312,7 +338,7 @@ listFiles({ type: "bgm" })
           maxlength="255"
         />
         <button
-          v-if="!editing"
+          v-if="!editing && !isWordCardTask"
           class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
           @click="startEdit"
         >
@@ -363,9 +389,25 @@ listFiles({ type: "bgm" })
         </li>
       </ul>
 
-      <!-- 正文 -->
-      <h2 class="mt-8 text-lg font-semibold">正文</h2>
-      <div class="mt-2 space-y-3">
+      <!-- word_card 卡片展示（只读；卡片内容由生成决定，重配音用记录内容） -->
+      <template v-if="isWordCardTask">
+        <h2 class="mt-8 text-lg font-semibold">单词卡片（{{ wordCards.length }}）</h2>
+        <div class="mt-2 grid gap-3 sm:grid-cols-2">
+          <div v-for="c in wordCards" :key="c.word" class="rounded-lg border border-gray-200 p-4">
+            <div class="flex items-baseline gap-2">
+              <b class="text-lg text-gray-900">{{ c.word }}</b>
+              <span class="text-xs text-gray-400">{{ c.pos }}</span>
+            </div>
+            <p class="mt-1 text-sm text-gray-700">{{ c.meaning }}</p>
+            <p class="mt-2 text-sm leading-relaxed text-gray-800">{{ c.text }}</p>
+          </div>
+        </div>
+      </template>
+
+      <!-- 正文（scene_word） -->
+      <template v-else>
+        <h2 class="mt-8 text-lg font-semibold">正文</h2>
+        <div class="mt-2 space-y-3">
         <div v-for="(seg, i) in segments" :key="i" class="rounded-lg bg-gray-50 p-4 text-sm leading-relaxed">
           <textarea
             v-if="editing"
@@ -391,6 +433,7 @@ listFiles({ type: "bgm" })
         </button>
         <span class="text-xs text-gray-500">保存后会用新内容重新配音并重渲染视频</span>
       </div>
+      </template>
 
       <!-- 生成档案（PRD 10.1.4 审计：输入/候选词/重试历史/修改日志） -->
       <details class="mt-8 rounded-lg border border-gray-200">

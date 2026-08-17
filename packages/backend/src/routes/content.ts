@@ -9,12 +9,15 @@ import { contents } from "../db/schema";
 import { logger } from "../lib/logger";
 import { generateSceneWordContent } from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
+import { generateWordCardContent } from "../services/word-card.service";
 
 // ── Zod schema ──
 
 const generateSchema = z.object({
   topic: z.string().min(1).max(50),
   level: z.enum(["CET4", "CET6"]),
+  /** 模板选择（MVP 需求 #1）：默认情景背词；单词卡片为 word_card */
+  template: z.enum(["scene_word", "word_card"]).optional().default("scene_word"),
   wordCount: z.number().int().min(3).max(15).optional(),
   targetDuration: z.number().int().min(15).max(300).optional(),
 });
@@ -103,7 +106,10 @@ const generateRoute = createRoute({
 export const content = new OpenAPIHono().openapi(generateRoute, async (c): Promise<Response> => {
   const input = c.req.valid("json");
   try {
-    const dto = await generateSceneWordContent(input);
+    const dto =
+      input.template === "word_card"
+        ? await generateWordCardContent(input)
+        : await generateSceneWordContent(input);
     logger.info(
       { template: dto.template, title: dto.title, segments: dto.content.length },
       "content generated",

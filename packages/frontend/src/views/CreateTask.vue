@@ -44,7 +44,17 @@ let previewAudio: HTMLAudioElement | null = null;
 const step = ref<Step>("idle");
 const errorMsg = ref("");
 const title = ref("");
+/** 模板选择（MVP 需求 #1）：情景背词 / 单词卡片 */
+const template = ref<"scene_word" | "word_card">("scene_word");
+const TEMPLATE_OPTIONS: { id: "scene_word" | "word_card"; label: string; desc: string }[] = [
+  { id: "scene_word", label: "情景背词", desc: "故事场景 + 词汇高亮" },
+  { id: "word_card", label: "单词卡片", desc: "单词 + 词性 + 例句" },
+];
 const segments = ref<{ text: string; words: { word: string; meaning: string }[] }[]>([]);
+/** word_card 生成结果（只读展示；编辑能力后续迭代） */
+const cards = ref<
+  { word: string; pos: string; meaning: string; example: string; exampleMeaning?: string }[]
+>([]);
 const videoUrl = ref("");
 const audioDuration = ref(0);
 /** 生成后原地编辑（PRD §10.1.3）：编辑标题/正文 → 保存 → 原地重渲染 */
@@ -184,19 +194,34 @@ async function run(): Promise<void> {
     const dto = await generateContent({
       topic: topic.value,
       level: level.value,
+      template: template.value,
     });
     title.value = dto.title;
-    segments.value = dto.content;
+    if (template.value === "word_card") {
+      cards.value = (dto.content as Record<string, unknown>[]).map((c) => ({
+        word: String(c.word ?? ""),
+        pos: String(c.pos ?? ""),
+        meaning: String(c.meaning ?? ""),
+        example: String(c.example ?? ""),
+        exampleMeaning: c.exampleMeaning != null ? String(c.exampleMeaning) : undefined,
+      }));
+      segments.value = [];
+    } else {
+      segments.value = dto.content as {
+        text: string;
+        words: { word: string; meaning: string }[];
+      }[];
+    }
     dtoId.value = dto.id;
-    const snapshot: Record<string, unknown> = { ...dto, template: "scene_word" };
+    const snapshot: Record<string, unknown> = { ...dto, template: template.value };
     dtoSnapshot.value = snapshot;
     step.value = "generated";
 
     step.value = "tts";
-    const audio = await synthesizeFromContent("scene_word", dto.content, dto.title, voice.value);
+    const audio = await synthesizeFromContent(template.value, dto.content, dto.title, voice.value);
     audioDuration.value = audio.duration;
-    // audio 挂回 DTO 供渲染（render 的 audio 字段为必填；generate 固定返回 scene_word）
-    const dtoWithAudio: RenderInput = { ...dto, template: "scene_word", audio };
+    // audio 挂回 DTO 供渲染（render 的 audio 字段为必填）
+    const dtoWithAudio: RenderInput = { ...dto, template: template.value, audio };
 
     step.value = "rendering";
     const video = await renderVideo(dtoWithAudio);
@@ -223,6 +248,22 @@ async function run(): Promise<void> {
     <!-- 表单 -->
     <form class="mb-8 rounded-xl bg-white p-6 shadow-sm" @submit.prevent="run">
       <div class="mb-4">
+        <div class="mb-4">
+          <label class="mb-1 block text-sm font-medium text-gray-700">视频模板</label>
+          <div class="flex gap-2">
+            <button
+              v-for="t in TEMPLATE_OPTIONS"
+              :key="t.id"
+              type="button"
+              class="rounded-lg border px-3 py-1.5 text-sm"
+              :class="template === t.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+              @click="template = t.id"
+            >
+              {{ t.label }}
+              <span class="ml-1 text-xs text-gray-400">{{ t.desc }}</span>
+            </button>
+          </div>
+        </div>
         <label class="mb-1 block text-sm font-medium text-gray-700" for="topic">故事主题</label>
         <!-- 预设主题库（点击即选） -->
         <div class="mb-2 flex flex-wrap gap-2">
@@ -323,7 +364,7 @@ async function run(): Promise<void> {
         />
         <h2 v-else class="text-lg font-semibold text-gray-900">《{{ title }}》</h2>
         <button
-          v-if="step === 'done' && !editMode"
+          v-if="step === 'done' && !editMode && template === 'scene_word'"
           class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
           @click="startEdit"
         >
@@ -340,6 +381,18 @@ async function run(): Promise<void> {
             placeholder="正文段落"
           />
           <p v-else class="text-gray-700">{{ seg.text }}</p>
+        </div>
+      </div>
+      <!-- word_card 结果（只读卡片） -->
+      <div v-if="template === 'word_card'" class="mb-4 grid gap-3 sm:grid-cols-2">
+        <div v-for="c in cards" :key="c.word" class="rounded-lg border border-gray-200 p-4">
+          <div class="flex items-baseline gap-2">
+            <b class="text-lg text-gray-900">{{ c.word }}</b>
+            <span class="text-xs text-gray-400">{{ c.pos }}</span>
+          </div>
+          <p class="mt-1 text-sm text-gray-700">{{ c.meaning }}</p>
+          <p class="mt-2 text-sm leading-relaxed text-gray-800">{{ c.example }}</p>
+          <p v-if="c.exampleMeaning" class="mt-1 text-xs text-gray-500">{{ c.exampleMeaning }}</p>
         </div>
       </div>
       <div class="flex flex-wrap gap-2">

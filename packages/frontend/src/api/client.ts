@@ -12,6 +12,8 @@ export const client = createClient<paths>({
 export interface GenerateInput {
   topic: string;
   level: "CET4" | "CET6";
+  /** 模板选择（MVP 需求 #1）：scene_word 情景背词 / word_card 单词卡片 */
+  template?: "scene_word" | "word_card";
   wordCount?: number;
   targetDuration?: number;
 }
@@ -71,14 +73,14 @@ export async function previewVoice(voice: string, text: string) {
 export type GeneratedContent = Awaited<ReturnType<typeof generateContent>>;
 
 export interface RenderInput extends GeneratedContent {
-  /** 收窄为 scene_word：render 判别联合的 scene_word 分支（单页流程固定此模板） */
-  template: "scene_word";
+  /** 模板（单页流程由用户选择：scene_word 情景背词 / word_card 单词卡片） */
+  template: "scene_word" | "word_card";
   audio: { url: string; duration: number; format: string };
 }
 
 /** 渲染入参（宽松版：详情页从任务记录组装，关键字段由 isRenderInput 守卫，后端 zod 兜底） */
 export type RenderVideoInput = {
-  template: "scene_word";
+  template: "scene_word" | "word_card";
   audio: { url: string; duration: number; format: string };
 } & Record<string, unknown>;
 

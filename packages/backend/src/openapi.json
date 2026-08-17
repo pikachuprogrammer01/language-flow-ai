@@ -210,6 +210,14 @@
                       "CET6"
                     ]
                   },
+                  "template": {
+                    "type": "string",
+                    "enum": [
+                      "scene_word",
+                      "word_card"
+                    ],
+                    "default": "scene_word"
+                  },
                   "wordCount": {
                     "type": "integer",
                     "minimum": 3,
