@@ -34,9 +34,10 @@ export async function synthesizeFromContent(
   content: Record<string, unknown>[],
   title?: string,
   voice?: string,
+  rate?: number,
 ) {
   const { data, error, response } = await client.POST("/api/tts/from-content", {
-    body: { template, content, title, voice },
+    body: { template, content, title, voice, rate },
   });
   if (error || !response.ok) {
     // error 含 zod 校验详情（如字段缺失），拼进提示便于排查

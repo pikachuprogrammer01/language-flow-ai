@@ -43,6 +43,13 @@ const suggesting = ref(false);
 const level = ref<GenerateInput["level"]>("CET4");
 /** 配音音色（PRD §10.1.1 配音可选） */
 const voice = ref("zh-CN-XiaoxiaoNeural");
+/** 语速倍率（MVP 需求 #5：0.8 慢 / 1 正常 / 1.2 快） */
+const rate = ref(1);
+const RATE_OPTIONS = [
+  { value: 0.8, label: "慢" },
+  { value: 1, label: "正常" },
+  { value: 1.2, label: "快" },
+];
 const voices = ref<{ id: string; name: string; gender: string }[]>([]);
 /** 音色试听：固定试听文本 + 当前音色合成播放；播放中可暂停，切换音色自动停上一个（避免干扰） */
 const previewing = ref(false);
@@ -271,6 +278,7 @@ async function ttsStep(): Promise<boolean> {
       dtoSnapshot.value.content as Record<string, unknown>[],
       String(dtoSnapshot.value.title ?? ""),
       voice.value,
+      rate.value,
     );
     audioMeta.value = audio;
     audioDuration.value = audio.duration;
@@ -416,6 +424,20 @@ async function run(): Promise<void> {
               @click="previewPlaying ? stopPreview() : previewVoice()"
             >
               {{ previewing ? "试听中…" : previewPlaying ? "⏸ 暂停" : "🔊 试听" }}
+            </button>
+          </div>
+          <!-- 语速（MVP 需求 #5） -->
+          <div class="mt-2 flex items-center gap-2">
+            <span class="text-xs text-gray-500">语速</span>
+            <button
+              v-for="r in RATE_OPTIONS"
+              :key="r.value"
+              type="button"
+              class="rounded-full border px-3 py-0.5 text-xs"
+              :class="rate === r.value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+              @click="rate = r.value"
+            >
+              {{ r.label }}
             </button>
           </div>
         </div>

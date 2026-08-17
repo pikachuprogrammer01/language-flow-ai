@@ -175,6 +175,24 @@ describe("POST /api/tts", () => {
     expect(ttsService.synthesizeSpeech).toHaveBeenCalledWith(
       "hi，嗨。Hi there。你好。",
       "zh-CN-XiaoxiaoNeural",
+      1,
+    );
+  });
+
+  it("from-content 200：rate 语速参数透传", async () => {
+    vi.mocked(ttsService.synthesizeSpeech).mockResolvedValue(Buffer.from([1]));
+    vi.mocked(ttsService.getAudioDuration).mockResolvedValue(3.2);
+    const res = await postJson("/from-content", {
+      content: [{ text: "你好。", words: [] }],
+      template: "scene_word",
+      rate: 1.2,
+    });
+
+    expect(res.status).toBe(200);
+    expect(ttsService.synthesizeSpeech).toHaveBeenCalledWith(
+      expect.stringContaining("你好"),
+      "zh-CN-XiaoxiaoNeural",
+      1.2,
     );
   });
 

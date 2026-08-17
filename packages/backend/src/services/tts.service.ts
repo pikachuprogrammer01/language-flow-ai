@@ -39,20 +39,30 @@ function buildEdgeTtsUrl(): string {
 }
 
 // 中文女声 — 微软最高质量中文神经语音
-/** TTS 引擎：mac（Mac 本地 say，稳定离线，默认）/ edge（微软 Edge TTS，音色多但不稳定） */
-const TTS_ENGINE = process.env.TTS_ENGINE ?? "edge"; // edge 默认（音色多）；mac 可经 env 切换（本地稳定）
-export const DEFAULT_VOICE = TTS_ENGINE === "mac" ? "Tingting" : "zh-CN-XiaoxiaoNeural";
+/** Mac 本地音色（say）：并入统一音色列表，按 voice id 自动分发引擎 */
+const MAC_VOICE_IDS = new Set(["Tingting", "Sinji", "Meijia"]);
+export const DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural";
+
+/** 音色属于 Mac 本地引擎（否则走 Edge TTS） */
+export function isMacVoice(voice: string): boolean {
+  return MAC_VOICE_IDS.has(voice);
+}
 
 /**
  * 通过 WebSocket 连接 Edge TTS 服务，将中文文本合成 MP3
  * 返回音频 Buffer，可直接写入文件或返回前端
  */
 /** Mac 本地合成（say 命令，稳定离线；输出 AIFF 22050Hz mono） */
-async function synthesizeWithSay(text: string, voice: string): Promise<Buffer> {
+async function synthesizeWithSay(text: string, voice: string, rate = 1): Promise<Buffer> {
   const workDir = await mkdtemp(join(tmpdir(), "lf-say-"));
   const outPath = join(workDir, "out.aiff");
   try {
-    await execFileAsync("say", ["-v", voice, "-o", outPath, text], { timeout: 60_000 });
+    // -r：语速（词/分钟）；基准 175 × rate（中文 say 默认语速接近此值）
+    await execFileAsync(
+      "say",
+      ["-v", voice, "-r", String(Math.round(175 * rate)), "-o", outPath, text],
+      { timeout: 60_000 },
+    );
     const buf = await readFile(outPath);
     if (buf.length === 0) {
       throw new Error(`say 合成结果为空（音色 ${voice} 可能未安装/未下载）`);
@@ -63,24 +73,28 @@ async function synthesizeWithSay(text: string, voice: string): Promise<Buffer> {
   }
 }
 
-/** 合成（mac 引擎本地稳定；edge 引擎含一次自动重试：偶发断开/无数据） */
-export async function synthesizeSpeech(text: string, voice = DEFAULT_VOICE): Promise<Buffer> {
-  if (TTS_ENGINE === "mac") {
-    return synthesizeWithSay(text, voice);
+/** 合成（按音色自动分发引擎；Edge 含一次自动重试：偶发断开/无数据） */
+export async function synthesizeSpeech(
+  text: string,
+  voice = DEFAULT_VOICE,
+  rate = 1,
+): Promise<Buffer> {
+  if (isMacVoice(voice)) {
+    return synthesizeWithSay(text, voice, rate);
   }
   try {
-    return await synthesizeOnce(text, voice);
+    return await synthesizeOnce(text, voice, rate);
   } catch (err) {
     logger.warn(
       { err: err instanceof Error ? err.message : String(err) },
       "tts 首次合成失败，重试一次",
     );
     await new Promise((r) => setTimeout(r, 500));
-    return synthesizeOnce(text, voice);
+    return synthesizeOnce(text, voice, rate);
   }
 }
 
-function synthesizeOnce(text: string, voice = DEFAULT_VOICE): Promise<Buffer> {
+function synthesizeOnce(text: string, voice = DEFAULT_VOICE, rate = 1): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(buildEdgeTtsUrl(), {
       // 禁用 permessage-deflate：服务端对压缩消息分片发送，ws 库不重组（分片数组导致提取失败）
@@ -120,7 +134,8 @@ function synthesizeOnce(text: string, voice = DEFAULT_VOICE): Promise<Buffer> {
 
       const requestId = randomUUID();
       // SSML 必须含 <prosody>（服务端缺省拒绝）；X-Timestamp 尾随 Z 是微软端已知怪癖（edge-tts 注释）
-      const ssml = `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${dateToString()}Z\r\nPath:ssml\r\n\r\n<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="zh-CN"><voice name="${voice}"><prosody pitch="+0Hz" rate="+0%" volume="+0%">${escapeXml(text)}</prosody></voice></speak>`;
+      const ratePct = Math.round((rate - 1) * 100);
+      const ssml = `X-RequestId:${requestId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${dateToString()}Z\r\nPath:ssml\r\n\r\n<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="zh-CN"><voice name="${voice}"><prosody pitch="+0Hz" rate="${ratePct >= 0 ? "+" : ""}${ratePct}%" volume="+0%">${escapeXml(text)}</prosody></voice></speak>`;
       ws.send(ssml);
     });
 

@@ -28,6 +28,13 @@ const errorMsg = ref("");
 const notFound = ref(false);
 /** 重新配音（PRD §10.1.1）：选音色 → 重合成 → 重渲染 → 回写 */
 const voice = ref("zh-CN-XiaoxiaoNeural");
+/** 语速倍率（MVP 需求 #5） */
+const rate = ref(1);
+const RATE_OPTIONS = [
+  { value: 0.8, label: "慢" },
+  { value: 1, label: "正常" },
+  { value: 1.2, label: "快" },
+];
 const voices = ref<{ id: string; name: string; gender: string }[]>([]);
 const revoicing = ref(false);
 /** 审核修改（PRD §10.1.3）：编辑标题/正文 → 保存 → 重新配音渲染 */
@@ -269,6 +276,7 @@ async function doRevoice(): Promise<void> {
       content,
       title,
       voice.value,
+      rate.value,
     );
     // render 需要完整 ContentDTO（audio 必填）；守卫后传宽松 Record（后端 zod 兜底）
     const dto: RenderVideoInput = {
@@ -389,6 +397,19 @@ listFiles({ type: "bgm" })
         <select v-model="voice" class="rounded-lg border px-3 py-2 text-sm" :disabled="revoicing">
           <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
         </select>
+        <div class="flex items-center gap-1.5" :class="revoicing ? 'opacity-50' : ''">
+          <span class="text-xs text-gray-500">语速</span>
+          <button
+            v-for="r in RATE_OPTIONS"
+            :key="r.value"
+            type="button"
+            class="rounded-full border px-2.5 py-0.5 text-xs"
+            :class="rate === r.value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+            @click="rate = r.value"
+          >
+            {{ r.label }}
+          </button>
+        </div>
         <select v-model="bgm" class="rounded-lg border px-3 py-2 text-sm" :disabled="revoicing">
           <option value="">无 BGM</option>
           <option v-for="b in bgmFiles" :key="b.filename" :value="`/files/bgm/${b.filename}`">{{ b.filename }}</option>

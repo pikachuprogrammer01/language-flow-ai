@@ -469,6 +469,11 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "rate": {
+                    "type": "number",
+                    "minimum": 0.5,
+                    "maximum": 2
+                  },
                   "text": {
                     "type": "string",
                     "minLength": 1,
@@ -553,6 +558,11 @@
                   "voice": {
                     "type": "string",
                     "default": "zh-CN-XiaoxiaoNeural"
+                  },
+                  "rate": {
+                    "type": "number",
+                    "minimum": 0.5,
+                    "maximum": 2
                   },
                   "title": {
                     "type": "string",

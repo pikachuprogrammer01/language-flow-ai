@@ -14,6 +14,7 @@ import { buildTtsText, getAudioDuration, synthesizeSpeech } from "../services/tt
 // ── Zod schema ──
 
 const ttsSchema = z.object({
+  rate: z.number().min(0.5).max(2).optional(),
   text: z.string().min(1).max(2000),
   voice: z.string().optional().default("zh-CN-XiaoxiaoNeural"),
 });
@@ -25,9 +26,6 @@ export const MAC_VOICES = [
   { id: "Sinji", name: "阿欣（粤语·本地）", gender: "女" },
   { id: "Meijia", name: "美佳（粤语·本地）", gender: "女" },
 ];
-
-/** TTS 引擎（与 tts.service 对齐：mac 默认 / edge 可选） */
-const TTS_ENGINE = process.env.TTS_ENGINE ?? "edge"; // edge 默认（音色多）；mac 可经 env 切换（本地稳定）
 
 export const TTS_VOICES = [
   { id: "zh-CN-XiaoxiaoNeural", name: "晓晓（女·温暖）", gender: "女" },
@@ -45,6 +43,8 @@ const fromContentSchema = z.object({
   content: z.array(z.record(z.string(), z.unknown())).min(1).max(100),
   template: z.enum(["scene_word", "word_card", "quiz"]),
   voice: z.string().optional().default("zh-CN-XiaoxiaoNeural"),
+  /** 语速倍率（0.5-2，1 正常；MVP 需求 #5 语速调整） */
+  rate: z.number().min(0.5).max(2).optional(),
   title: z.string().max(100).optional(), // scene_word 标题朗读（可选，向后兼容）
 });
 
@@ -124,9 +124,9 @@ export const tts = new OpenAPIHono({
   },
 })
   .openapi(generateRoute, async (c): Promise<Response> => {
-    const { text, voice } = c.req.valid("json");
+    const { text, voice, rate } = c.req.valid("json");
     try {
-      const audio = await synthesizeSpeech(text, voice);
+      const audio = await synthesizeSpeech(text, voice, rate ?? 1);
       const { filename, url } = await saveAudio(audio);
       logger.info({ filename, textLength: text.length }, "tts file saved");
       return c.json({ success: true, filename, url });
@@ -136,7 +136,7 @@ export const tts = new OpenAPIHono({
     }
   })
   .openapi(fromContentRoute, async (c): Promise<Response> => {
-    const { content, template, voice, title } = c.req.valid("json");
+    const { content, template, voice, rate, title } = c.req.valid("json");
     try {
       const text = buildTtsText(content, template, title);
       if (text.length === 0) {
@@ -146,7 +146,7 @@ export const tts = new OpenAPIHono({
       if (text.length > 2000) {
         return c.json({ error: "拼接文本超过 2000 字符上限" }, 400);
       }
-      const audio = await synthesizeSpeech(text, voice);
+      const audio = await synthesizeSpeech(text, voice, rate ?? 1);
       const { url, duration, format } = await saveAudio(audio);
       logger.info({ template, duration, textLength: text.length }, "tts from-content saved");
       return c.json({ audio: { url, duration, format } });
@@ -177,7 +177,8 @@ export const tts = new OpenAPIHono({
     }),
     async (c) =>
       c.json({
-        voices: TTS_ENGINE === "mac" ? MAC_VOICES : TTS_VOICES,
-        default: TTS_ENGINE === "mac" ? "Tingting" : "zh-CN-XiaoxiaoNeural",
+        // Edge 8 音色 + Mac 本地 3 音色统一列表（按 voice id 自动分发引擎）
+        voices: [...TTS_VOICES, ...MAC_VOICES],
+        default: "zh-CN-XiaoxiaoNeural",
       }),
   );
