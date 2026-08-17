@@ -602,6 +602,57 @@
         }
       }
     },
+    "/api/tts/voices": {
+      "get": {
+        "summary": "可用配音列表（音色/性别）",
+        "tags": [
+          "tts"
+        ],
+        "responses": {
+          "200": {
+            "description": "配音列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "voices": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "gender": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "gender"
+                        ]
+                      }
+                    },
+                    "default": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "voices",
+                    "default"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/video/render": {
       "post": {
         "summary": "渲染 9:16 短视频（按 template 判别结构）",
@@ -1602,6 +1653,126 @@
           },
           "404": {
             "description": "任务不存在"
+          }
+        }
+      }
+    },
+    "/api/files": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "audio",
+                "video"
+              ]
+            },
+            "required": false,
+            "name": "type",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "文件列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "filename": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "audio",
+                              "video"
+                            ]
+                          },
+                          "size": {
+                            "type": "number"
+                          },
+                          "mtime": {
+                            "type": "string"
+                          },
+                          "inUse": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "filename",
+                          "type",
+                          "size",
+                          "mtime",
+                          "inUse"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "files"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/files/{filename}": {
+      "delete": {
+        "tags": [
+          "files"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "filename",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "非法文件名"
+          },
+          "404": {
+            "description": "文件不存在"
           }
         }
       }
