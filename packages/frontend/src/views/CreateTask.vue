@@ -206,7 +206,7 @@ async function run(): Promise<void> {
           </button>
         </div>
       </div>
-      <div class="mb-4 grid grid-cols-3 gap-4">
+      <div class="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label class="mb-1 block text-sm font-medium text-gray-700">等级</label>
           <select
@@ -217,22 +217,20 @@ async function run(): Promise<void> {
             <option value="CET6">CET6</option>
           </select>
         </div>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700" for="voice">配音音色</label>
-            <div class="mt-1 flex gap-2">
-              <select id="voice" v-model="voice" class="w-full rounded-lg border px-3 py-2 text-sm">
-                <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
-              </select>
-              <button
-                type="button"
-                class="shrink-0 rounded-lg bg-gray-100 px-3 py-2 text-sm hover:bg-gray-200 disabled:opacity-50"
-                :disabled="previewing"
-                @click="previewPlaying ? stopPreview() : previewVoice()"
-              >
-                {{ previewing ? "试听中…" : previewPlaying ? "⏸ 暂停" : "🔊 试听" }}
-              </button>
-            </div>
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700" for="voice">配音音色</label>
+          <div class="mt-1 flex gap-2">
+            <select id="voice" v-model="voice" class="w-full rounded-lg border px-3 py-2 text-sm">
+              <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
+            </select>
+            <button
+              type="button"
+              class="shrink-0 rounded-lg bg-gray-100 px-3 py-2 text-sm hover:bg-gray-200 disabled:opacity-50"
+              :disabled="previewing"
+              @click="previewPlaying ? stopPreview() : previewVoice()"
+            >
+              {{ previewing ? "试听中…" : previewPlaying ? "⏸ 暂停" : "🔊 试听" }}
+            </button>
           </div>
         </div>
       </div>
