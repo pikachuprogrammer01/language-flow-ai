@@ -129,6 +129,13 @@ const taskSummarySchema = z.object({
   wordsCount: z.number(),
   /** 正文摘要：首段前 60 字 */
   textPreview: z.string(),
+  /** 审计概要（PRD 10.1.4 管理界面用，完整档案在详情） */
+  auditSummary: z.object({
+    hasAudit: z.boolean(),
+    candidates: z.number(),
+    attempts: z.number(),
+    modifications: z.number(),
+  }),
   audio: z.any().optional(),
   video: z.any().optional(),
   createdAt: z.string(),
@@ -176,19 +183,34 @@ tasks.openapi(listRoute, async (c) => {
       .where(status ? eq(contents.status, status) : undefined);
     const total = Number(totalRows[0]?.count ?? 0);
     return c.json({
-      tasks: rows.map((r) => ({
-        id: r.id,
-        template: r.template,
-        title: r.title,
-        level: r.level,
-        status: r.status,
-        wordsCount: Array.isArray(r.words) ? r.words.length : 0,
-        textPreview: summarizeContent(r.content),
-        audio: r.audio ?? undefined,
-        video: r.video ?? undefined,
-        createdAt: r.createdAt.toISOString(),
-        updatedAt: r.updatedAt.toISOString(),
-      })),
+      tasks: rows.map((r) => {
+        const audit = r.audit as
+          | {
+              process?: { candidates?: unknown[]; attempts?: unknown[] };
+              modifications?: unknown[];
+            }
+          | null
+          | undefined;
+        return {
+          id: r.id,
+          template: r.template,
+          title: r.title,
+          level: r.level,
+          status: r.status,
+          wordsCount: Array.isArray(r.words) ? r.words.length : 0,
+          textPreview: summarizeContent(r.content),
+          auditSummary: {
+            hasAudit: audit != null,
+            candidates: audit?.process?.candidates?.length ?? 0,
+            attempts: audit?.process?.attempts?.length ?? 0,
+            modifications: audit?.modifications?.length ?? 0,
+          },
+          audio: r.audio ?? undefined,
+          video: r.video ?? undefined,
+          createdAt: r.createdAt.toISOString(),
+          updatedAt: r.updatedAt.toISOString(),
+        };
+      }),
       total,
     });
   } catch (e) {

@@ -99,6 +99,7 @@ describe("GET /api/tasks", () => {
       id: "t1",
       title: "科技创业故事",
       status: "content_ready",
+      auditSummary: { hasAudit: false, candidates: 0, attempts: 0, modifications: 0 },
     });
     expect(body.tasks[0].wordsCount).toBe(0);
     expect(body.tasks[0].textPreview).toBe("x");

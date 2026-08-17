@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import AuditList from "./views/AuditList.vue";
 import CreateTask from "./views/CreateTask.vue";
 import Files from "./views/Files.vue";
 import TaskDetail from "./views/TaskDetail.vue";
@@ -9,6 +10,7 @@ const routes = [
   { path: "/tasks", name: "tasks", component: TaskList },
   { path: "/tasks/:id", name: "task-detail", component: TaskDetail },
   { path: "/files", name: "files", component: Files },
+  { path: "/audit", name: "audit", component: AuditList },
 ];
 
 const router = createRouter({

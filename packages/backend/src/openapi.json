@@ -1434,6 +1434,29 @@
                           "textPreview": {
                             "type": "string"
                           },
+                          "auditSummary": {
+                            "type": "object",
+                            "properties": {
+                              "hasAudit": {
+                                "type": "boolean"
+                              },
+                              "candidates": {
+                                "type": "number"
+                              },
+                              "attempts": {
+                                "type": "number"
+                              },
+                              "modifications": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "hasAudit",
+                              "candidates",
+                              "attempts",
+                              "modifications"
+                            ]
+                          },
                           "audio": {
                             "nullable": true
                           },
@@ -1455,6 +1478,7 @@
                           "status",
                           "wordsCount",
                           "textPreview",
+                          "auditSummary",
                           "createdAt",
                           "updatedAt"
                         ]
