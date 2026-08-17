@@ -6,6 +6,7 @@
 import { ref } from "vue";
 import {
   type GenerateInput,
+  type RenderInput,
   generateContent,
   renderVideo,
   synthesizeFromContent,
@@ -49,18 +50,19 @@ async function run(): Promise<void> {
       targetDuration: targetDuration.value,
     });
     title.value = dto.title;
-    segments.value = dto.content as { text: string; words: { word: string; meaning: string }[] }[];
+    segments.value = dto.content;
     step.value = "generated";
 
     step.value = "tts";
     const audio = await synthesizeFromContent("scene_word", dto.content);
     audioDuration.value = audio.duration;
-    // eslint 无；audio 挂回 DTO 供渲染
-    const dtoWithAudio = { ...dto, audio };
+    // audio 挂回 DTO 供渲染（render 的 audio 字段为必填）
+    const dtoWithAudio: RenderInput = { ...dto, audio };
 
     step.value = "rendering";
     const video = await renderVideo(dtoWithAudio);
-    videoUrl.value = `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080"}${video.url}`;
+    const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
+    videoUrl.value = `${base}${video.url}`;
     step.value = "done";
   } catch (err) {
     step.value = "error";

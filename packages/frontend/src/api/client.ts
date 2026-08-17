@@ -18,11 +18,11 @@ export interface GenerateInput {
 
 /** 生成内容（ContentDTO） */
 export async function generateContent(input: GenerateInput) {
-  const { data, error } = await client.POST("/api/content/generate", {
+  const { data, error, response } = await client.POST("/api/content/generate", {
     body: input,
   });
-  if (error) throw new Error(typeof error === "string" ? error : "生成失败");
-  if (!data) throw new Error("空响应");
+  if (error || !response.ok) throw new Error(`生成失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("生成失败：空响应");
   return data.content;
 }
 
@@ -31,20 +31,27 @@ export async function synthesizeFromContent(
   template: "scene_word" | "word_card" | "quiz",
   content: Record<string, unknown>[],
 ) {
-  const { data, error } = await client.POST("/api/tts/from-content", {
+  const { data, error, response } = await client.POST("/api/tts/from-content", {
     body: { template, content },
   });
-  if (error) throw new Error(typeof error === "string" ? error : "配音失败");
-  if (!data) throw new Error("空响应");
+  if (error || !response.ok) throw new Error(`配音失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("配音失败：空响应");
   return data.audio;
 }
 
+/** 生成响应的 content 类型（供渲染入参复用） */
+export type GeneratedContent = Awaited<ReturnType<typeof generateContent>>;
+
+export interface RenderInput extends GeneratedContent {
+  audio: { url: string; duration: number; format: string };
+}
+
 /** 渲染视频（完整 ContentDTO → 视频 URL） */
-export async function renderVideo(dto: unknown) {
-  const { data, error } = await client.POST("/api/video/render", {
+export async function renderVideo(dto: RenderInput) {
+  const { data, error, response } = await client.POST("/api/video/render", {
     body: dto as never,
   });
-  if (error) throw new Error(typeof error === "string" ? error : "渲染失败");
-  if (!data) throw new Error("空响应");
+  if (error || !response.ok) throw new Error(`渲染失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("渲染失败：空响应");
   return data.video;
 }
