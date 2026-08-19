@@ -69,16 +69,18 @@ app.use(
   }),
 );
 
-// Rate Limiting — 按 IP 限流，每分钟最多 100 次请求
-app.use(
-  "*",
-  rateLimiter({
-    windowMs: 60_000,
-    limit: 100,
-    standardHeaders: true,
-    keyGenerator,
-  }),
-);
+// Rate Limiting — 按 IP 限流，每分钟最多 100 次（仅生产启用；本地开发不限制，避免页面操作/调试触发 429）
+if (process.env.NODE_ENV === "production") {
+  app.use(
+    "*",
+    rateLimiter({
+      windowMs: 60_000,
+      limit: 100,
+      standardHeaders: true,
+      keyGenerator,
+    }),
+  );
+}
 
 // 路由注册
 app.route("/", health);

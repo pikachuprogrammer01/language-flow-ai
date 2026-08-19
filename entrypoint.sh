@@ -11,13 +11,29 @@ node -e '
 const net = require("node:net");
 const host = process.env.DB_HOST || "mysql";
 const port = Number(process.env.DB_PORT || 3306);
+const timeoutMs = Number(process.env.MYSQL_WAIT_TIMEOUT_MS || 120000);
+const deadline = Date.now() + timeoutMs;
+let lastErr = "";
+let attempt = 0;
 const tryConnect = () => {
+  if (Date.now() > deadline) {
+    console.error(`[entrypoint] MySQL not reachable after ${timeoutMs}ms (${host}:${port}), last error: ${lastErr || "unknown"}`);
+    process.exit(1);
+  }
   const sock = net.connect(port, host);
   sock.on("connect", () => {
     console.log("[entrypoint] MySQL ready");
     process.exit(0);
   });
-  sock.on("error", () => setTimeout(tryConnect, 2000));
+  sock.on("error", (err) => {
+    attempt += 1;
+    if (err.code !== lastErr) {
+      console.error(`[entrypoint] waiting for MySQL (${host}:${port})... error: ${err.code} (attempt ${attempt})`);
+      lastErr = err.code;
+    }
+    sock.destroy();
+    setTimeout(tryConnect, 2000);
+  });
 };
 tryConnect();
 '
