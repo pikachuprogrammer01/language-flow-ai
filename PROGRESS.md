@@ -24,6 +24,9 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 → 部署收尾：Docker 容器化已完成（docs/12 §六 已验证），生产部署（域名 + 反向代理 + CI 构建产物上传）待用户决策
 → ✅ 2026-08-18 新增：生成记录「📂 打开」按钮 — 在 Finder 中定位视频（POST /api/files/reveal 写标记 → 宿主机 launchd 脚本 open -R；uploads 挂载宿主机 ~/language-flow-uploads）
 → ✅ 2026-08-19 新增：视频上传标记机制（upload_marks 表 + /api/upload-marks CRUD + 共享弹窗组件）— 嵌入生成记录/详情/文件管理/视频资产/审计管理；视频资产移除重命名（语义误导）改标记入口 + 全部/已上传/未上传过滤；文件管理新增「清理未引用」；删文件联动清标记
+→ ✅ 2026-08-19 优化：标记备注预设（6 模板文案 + 自定义）；新建页默认音色云健/BGM free-04-piano-iix + BGM 试听按钮；代码抽离：三模板编辑器/三个列表行组件/audit-panel/word-chips/use-audio-preview/use-upload-marks（TaskList 298 / AuditList 258 / Files 317 行，CreateTask 723 / TaskDetail 661 保留核心流程）
+→ ✅ 2026-08-20 优化：已上传/未上传文案统一为已标记/未标记（生成记录/视频资产/行徽章）；文件管理删除确认按类型加固（BGM/配音素材强确认，清理未引用明确仅视频）；修复审计管理表格空白（无指令 <template> 被编译为真实元素致 tr 进入 template.content）；试听状态机单例化（音色/BGM 互斥播放、按钮 UI 跟随点击，+5 单测）；容器栈加固（mysql healthcheck 走 TCP、backend entrypoint 探测超时退出）
+→ ✅ 2026-08-20 一致性：上传标记按任务归属（upload_marks 加 task_id + 迁移回填 + 创建自动反查绑定），重新渲染后标记不丢失，任务/视频/审计三页面口径统一；本地 dev 限流解除（仅生产启用）；uploads 目录软链统一（本地与容器共享 ~/language-flow-uploads）；docs/12 更新开发/部署双模式说明
 
 ---
 
