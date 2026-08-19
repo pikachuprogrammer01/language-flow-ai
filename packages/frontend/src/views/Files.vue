@@ -6,8 +6,16 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import { batchDeleteFiles, deleteFile, listFiles } from "../api/client";
+import {
+  type UploadMark,
+  batchDeleteFiles,
+  deleteFile,
+  listFiles,
+  listUploadMarks,
+} from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
+// biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
+import UploadMarkManager from "../components/upload-mark-manager.vue";
 
 const router = useRouter();
 
@@ -68,6 +76,67 @@ async function load(): Promise<void> {
   }
 }
 
+/** 上传标记索引：filename → marks（video 分类行显示徽章 + 管理入口） */
+const marksByFile = ref<Record<string, UploadMark[]>>({});
+
+async function loadMarks(): Promise<void> {
+  try {
+    const marks = await listUploadMarks();
+    const index: Record<string, UploadMark[]> = {};
+    for (const m of marks) {
+      const list = index[m.videoFilename] ?? [];
+      list.push(m);
+      index[m.videoFilename] = list;
+    }
+    marksByFile.value = index;
+  } catch {
+    // 标记加载失败不阻塞列表
+  }
+}
+
+function marksOf(f: { filename: string }): UploadMark[] {
+  return marksByFile.value[f.filename] ?? [];
+}
+
+/** 上传标记弹窗 */
+const markManager = ref<InstanceType<typeof UploadMarkManager> | null>(null);
+const markFilename = ref("");
+
+function openMarkManager(filename: string): void {
+  markFilename.value = filename;
+  markManager.value?.open();
+}
+
+/** 清理未引用文件：仅视频分类（无记录引用），删除联动清标记 */
+const cleanupOpen = ref(false);
+const cleanupTip = ref("");
+
+function openCleanup(): void {
+  const orphans = filtered.value.filter((f) => f.type === "video" && f.referencedBy.length === 0);
+  if (orphans.length === 0) {
+    toast.success("没有可清理的未引用视频");
+    return;
+  }
+  cleanupTip.value = `将删除 ${orphans.length} 个未被任何生成记录引用的视频文件（含其上传标记），不可恢复。`;
+  cleanupOpen.value = true;
+}
+
+async function doCleanup(): Promise<void> {
+  const orphans = filtered.value.filter((f) => f.type === "video" && f.referencedBy.length === 0);
+  try {
+    const result = await batchDeleteFiles(
+      orphans.map((f) => ({ filename: f.filename, type: "video" as const })),
+    );
+    await load();
+    await loadMarks();
+    toast.success(`已清理 ${result.deleted} 个未引用视频`);
+  } catch (err) {
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    cleanupOpen.value = false;
+  }
+}
+
 async function remove(f: {
   filename: string;
   type: "audio" | "video" | "bgm";
@@ -84,6 +153,7 @@ async function doRemove(): Promise<void> {
   try {
     await deleteFile(pendingDelete.value.filename, pendingDelete.value.type);
     await load();
+    await loadMarks();
     toast.success("文件已删除");
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
@@ -152,6 +222,7 @@ async function doBatchRemove(): Promise<void> {
     const result = await batchDeleteFiles(items);
     selected.value = new Set();
     await load();
+    await loadMarks();
     if (result.errors.length > 0) {
       toast.error(
         `已删除 ${result.deleted} 个；${result.errors.length} 个失败（${result.errors.map((e) => e.filename).join("、")}）`,
@@ -164,7 +235,10 @@ async function doBatchRemove(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadMarks();
+});
 </script>
 
 <template>
@@ -194,6 +268,13 @@ onMounted(load);
           {{ f === "all" ? `全部（${files.length}）` : `${TYPE_LABEL[f]}（${files.filter((x) => x.type === f).length}）` }}
         </button>
         <span class="ml-auto flex items-center gap-2">
+          <button
+            class="rounded-lg border px-3 py-1.5 text-sm text-orange-600 hover:bg-orange-50"
+            title="删除未被任何生成记录引用的视频文件"
+            @click="openCleanup"
+          >
+            清理未引用
+          </button>
           <label v-if="filtered.length > 0" class="flex items-center gap-1 text-sm text-gray-600">
             <input type="checkbox" v-model="allFilteredSelected" />
             全选本页
@@ -238,15 +319,37 @@ onMounted(load);
                     <span v-if="f.referencedBy.length > 2" class="text-gray-400">等 {{ f.referencedBy.length }} 条</span>
                   </span>
                   <span v-else class="text-orange-500">未引用</span>
+                  <!-- 上传标记：video 分类显示平台徽章 -->
+                  <span v-if="f.type === 'video' && marksOf(f).length > 0" class="flex flex-wrap items-center gap-1">
+                    <span class="text-green-600">已上传：</span>
+                    <span
+                      v-for="m in marksOf(f).slice(0, 3)"
+                      :key="m.id"
+                      class="rounded bg-green-50 px-1.5 py-0.5 text-green-700"
+                      :title="m.note ?? undefined"
+                    >
+                      {{ m.platform }}
+                    </span>
+                    <span v-if="marksOf(f).length > 3" class="text-gray-400">等 {{ marksOf(f).length }} 个平台</span>
+                  </span>
                 </div>
               </div>
             </div>
-            <button
-              class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-red-500 hover:bg-red-50"
-              @click="remove(f)"
-            >
-              删除
-            </button>
+            <div class="flex shrink-0 items-center gap-2">
+              <button
+                v-if="f.type === 'video'"
+                class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
+                @click="openMarkManager(f.filename)"
+              >
+                🏷 标记
+              </button>
+              <button
+                class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-red-500 hover:bg-red-50"
+                @click="remove(f)"
+              >
+                删除
+              </button>
+            </div>
           </div>
           <video v-if="f.type === 'video'" :src="`${base}/files/video/${f.filename}`" controls class="mt-3 max-h-64 w-full rounded-lg" />
           <audio v-else :src="`${base}/files/${f.type}/${f.filename}`" controls class="mt-3 w-full" />
@@ -273,4 +376,15 @@ onMounted(load);
     destructive
     @confirm="doBatchRemove"
   />
+  <ConfirmDialog
+    v-model:open="cleanupOpen"
+    title="清理未引用视频"
+    :description="cleanupTip"
+    confirm-text="清理"
+    destructive
+    @confirm="doCleanup"
+  />
+
+  <!-- 上传标记管理 -->
+  <UploadMarkManager ref="markManager" :filename="markFilename" @change="loadMarks" />
 </template>

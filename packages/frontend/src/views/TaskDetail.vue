@@ -8,15 +8,19 @@ import { useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import {
   type RenderVideoInput,
+  type UploadMark,
   deleteTask,
   getTask,
   listFiles,
+  listUploadMarks,
   listVoices,
   renderVideo,
   synthesizeFromContent,
   updateTask,
 } from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
+// biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
+import UploadMarkManager from "../components/upload-mark-manager.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -229,6 +233,30 @@ function isRenderInput(v: unknown): v is RenderVideoInput {
 const video = computed<VideoInfo | null>(() => {
   const v = task.value?.video;
   return isVideoInfo(v) ? v : null;
+});
+
+/** 上传标记：文件名 + 列表（watch 视频变化时加载） */
+const videoFilename = computed<string>(() => {
+  const url = video.value?.url ?? "";
+  return url.split("/").pop() ?? "";
+});
+const marks = ref<UploadMark[]>([]);
+const markManager = ref<InstanceType<typeof UploadMarkManager> | null>(null);
+
+async function loadMarks(): Promise<void> {
+  if (!videoFilename.value) {
+    marks.value = [];
+    return;
+  }
+  try {
+    marks.value = await listUploadMarks(videoFilename.value);
+  } catch {
+    marks.value = [];
+  }
+}
+
+watch(videoFilename, () => {
+  void loadMarks();
 });
 
 const words = computed<WordInfo[]>(() => {
@@ -480,6 +508,26 @@ listFiles({ type: "bgm" })
       </div>
       <p v-else class="mt-6 rounded-lg bg-gray-50 p-4 text-center text-sm text-gray-400">该记录尚未生成视频</p>
 
+      <!-- 上传标记 -->
+      <div v-if="videoFilename" class="mt-3 flex flex-wrap items-center gap-2">
+        <span class="text-xs text-gray-500">上传平台：</span>
+        <span
+          v-for="m in marks"
+          :key="m.id"
+          class="rounded bg-green-50 px-2 py-0.5 text-xs text-green-700"
+          :title="m.note ?? undefined"
+        >
+          {{ m.platform }}<a v-if="m.url" :href="m.url" target="_blank" rel="noopener noreferrer" class="ml-1 underline">链接</a>
+        </span>
+        <span v-if="marks.length === 0" class="text-xs text-gray-400">未标记</span>
+        <button
+          class="rounded-lg border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100"
+          @click="markManager?.open()"
+        >
+          🏷 管理标记
+        </button>
+      </div>
+
       <!-- 重新配音 + 组装（PRD §10.1.1 + 文件引用组装） -->
       <div class="mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-4">
         <select v-model="voice" class="rounded-lg border px-3 py-2 text-sm" :disabled="revoicing">
@@ -720,4 +768,7 @@ listFiles({ type: "bgm" })
     destructive
     @confirm="doRemove"
   />
+
+  <!-- 上传标记管理 -->
+  <UploadMarkManager ref="markManager" :filename="videoFilename" @change="loadMarks" />
 </template>

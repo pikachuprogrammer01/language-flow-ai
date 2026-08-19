@@ -47,6 +47,26 @@ export const contents = mysqlTable(
   (table) => [index("idx_status").on(table.status)],
 );
 
+// ── 视频上传标记表 ──
+// 表示某个视频文件已上传到外部平台（一个视频可多条标记，即多个平台）
+export const uploadMarks = mysqlTable(
+  "upload_marks",
+  {
+    id: varchar("id", { length: 32 }).primaryKey(),
+    /** 关联的视频文件名（uploads/video/ 下的文件名，如 xxx.mp4） */
+    videoFilename: varchar("video_filename", { length: 100 }).notNull(),
+    /** 上传平台（前端下拉：抖音/小红书/视频号/B站/快手/其他；存 varchar 不锁死枚举，加平台免迁移） */
+    platform: varchar("platform", { length: 50 }).notNull(),
+    /** 作品链接（可选） */
+    url: varchar("url", { length: 500 }),
+    /** 备注（可选） */
+    note: varchar("note", { length: 500 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  },
+  (table) => [index("idx_upload_marks_video_filename").on(table.videoFilename)],
+);
+
 // ── 四六级词库表 ──
 export const cetWords = mysqlTable(
   "cet_words",

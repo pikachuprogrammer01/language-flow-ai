@@ -212,3 +212,72 @@ export async function batchDeleteFiles(
   if (!data) throw new Error("批量删除失败：空响应");
   return data;
 }
+
+/**
+ * 在 Finder 中显示视频（宿主机桥）
+ * 后端把宿主机路径写入 .open-requests/ 标记文件，宿主机 launchd 脚本收到后 open -R 定位。
+ */
+export async function revealVideoInFinder(url: string) {
+  const { data, error, response } = await client.POST("/api/files/reveal", { body: { url } });
+  if (error || !response.ok) throw new Error(`打开目录失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("打开目录失败：空响应");
+  return data;
+}
+
+/** 上传标记（表示视频已上传到外部平台） */
+export interface UploadMark {
+  id: string;
+  videoFilename: string;
+  platform: string;
+  url: string | null;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 上传标记列表（可选按视频文件名过滤） */
+export async function listUploadMarks(videoFilename?: string) {
+  const { data, error, response } = await client.GET("/api/upload-marks", {
+    params: { query: videoFilename ? { videoFilename } : {} },
+  });
+  if (error || !response.ok) throw new Error(`查询上传标记失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("查询上传标记失败：空响应");
+  return data.marks as UploadMark[];
+}
+
+/** 新增上传标记（videoFilename + platform 必填，url/note 可选） */
+export async function addUploadMark(input: {
+  videoFilename: string;
+  platform: string;
+  url?: string;
+  note?: string;
+}) {
+  const { data, error, response } = await client.POST("/api/upload-marks", { body: input });
+  if (error || !response.ok) throw new Error(`新增上传标记失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("新增上传标记失败：空响应");
+  return data as UploadMark;
+}
+
+/** 更新上传标记（url/note 传 null 表示清空） */
+export async function updateUploadMark(
+  id: string,
+  input: { platform?: string; url?: string | null; note?: string | null },
+) {
+  const { data, error, response } = await client.PATCH("/api/upload-marks/{id}", {
+    params: { path: { id } },
+    body: input,
+  });
+  if (error || !response.ok) throw new Error(`更新上传标记失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("更新上传标记失败：空响应");
+  return data;
+}
+
+/** 删除上传标记 */
+export async function deleteUploadMark(id: string) {
+  const { data, error, response } = await client.DELETE("/api/upload-marks/{id}", {
+    params: { path: { id } },
+  });
+  if (error || !response.ok) throw new Error(`删除上传标记失败（HTTP ${response.status}）`);
+  if (!data) throw new Error("删除上传标记失败：空响应");
+  return data;
+}

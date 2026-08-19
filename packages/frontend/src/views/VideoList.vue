@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 视频资产页（PRD 10.1.5）：已有成片的记录列表 / 播放 / 重命名 / 删除
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { toast } from "vue-sonner";
-import { deleteTask, listTasks, updateTask } from "../api/client";
+import { type UploadMark, deleteTask, listTasks, listUploadMarks } from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
+// biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
+import UploadMarkManager from "../components/upload-mark-manager.vue";
 
 type VideoAsset = NonNullable<Awaited<ReturnType<typeof listTasks>>["tasks"]>[number];
 
@@ -14,13 +16,67 @@ const assets = ref<VideoAsset[]>([]);
 const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
 /** 播放展开的 id */
 const playing = ref<Set<string>>(new Set());
-/** 重命名状态：id → 输入值 */
-const renaming = ref<string>("");
-const renameValue = ref("");
-const savingRename = ref(false);
 /** 删除确认 */
 const deleteOpen = ref(false);
 const pendingDeleteId = ref("");
+
+/** 上传状态过滤：全部 / 已上传 / 未上传 */
+const uploadFilter = ref<"all" | "uploaded" | "not-uploaded">("all");
+const UPLOAD_TABS: { id: "all" | "uploaded" | "not-uploaded"; label: string }[] = [
+  { id: "all", label: "全部" },
+  { id: "uploaded", label: "已上传" },
+  { id: "not-uploaded", label: "未上传" },
+];
+
+/** 上传标记索引：filename → marks */
+const marksByFile = ref<Record<string, UploadMark[]>>({});
+
+async function loadMarks(): Promise<void> {
+  try {
+    const marks = await listUploadMarks();
+    const index: Record<string, UploadMark[]> = {};
+    for (const m of marks) {
+      const list = index[m.videoFilename] ?? [];
+      list.push(m);
+      index[m.videoFilename] = list;
+    }
+    marksByFile.value = index;
+  } catch {
+    // 标记加载失败不阻塞列表
+  }
+}
+
+/** 从记录提取视频文件名 */
+function videoFilenameOf(t: VideoAsset): string | null {
+  const v = t.video;
+  if (v && typeof v === "object" && "url" in v && typeof v.url === "string") {
+    return v.url.split("/").pop() ?? null;
+  }
+  return null;
+}
+
+function marksOf(t: VideoAsset): UploadMark[] {
+  const name = videoFilenameOf(t);
+  return name ? (marksByFile.value[name] ?? []) : [];
+}
+
+const filteredAssets = computed(() => {
+  if (uploadFilter.value === "uploaded") return assets.value.filter((t) => marksOf(t).length > 0);
+  if (uploadFilter.value === "not-uploaded")
+    return assets.value.filter((t) => marksOf(t).length === 0);
+  return assets.value;
+});
+
+/** 上传标记弹窗 */
+const markManager = ref<InstanceType<typeof UploadMarkManager> | null>(null);
+const markFilename = ref("");
+
+function openMarkManager(t: VideoAsset): void {
+  const name = videoFilenameOf(t);
+  if (!name) return;
+  markFilename.value = name;
+  markManager.value?.open();
+}
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
@@ -63,28 +119,6 @@ function togglePlay(id: string): void {
   else playing.value.add(id);
 }
 
-function startRename(t: VideoAsset): void {
-  renaming.value = t.id;
-  renameValue.value = t.title;
-}
-
-/** 重命名保存（PATCH title，与记录编辑共用接口） */
-async function saveRename(): Promise<void> {
-  const title = renameValue.value.trim();
-  if (!title || !renaming.value) return;
-  savingRename.value = true;
-  try {
-    await updateTask(renaming.value, { title });
-    toast.success("标题已更新");
-    renaming.value = "";
-    await load();
-  } catch (err) {
-    errorMsg.value = err instanceof Error ? err.message : String(err);
-  } finally {
-    savingRename.value = false;
-  }
-}
-
 function requestDelete(id: string): void {
   pendingDeleteId.value = id;
   deleteOpen.value = true;
@@ -103,79 +137,89 @@ async function doDelete(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadMarks();
+});
 </script>
 
 <template>
   <div class="mx-auto max-w-5xl px-6 py-10">
     <h1 class="text-xl font-bold">视频资产</h1>
-    <p class="mt-1 text-sm text-gray-500">已有成片的生成记录：播放 / 重命名 / 删除（关联生成记录）</p>
+    <p class="mt-1 text-sm text-gray-500">已有成片的生成记录：播放 / 上传标记 / 删除（关联生成记录）</p>
 
     <p v-if="errorMsg" class="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
     <p v-else-if="loading" class="mt-6 text-center text-sm text-gray-400">加载中…</p>
     <p v-else-if="assets.length === 0" class="mt-6 text-center text-sm text-gray-400">暂无视频资产（先完成生成与渲染）</p>
 
-    <div v-else class="mt-4 space-y-3">
-      <div v-for="t in assets" :key="t.id" class="rounded-lg border bg-white p-4">
-        <div class="flex items-center justify-between gap-4">
-          <div class="min-w-0">
-            <template v-if="renaming === t.id">
-              <input
-                v-model="renameValue"
-                class="w-72 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-                maxlength="255"
-                @keyup.enter="saveRename"
-              />
-              <button
-                class="ml-2 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                :disabled="savingRename"
-                @click="saveRename"
-              >
-                保存
-              </button>
-              <button class="ml-2 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-100" @click="renaming = ''">
-                取消
-              </button>
-            </template>
-            <template v-else>
+    <template v-else>
+      <!-- 上传状态过滤 -->
+      <div class="mt-4 flex gap-2">
+        <button
+          v-for="tab in UPLOAD_TABS"
+          :key="tab.id"
+          class="rounded-full border px-3 py-1 text-xs"
+          :class="uploadFilter === tab.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+          @click="uploadFilter = tab.id"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <div v-if="filteredAssets.length === 0" class="mt-6 text-center text-sm text-gray-400">
+        {{ uploadFilter === "uploaded" ? "暂无已上传视频" : uploadFilter === "not-uploaded" ? "全部已上传 🎉" : "暂无视频" }}
+      </div>
+
+      <div v-else class="mt-3 space-y-3">
+        <div v-for="t in filteredAssets" :key="t.id" class="rounded-lg border bg-white p-4">
+          <div class="flex items-center justify-between gap-4">
+            <div class="min-w-0">
               <span class="font-medium">{{ t.title }}</span>
-              <button class="ml-2 text-xs text-blue-600 hover:underline" @click="startRename(t)">重命名</button>
-            </template>
-            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-              <span
-                class="rounded px-1.5 py-0.5"
-                :class="t.status === 'completed' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'"
+              <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                <span
+                  class="rounded px-1.5 py-0.5"
+                  :class="t.status === 'completed' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'"
+                >
+                  {{ STATUS_LABEL[String(t.status)] ?? String(t.status) }}
+                </span>
+                <span>{{ String(t.level) }}</span>
+                <span>时长 {{ videoOf(t)?.duration ?? 0 }}s</span>
+                <span>词汇 {{ t.wordsCount }}</span>
+                <span v-if="t.audio">有配音</span>
+                <span v-if="marksOf(t).length > 0" class="rounded bg-green-50 px-1.5 py-0.5 text-green-700">
+                  已上传 ×{{ marksOf(t).length }}
+                </span>
+                <span>{{ new Date(String(t.createdAt)).toLocaleString("zh-CN") }}</span>
+              </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <button
+                class="rounded-lg border px-3 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                @click="openMarkManager(t)"
               >
-                {{ STATUS_LABEL[String(t.status)] ?? String(t.status) }}
-              </span>
-              <span>{{ String(t.level) }}</span>
-              <span>时长 {{ videoOf(t)?.duration ?? 0 }}s</span>
-              <span>词汇 {{ t.wordsCount }}</span>
-              <span v-if="t.audio">有配音</span>
-              <span>{{ new Date(String(t.createdAt)).toLocaleString("zh-CN") }}</span>
+                🏷 标记
+              </button>
+              <button
+                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                @click="togglePlay(t.id)"
+              >
+                {{ playing.has(t.id) ? "收起" : "播放" }}
+              </button>
+              <button class="rounded-lg border px-3 py-2 text-sm text-red-500 hover:bg-red-50" @click="requestDelete(t.id)">
+                删除
+              </button>
             </div>
           </div>
-          <div class="flex shrink-0 items-center gap-2">
-            <button
-              class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              @click="togglePlay(t.id)"
-            >
-              {{ playing.has(t.id) ? "收起" : "播放" }}
-            </button>
-            <button class="rounded-lg border px-3 py-2 text-sm text-red-500 hover:bg-red-50" @click="requestDelete(t.id)">
-              删除
-            </button>
-          </div>
+          <!-- 行内播放器（url 为相对路径，拼 base 完整地址） -->
+          <video
+            v-if="playing.has(t.id) && videoOf(t)"
+            :src="base + videoOf(t)!.url"
+            controls
+            class="mt-3 w-full max-w-md rounded-lg bg-black"
+          />
         </div>
-        <!-- 行内播放器（url 为相对路径，拼 base 完整地址） -->
-        <video
-          v-if="playing.has(t.id) && videoOf(t)"
-          :src="base + videoOf(t)!.url"
-          controls
-          class="mt-3 w-full max-w-md rounded-lg bg-black"
-        />
       </div>
-    </div>
+    </template>
 
     <!-- 删除确认对话框（shadcn-vue AlertDialog） -->
     <ConfirmDialog
@@ -186,5 +230,8 @@ onMounted(load);
       destructive
       @confirm="doDelete"
     />
+
+    <!-- 上传标记管理 -->
+    <UploadMarkManager ref="markManager" :filename="markFilename" @change="loadMarks" />
   </div>
 </template>

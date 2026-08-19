@@ -6,8 +6,17 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import { batchDeleteTasks, deleteTask, listTasks } from "../api/client";
+import {
+  type UploadMark,
+  batchDeleteTasks,
+  deleteTask,
+  listTasks,
+  listUploadMarks,
+  revealVideoInFinder,
+} from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
+// biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
+import UploadMarkManager from "../components/upload-mark-manager.vue";
 
 const router = useRouter();
 /** 删除确认对话框状态 */
@@ -29,12 +38,23 @@ const allChecked = computed(
   () => visibleTasks.value.length > 0 && selected.value.size === visibleTasks.value.length,
 );
 
-/** 按模板分类过滤后的列表 */
+/** 按模板分类 + 上传状态过滤后的列表 */
 const visibleTasks = computed(() =>
-  templateFilter.value === "all"
-    ? tasks.value
-    : tasks.value.filter((t) => t.template === templateFilter.value),
+  tasks.value.filter((t) => {
+    if (templateFilter.value !== "all" && t.template !== templateFilter.value) return false;
+    if (uploadFilter.value === "uploaded" && marksCount(t) === 0) return false;
+    if (uploadFilter.value === "not-uploaded" && marksCount(t) > 0) return false;
+    return true;
+  }),
 );
+
+/** 上传状态过滤（全部 / 已上传 / 未上传） */
+const uploadFilter = ref<"all" | "uploaded" | "not-uploaded">("all");
+const UPLOAD_TABS: { id: "all" | "uploaded" | "not-uploaded"; label: string }[] = [
+  { id: "all", label: "全部" },
+  { id: "uploaded", label: "已上传" },
+  { id: "not-uploaded", label: "未上传" },
+];
 
 function toggleAll(): void {
   selected.value = allChecked.value ? new Set() : new Set(visibleTasks.value.map((t) => t.id));
@@ -66,6 +86,91 @@ const STATUS_LABEL: Record<string, string> = {
   completed: "已完成",
   failed: "失败",
 };
+
+/** 从记录中提取视频 URL（video 为可选的 VideoInfo，结构收窄避免 any） */
+function videoUrl(t: { video?: unknown }): string | null {
+  if (t.video && typeof t.video === "object" && "url" in t.video) {
+    return typeof t.video.url === "string" ? t.video.url : null;
+  }
+  return null;
+}
+
+/** 从视频 URL 提取文件名（/files/video/xxx.mp4 → xxx.mp4） */
+function videoName(t: { video?: unknown }): string | null {
+  const url = videoUrl(t);
+  if (!url) return null;
+  return url.split("/").pop() ?? null;
+}
+
+/** 上传标记索引：filename → marks（一次全量拉取，各页面共享） */
+const marksByFile = ref<Record<string, UploadMark[]>>({});
+
+async function loadMarks(): Promise<void> {
+  try {
+    const marks = await listUploadMarks();
+    const index: Record<string, UploadMark[]> = {};
+    for (const m of marks) {
+      const list = index[m.videoFilename] ?? [];
+      list.push(m);
+      index[m.videoFilename] = list;
+    }
+    marksByFile.value = index;
+  } catch {
+    // 标记加载失败不阻塞列表
+  }
+}
+
+function marksCount(t: { video?: unknown }): number {
+  const name = videoName(t);
+  return name ? (marksByFile.value[name]?.length ?? 0) : 0;
+}
+
+/** 上传标记弹窗：当前操作的视频文件名 */
+const markManager = ref<InstanceType<typeof UploadMarkManager> | null>(null);
+const markFilename = ref("");
+
+function openMarkManager(t: { video?: unknown }): void {
+  const name = videoName(t);
+  if (!name) return;
+  markFilename.value = name;
+  markManager.value?.open();
+}
+
+/** 按钮内联反馈：taskId+动作 → 短暂显示「✓ 已复制/已打开」后还原（不弹 toast） */
+const inlineFeedback = ref<Record<string, string>>({});
+
+function flashFeedback(key: string, text: string): void {
+  inlineFeedback.value = { ...inlineFeedback.value, [key]: text };
+  window.setTimeout(() => {
+    const next = { ...inlineFeedback.value };
+    delete next[key];
+    inlineFeedback.value = next;
+  }, 1500);
+}
+
+/** 在 Finder 中显示视频（宿主机 launchd 桥，见 scripts/reveal-watcher.sh） */
+async function openInFinder(t: { video?: unknown; id: string }): Promise<void> {
+  const url = videoUrl(t);
+  if (!url) return;
+  try {
+    await revealVideoInFinder(url);
+    flashFeedback(`${t.id}-open`, "✓ 已打开");
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** 复制视频文件名（上传平台时便于对照查找） */
+async function copyVideoName(t: { video?: unknown; id: string }): Promise<void> {
+  const name = videoName(t);
+  if (!name) return;
+  try {
+    await navigator.clipboard.writeText(name);
+    flashFeedback(`${t.id}-copy`, "✓ 已复制");
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : String(err));
+  }
+}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -115,7 +220,10 @@ async function doRemove(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadMarks();
+});
 </script>
 
 <template>
@@ -141,8 +249,8 @@ onMounted(load);
     </div>
 
     <p v-if="errorMsg" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
-    <!-- 模板分类 tab + 全选 -->
-    <div v-if="tasks.length > 0" class="mb-3 flex items-center justify-between">
+    <!-- 模板分类 tab + 上传状态过滤 + 全选 -->
+    <div v-if="tasks.length > 0" class="mb-3 flex flex-wrap items-center justify-between gap-2">
       <div class="flex gap-2">
         <button
           v-for="tab in TEMPLATE_TABS"
@@ -150,6 +258,16 @@ onMounted(load);
           class="rounded-full border px-3 py-1 text-xs"
           :class="templateFilter === tab.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
           @click="templateFilter = tab.id; selected = new Set()"
+        >
+          {{ tab.label }}
+        </button>
+        <span class="mx-1 w-px bg-gray-200" />
+        <button
+          v-for="tab in UPLOAD_TABS"
+          :key="tab.id"
+          class="rounded-full border px-3 py-1 text-xs"
+          :class="uploadFilter === tab.id ? 'border-green-500 bg-green-50 text-green-700' : 'text-gray-600 hover:bg-gray-100'"
+          @click="uploadFilter = tab.id; selected = new Set()"
         >
           {{ tab.label }}
         </button>
@@ -190,9 +308,42 @@ onMounted(load);
             <span>{{ new Date(t.createdAt).toLocaleString("zh-CN") }}</span>
             <span v-if="t.video" class="text-green-600">▶ 有视频</span>
             <span v-else class="text-gray-400">暂无视频</span>
+            <span
+              v-if="marksCount(t) > 0"
+              class="rounded bg-green-50 px-1.5 py-0.5 text-green-700"
+              title="已上传平台"
+            >
+              已上传 ×{{ marksCount(t) }}
+            </span>
           </div>
         </div>
         <div class="ml-4 flex shrink-0 gap-2">
+          <button
+            v-if="videoUrl(t)"
+            class="rounded-lg border px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
+            :class="inlineFeedback[`${t.id}-open`] ? 'border-blue-500 bg-blue-50 text-blue-700' : ''"
+            :title="inlineFeedback[`${t.id}-open`] ? undefined : '在 Finder 中打开视频所在目录'"
+            @click="openInFinder(t)"
+          >
+            {{ inlineFeedback[`${t.id}-open`] ?? "📂 打开" }}
+          </button>
+          <button
+            v-if="videoUrl(t)"
+            class="rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
+            title="管理上传平台标记"
+            @click="openMarkManager(t)"
+          >
+            🏷 标记
+          </button>
+          <button
+            v-if="videoName(t)"
+            class="rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
+            :class="inlineFeedback[`${t.id}-copy`] ? 'border-green-500 bg-green-50 text-green-700' : ''"
+            :title="inlineFeedback[`${t.id}-copy`] ? undefined : '复制视频文件名'"
+            @click="copyVideoName(t)"
+          >
+            {{ inlineFeedback[`${t.id}-copy`] ?? "📋 复制名称" }}
+          </button>
           <button
             class="rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
             @click="router.push(`/tasks/${t.id}`)"
@@ -227,4 +378,7 @@ onMounted(load);
     destructive
     @confirm="doRemove"
   />
+
+  <!-- 上传标记管理 -->
+  <UploadMarkManager ref="markManager" :filename="markFilename" @change="loadMarks" />
 </template>

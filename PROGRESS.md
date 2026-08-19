@@ -1,8 +1,7 @@
 # 项目进度
 
 > 最后更新：2026-08-18
-> 当前阶段：功能开发完成（MVP 需求全部落地）；生成记录分类管理 + 全选；音画精确对齐；下一项：部署准备（docs/12）
-> 当前阶段：后端 API 开发中（video/render 完成，进入 #19 OpenAPI 文档生成）
+> 当前阶段：Docker 容器化部署完成（一条 docker compose up 启动全栈，实测渲染通过）；下一项：生产部署（域名/反代/CI 构建产物）
 
 ---
 
@@ -15,14 +14,16 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 后端 API      [████████████] 100%  三模板生成（scene_word/word_card/quiz）+ 审计档案 + TTS（混合音色+语速）/ 渲染（quiz 音画对齐+提示音）/ 任务 CRUD+搜索+批量 / 文件管理 / 词库 5999
 前端          [███████████░]  96%  生成页（三模板+主题选择+音色试听+语速/BGM）/ 记录列表（模板分类+全选+批量删除）/ 详情（生成档案+三模板编辑）/ 文件管理 / 视频资产 / 审计管理
 测试          [██████████░░]  92%  Vitest 110 用例（cet/tts/video/content/tasks/files/topics/quiz renderer）
-部署          [██░░░░░░░░░░]  10%  功能冻结，进入部署准备（docs/12 待落地）
+部署          [█████████░░░]  90%  Docker 容器化完成（mysql+backend+frontend，一条 compose 命令）；生产部署（域名/反代/CI）待做
 ```
 
 ---
 
 ## 二、当前在做
 
-→ 阶段 3：后端 API — OpenAPI 3.1 自动生成（#19，@hono/zod-openapi）
+→ 部署收尾：Docker 容器化已完成（docs/12 §六 已验证），生产部署（域名 + 反向代理 + CI 构建产物上传）待用户决策
+→ ✅ 2026-08-18 新增：生成记录「📂 打开」按钮 — 在 Finder 中定位视频（POST /api/files/reveal 写标记 → 宿主机 launchd 脚本 open -R；uploads 挂载宿主机 ~/language-flow-uploads）
+→ ✅ 2026-08-19 新增：视频上传标记机制（upload_marks 表 + /api/upload-marks CRUD + 共享弹窗组件）— 嵌入生成记录/详情/文件管理/视频资产/审计管理；视频资产移除重命名（语义误导）改标记入口 + 全部/已上传/未上传过滤；文件管理新增「清理未引用」；删文件联动清标记
 
 ---
 
@@ -101,6 +102,17 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 | 31 | 端到端流程验证（generate → 落库 → TTS → render → 回写 → 详情） | ✅ 完成（多次实测） |
 | 32 | 读取情景词汇阅读视频模板设计规范，实现 HTML 模板 | ✅ 完成（renderer/templates 早已实现，2026-08-18 核对） |
 
+### 阶段 7：Docker 部署（2026-08-18 完成）
+
+| # | 任务 | 状态 |
+|---|------|------|
+| 33 | Dockerfile.backend（Node 24 + ffmpeg + 中文字体 + Chromium，npmmirror 下载） | ✅ 完成 |
+| 34 | Dockerfile.frontend（gen-api → vite build → nginx:alpine，同源部署 VITE_API_BASE_URL=""） | ✅ 完成 |
+| 35 | entrypoint.sh（等 MySQL → migrate → seed → 启动，tsx 运行时）+ src/db/migrate.ts | ✅ 完成 |
+| 36 | docker-compose.yml 三服务编排（mysql healthcheck / backend / frontend 反向代理） | ✅ 完成 |
+| 37 | 实测：health / 前端页面 / 音频视频文件 / 容器内渲染 1080×1920 MP4 全部通过 | ✅ 完成（2026-08-18） |
+| 38 | 环境处理：OrbStack registry-mirrors（Docker Hub 不通）+ 旧库 34 条记录迁移 + uploads 拷贝 | ✅ 完成（2026-08-18） |
+
 ---
 
 ## 四、已完成
@@ -149,6 +161,7 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 - [x] TTS 混合音色（Edge 8 + Mac 本地 3，按 voice 分发引擎）+ 语速调整（rate 0.5-2）（2026-08-18）
 - [x] 词性不朗读（word_card/quiz 释义前缀剥离）+ 拼接上限 2000 字符（2026-08-18）
 - [x] 生成页 BGM/语速可选 + 三步拆分（生成/配音/渲染独立可重试）（2026-08-18）
+- [x] Docker 容器化部署：三服务编排 + 自动 migrate/seed + 容器内渲染实测（2026-08-18）
 
 ---
 

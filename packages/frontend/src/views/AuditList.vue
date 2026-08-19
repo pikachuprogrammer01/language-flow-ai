@@ -2,9 +2,18 @@
 // 审计统一管理界面（PRD 10.1.4）：搜索 / 单删 / 批量删除 / 行展开完整档案
 import { computed, onMounted, ref } from "vue";
 import { toast } from "vue-sonner";
-import { batchDeleteTasks, deleteTask, getTask, listTasks } from "../api/client";
+import {
+  type UploadMark,
+  batchDeleteTasks,
+  deleteTask,
+  getTask,
+  listTasks,
+  listUploadMarks,
+} from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 import Pagination from "../components/ui/pagination.vue";
+// biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
+import UploadMarkManager from "../components/upload-mark-manager.vue";
 
 type TaskSummary = NonNullable<Awaited<ReturnType<typeof listTasks>>["tasks"]>[number];
 
@@ -134,7 +143,55 @@ async function doBatchDelete(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadMarks();
+});
+
+/** 上传标记索引 + 弹窗（「上传」列只读展示平台，点击管理） */
+const marksByFile = ref<Record<string, UploadMark[]>>({});
+const markManager = ref<InstanceType<typeof UploadMarkManager> | null>(null);
+const markFilename = ref("");
+
+async function loadMarks(): Promise<void> {
+  try {
+    const marks = await listUploadMarks();
+    const index: Record<string, UploadMark[]> = {};
+    for (const m of marks) {
+      const list = index[m.videoFilename] ?? [];
+      list.push(m);
+      index[m.videoFilename] = list;
+    }
+    marksByFile.value = index;
+  } catch {
+    // 标记加载失败不阻塞列表
+  }
+}
+
+function marksOf(t: { video?: unknown }): UploadMark[] {
+  const url = videoFilenameOf(t);
+  return url ? (marksByFile.value[url] ?? []) : [];
+}
+
+/** 从记录的 video 字段提取文件名（结构收窄，避免 any） */
+function videoFilenameOf(t: { video?: unknown }): string | null {
+  if (
+    t.video &&
+    typeof t.video === "object" &&
+    "url" in t.video &&
+    typeof t.video.url === "string"
+  ) {
+    return t.video.url.split("/").pop() ?? null;
+  }
+  return null;
+}
+
+function openMarkManager(t: { video?: unknown }): void {
+  const name = videoFilenameOf(t);
+  if (!name) return;
+  markFilename.value = name;
+  markManager.value?.open();
+}
 </script>
 
 <template>
@@ -187,6 +244,7 @@ onMounted(load);
             <th class="px-4 py-2.5 font-medium">候选词</th>
             <th class="px-4 py-2.5 font-medium">生成尝试</th>
             <th class="px-4 py-2.5 font-medium">修改次数</th>
+            <th class="px-4 py-2.5 font-medium">上传</th>
             <th class="px-4 py-2.5 font-medium">创建时间</th>
             <th class="px-4 py-2.5 font-medium">操作</th>
           </tr>
@@ -227,6 +285,23 @@ onMounted(load);
                 <span v-if="(t.auditSummary?.attempts ?? 0) > 1" class="ml-1 text-xs text-amber-600">重试过</span>
               </td>
               <td class="px-4 py-2.5 text-gray-600">{{ t.auditSummary?.modifications ?? 0 }}</td>
+              <td class="px-4 py-2.5">
+                <button
+                  class="flex flex-wrap items-center gap-1"
+                  :disabled="marksOf(t).length === 0"
+                  :title="marksOf(t).length > 0 ? '点击管理上传标记' : undefined"
+                  @click="openMarkManager(t)"
+                >
+                  <span
+                    v-for="m in marksOf(t).slice(0, 2)"
+                    :key="m.id"
+                    class="rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700"
+                  >
+                    {{ m.platform }}
+                  </span>
+                  <span v-if="marksOf(t).length === 0" class="text-xs text-gray-400">—</span>
+                </button>
+              </td>
               <td class="px-4 py-2.5 text-gray-500">
                 {{ new Date(String(t.createdAt)).toLocaleString("zh-CN") }}
               </td>
@@ -236,7 +311,7 @@ onMounted(load);
             </tr>
             <!-- 行展开：完整档案 -->
             <tr v-if="expanded.has(t.id)">
-              <td colspan="10" class="bg-gray-50 px-6 py-4">
+              <td colspan="11" class="bg-gray-50 px-6 py-4">
                 <div class="space-y-2 text-xs leading-relaxed text-gray-600">
                   <p class="text-gray-400">{{ String(t.textPreview) }}</p>
                   <template v-if="details[t.id]?.audit">
@@ -311,5 +386,8 @@ onMounted(load);
       destructive
       @confirm="doBatchDelete"
     />
+
+    <!-- 上传标记管理 -->
+    <UploadMarkManager ref="markManager" :filename="markFilename" @change="loadMarks" />
   </div>
 </template>

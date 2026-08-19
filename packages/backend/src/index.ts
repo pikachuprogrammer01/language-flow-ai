@@ -15,6 +15,7 @@ import { health } from "./routes/health";
 import { tasks } from "./routes/tasks";
 import { topics } from "./routes/topics";
 import { tts } from "./routes/tts";
+import { uploadMarksRoute } from "./routes/upload-marks";
 import { video } from "./routes/video";
 
 // ── 环境变量校验 ──
@@ -88,6 +89,7 @@ app.route("/api/video", video);
 app.route("/api/tasks", tasks);
 app.route("/api/topics", topics);
 app.route("/api/files", fileManager);
+app.route("/api/upload-marks", uploadMarksRoute);
 app.route("/files", files);
 
 // ── OpenAPI 文档（#19）：/doc Scalar UI + openapi.json 自动生成 ──
