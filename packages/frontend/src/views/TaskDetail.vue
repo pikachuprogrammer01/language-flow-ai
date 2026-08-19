@@ -18,6 +18,10 @@ import {
   synthesizeFromContent,
   updateTask,
 } from "../api/client";
+import AuditPanel, { type AuditInfo } from "../components/audit-panel.vue";
+import CardEditor, { type WordCard } from "../components/editors/card-editor.vue";
+import QuizEditor from "../components/editors/quiz-editor.vue";
+import SegmentEditor from "../components/editors/segment-editor.vue";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
@@ -264,16 +268,6 @@ const words = computed<WordInfo[]>(() => {
   return Array.isArray(w) ? w.filter(isWordInfo) : [];
 });
 
-/** 审计档案（PRD 10.1.4）展示类型：与后端 GenerationAudit 对齐，宽松解析 */
-interface AuditInfo {
-  input?: { topic?: string; level?: string; wordCount?: number; targetDuration?: number };
-  process?: {
-    candidates?: { source?: string; word?: string }[];
-    attempts?: { result?: string; reason?: string; injectedWords?: string[] }[];
-  };
-  modifications?: { at?: string; fields?: string[] }[];
-}
-
 /** 模板判定：word_card 记录（详情只读展示卡片，无逐段编辑） */
 const isWordCardTask = computed<boolean>(() => task.value?.template === "word_card");
 
@@ -322,6 +316,32 @@ const audit = computed<AuditInfo | null>(() => {
 const segments = computed<SegmentInfo[]>(() => {
   const c = task.value?.content;
   return Array.isArray(c) ? c.filter(isSegmentInfo) : [];
+});
+
+/** 展示用段落文本（只读模式） */
+const segmentTexts = computed(() => segments.value.map((s) => s.text));
+
+/** 卡片编辑器适配：编辑态/展示态 text 字段 ↔ 组件 example 字段 */
+const cardsForEditor = computed<WordCard[]>({
+  get: () => {
+    const src = editing.value ? editCards.value : wordCards.value;
+    return src.map((c) => ({
+      word: c.word,
+      pos: c.pos,
+      meaning: c.meaning,
+      example: c.text,
+      exampleMeaning: c.exampleMeaning,
+    }));
+  },
+  set: (v) => {
+    editCards.value = v.map((c) => ({
+      word: c.word,
+      pos: c.pos,
+      meaning: c.meaning,
+      text: c.example,
+      exampleMeaning: c.exampleMeaning ?? "",
+    }));
+  },
 });
 
 const STATUS_LABEL: Record<string, string> = {
@@ -572,122 +592,31 @@ listFiles({ type: "bgm" })
       <!-- quiz 题目展示/编辑 -->
       <template v-if="isQuizTask">
         <h2 class="mt-8 text-lg font-semibold">选择题（{{ quizQuestions.length }}）</h2>
-        <div class="mt-2 space-y-3">
-          <div
-            v-for="(q, qi) in editing ? editQuestions : quizQuestions"
-            :key="qi"
-            class="rounded-lg border border-gray-200 p-4"
-          >
-            <template v-if="editing">
-              <input
-                v-model="editQuestions[qi].stem"
-                class="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm font-medium focus:border-blue-500 focus:outline-none"
-                placeholder="题干"
-              />
-              <div class="mt-2 space-y-1">
-                <div v-for="(opt, oi) in editQuestions[qi].options" :key="oi" class="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    :checked="editQuestions[qi].correctIndex === oi"
-                    @change="editQuestions[qi].correctIndex = oi"
-                  />
-                  <span class="text-xs text-gray-400">{{ String.fromCharCode(65 + oi) }}.</span>
-                  <input
-                    v-model="editQuestions[qi].options[oi]"
-                    class="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                    :placeholder="`选项 ${String.fromCharCode(65 + oi)}`"
-                  />
-                </div>
-              </div>
-              <textarea
-                v-model="editQuestions[qi].explanation"
-                rows="2"
-                class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
-                placeholder="解析"
-              />
-            </template>
-            <template v-else>
-              <p class="font-medium text-gray-900">{{ qi + 1 }}. {{ q.stem }}</p>
-              <ul class="mt-2 space-y-1">
-                <li
-                  v-for="(opt, oi) in q.options"
-                  :key="oi"
-                  class="text-sm"
-                  :class="oi === q.correctIndex ? 'font-medium text-green-700' : 'text-gray-600'"
-                >
-                  {{ String.fromCharCode(65 + oi) }}. {{ opt }}{{ oi === q.correctIndex ? " ✓" : "" }}
-                </li>
-              </ul>
-              <p class="mt-2 text-xs text-gray-500">解析：{{ q.explanation }}</p>
-            </template>
-          </div>
-        </div>
+        <QuizEditor
+          :questions="editing ? editQuestions : quizQuestions"
+          :edit-mode="editing"
+          @update:questions="editQuestions = $event"
+        />
       </template>
 
       <!-- word_card 卡片展示/编辑 -->
       <template v-if="isWordCardTask">
         <h2 class="mt-8 text-lg font-semibold">单词卡片（{{ wordCards.length }}）</h2>
-        <div class="mt-2 grid gap-3 sm:grid-cols-2">
-          <div
-            v-for="(c, i) in editing ? editCards : wordCards"
-            :key="i"
-            class="rounded-lg border border-gray-200 p-4"
-          >
-            <template v-if="editing">
-              <div class="flex gap-2">
-                <input
-                  v-model="editCards[i].word"
-                  class="w-1/2 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="单词"
-                />
-                <input
-                  v-model="editCards[i].pos"
-                  class="w-1/2 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="词性（如 v.）"
-                />
-              </div>
-              <input
-                v-model="editCards[i].meaning"
-                class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                placeholder="释义"
-              />
-              <input
-                v-model="editCards[i].text"
-                class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                placeholder="例句"
-              />
-              <input
-                v-model="editCards[i].exampleMeaning"
-                class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                placeholder="例句翻译"
-              />
-            </template>
-            <template v-else>
-              <div class="flex items-baseline gap-2">
-                <b class="text-lg text-gray-900">{{ c.word }}</b>
-                <span class="text-xs text-gray-400">{{ c.pos }}</span>
-              </div>
-              <p class="mt-1 text-sm text-gray-700">{{ c.meaning }}</p>
-              <p class="mt-2 text-sm leading-relaxed text-gray-800">{{ c.text }}</p>
-            </template>
-          </div>
-        </div>
+        <CardEditor
+          :cards="cardsForEditor"
+          :edit-mode="editing"
+          @update:cards="cardsForEditor = $event"
+        />
       </template>
 
       <!-- 正文（scene_word） -->
       <template v-else-if="!isQuizTask && !isWordCardTask">
         <h2 class="mt-8 text-lg font-semibold">正文</h2>
-        <div class="mt-2 space-y-3">
-        <div v-for="(seg, i) in segments" :key="i" class="rounded-lg bg-gray-50 p-4 text-sm leading-relaxed">
-          <textarea
-            v-if="editing"
-            v-model="editTexts[i]"
-            rows="3"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-          />
-          <p v-else>{{ seg.text }}</p>
-        </div>
-      </div>
+        <SegmentEditor
+          :texts="editing ? editTexts : segmentTexts"
+          :edit-mode="editing"
+          @update:texts="editTexts = $event"
+        />
 
       <!-- 编辑操作（PRD §10.1.3 审核修改） -->
       <div v-if="editing" class="mt-4 flex items-center gap-3">
@@ -706,49 +635,7 @@ listFiles({ type: "bgm" })
       </template>
 
       <!-- 生成档案（PRD 10.1.4 审计：输入/候选词/重试历史/修改日志） -->
-      <details class="mt-8 rounded-lg border border-gray-200">
-        <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-gray-700">
-          生成档案（输入 / 候选词 / 重试 / 修改日志）
-          <span v-if="audit" class="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-600">有档案</span>
-          <span v-else class="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-400">无档案</span>
-        </summary>
-        <div class="space-y-3 border-t px-4 py-3 text-xs leading-relaxed text-gray-600">
-          <p v-if="!audit" class="text-gray-400">
-            该记录生成于审计功能上线前，无过程档案；此后对它的修改会记录在下方修改日志中。
-          </p>
-          <div v-if="audit?.input">
-            主题「{{ audit.input.topic }}」 · {{ audit.input.level }} · 词数
-            {{ audit.input.wordCount ?? "自动" }} · 目标时长 {{ audit.input.targetDuration ?? 60 }}s
-          </div>
-          <div v-if="audit?.process?.candidates?.length">
-            候选词（{{ audit.process.candidates.length }}）：
-            <span
-              v-for="c in audit.process.candidates"
-              :key="c.word"
-              class="mr-1.5 inline-block rounded bg-gray-100 px-1.5 py-0.5"
-            >
-              {{ c.word }}<span class="text-gray-400">（{{ c.source }}）</span>
-            </span>
-          </div>
-          <div v-if="audit?.process?.attempts?.length">
-            生成尝试（{{ audit.process.attempts.length }} 次）：
-            <ul class="ml-4 list-disc">
-              <li v-for="(a, i) in audit.process.attempts" :key="i">
-                第 {{ i + 1 }} 次：{{ a.result === "accepted" ? "通过" : "拒绝" }}{{ a.reason ? `（${a.reason}）` : "" }}
-                <span v-if="a.injectedWords?.length"> · 注入 {{ a.injectedWords.length }} 词</span>
-              </li>
-            </ul>
-          </div>
-          <div v-if="audit?.modifications?.length">
-            修改日志：
-            <ul class="ml-4 list-disc">
-              <li v-for="(m, i) in audit.modifications" :key="i">
-                {{ new Date(String(m.at)).toLocaleString("zh-CN") }} · {{ (m.fields ?? []).join("、") }}
-              </li>
-            </ul>
-          </div>
-        </div>
-      </details>
+      <AuditPanel :audit="audit" />
     </template>
   </div>
 
@@ -770,5 +657,5 @@ listFiles({ type: "bgm" })
   />
 
   <!-- 上传标记管理 -->
-  <UploadMarkManager ref="markManager" :filename="videoFilename" @change="loadMarks" />
+  <UploadMarkManager ref="markManager" :filename="videoFilename" :task-id="String(route.params.id)" @change="loadMarks" />
 </template>
