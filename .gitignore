@@ -25,8 +25,9 @@ reasonix.toml
 .DS_Store
 Thumbs.db
 
-# Uploads (local storage — audio + video outputs)
+# Uploads (local storage — audio + video outputs; 软链到 ~/language-flow-uploads)
 packages/backend/uploads/
+packages/backend/uploads
 
 # OpenAPI generated (auto-generated, not committed)
 packages/frontend/src/api/schema.d.ts
@@ -34,5 +35,5 @@ packages/frontend/src/api/schema.d.ts
 # Dify
 dify/**/*.env
 
-# Drizzle
-packages/backend/drizzle/
+# Drizzle（迁移文件需要入库，保证其他环境可迁移）
+# packages/backend/drizzle/

@@ -53,6 +53,8 @@ export const uploadMarks = mysqlTable(
   "upload_marks",
   {
     id: varchar("id", { length: 32 }).primaryKey(),
+    /** 关联的任务 id（contents 表；重新渲染后文件名变化，标记按任务归属保证一致） */
+    taskId: varchar("task_id", { length: 32 }),
     /** 关联的视频文件名（uploads/video/ 下的文件名，如 xxx.mp4） */
     videoFilename: varchar("video_filename", { length: 100 }).notNull(),
     /** 上传平台（前端下拉：抖音/小红书/视频号/B站/快手/其他；存 varchar 不锁死枚举，加平台免迁移） */
@@ -64,7 +66,10 @@ export const uploadMarks = mysqlTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   },
-  (table) => [index("idx_upload_marks_video_filename").on(table.videoFilename)],
+  (table) => [
+    index("idx_upload_marks_video_filename").on(table.videoFilename),
+    index("idx_upload_marks_task_id").on(table.taskId),
+  ],
 );
 
 // ── 四六级词库表 ──

@@ -22,6 +22,7 @@ function fakeDb() {
       from: () => ({
         where: () => ({ orderBy: () => leaf(state.rows), ...leaf(state.rows) }),
         orderBy: () => leaf(state.rows),
+        ...leaf(state.rows),
       }),
     }),
     insert: () => ({ values: async () => undefined }),
@@ -51,6 +52,7 @@ describe("GET /api/upload-marks", () => {
     mocked.__state.rows = [
       {
         id: "m1",
+        taskId: null,
         videoFilename: "__mark_tmp.mp4",
         platform: "抖音",
         url: null,
@@ -68,8 +70,17 @@ describe("GET /api/upload-marks", () => {
 });
 
 describe("POST /api/upload-marks", () => {
-  it("新增标记成功（视频文件存在）", async () => {
-    vi.mocked(db).insert = fakeDb().insert as never;
+  it("新增标记成功（视频文件存在，自动反查绑定任务）", async () => {
+    const mocked = fakeDb();
+    vi.mocked(db).insert = mocked.insert as never;
+    // 反查任务：contents 行含匹配该视频文件名的 video.url
+    vi.mocked(db).select = mocked.select as never;
+    mocked.__state.rows = [
+      {
+        id: "cnt_001",
+        video: { url: "/files/video/__mark_tmp.mp4", duration: 10 },
+      },
+    ];
     const res = await app.request("/", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -80,10 +91,31 @@ describe("POST /api/upload-marks", () => {
       }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { id: string; platform: string; videoFilename: string };
+    const body = (await res.json()) as {
+      id: string;
+      taskId: string | null;
+      platform: string;
+      videoFilename: string;
+    };
     expect(body.id).toHaveLength(32);
     expect(body.platform).toBe("抖音");
     expect(body.videoFilename).toBe("__mark_tmp.mp4");
+    expect(body.taskId).toBe("cnt_001");
+  });
+
+  it("新增标记：无匹配任务时 taskId 为 null", async () => {
+    const mocked = fakeDb();
+    vi.mocked(db).insert = mocked.insert as never;
+    vi.mocked(db).select = mocked.select as never;
+    mocked.__state.rows = []; // contents 无匹配
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ videoFilename: "__mark_tmp.mp4", platform: "抖音" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { taskId: string | null };
+    expect(body.taskId).toBeNull();
   });
 
   it("视频文件不存在返回 404", async () => {

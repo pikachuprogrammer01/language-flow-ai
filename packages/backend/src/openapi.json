@@ -2189,6 +2189,10 @@
                           "id": {
                             "type": "string"
                           },
+                          "taskId": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "videoFilename": {
                             "type": "string"
                           },
@@ -2212,6 +2216,7 @@
                         },
                         "required": [
                           "id",
+                          "taskId",
                           "videoFilename",
                           "platform",
                           "url",
@@ -2258,6 +2263,10 @@
                   "note": {
                     "type": "string",
                     "maxLength": 500
+                  },
+                  "taskId": {
+                    "type": "string",
+                    "maxLength": 32
                   }
                 },
                 "required": [
@@ -2278,6 +2287,10 @@
                   "properties": {
                     "id": {
                       "type": "string"
+                    },
+                    "taskId": {
+                      "type": "string",
+                      "nullable": true
                     },
                     "videoFilename": {
                       "type": "string"
@@ -2302,6 +2315,7 @@
                   },
                   "required": [
                     "id",
+                    "taskId",
                     "videoFilename",
                     "platform",
                     "url",
@@ -2314,10 +2328,40 @@
             }
           },
           "400": {
-            "description": "非法文件名"
+            "description": "非法文件名",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           },
           "404": {
-            "description": "视频文件不存在"
+            "description": "视频文件不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         }
       }
@@ -2384,8 +2428,41 @@
               }
             }
           },
+          "400": {
+            "description": "无更新字段",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
           "404": {
-            "description": "标记不存在"
+            "description": "标记不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         }
       },
@@ -2425,7 +2502,22 @@
             }
           },
           "404": {
-            "description": "标记不存在"
+            "description": "标记不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         }
       }

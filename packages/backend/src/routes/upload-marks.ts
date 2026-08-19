@@ -11,6 +11,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { uploadMarks } from "../db/schema";
+import { resolveTaskIdByVideoFilename } from "../db/upload-marks-helper";
 
 const UPLOADS_DIR = join(import.meta.dirname, "../../uploads");
 
@@ -19,6 +20,8 @@ const markSchema = z.object({
   platform: z.string().min(1).max(50),
   url: z.string().max(500).optional(),
   note: z.string().max(500).optional(),
+  /** 关联任务 id（可选；不传则由后端按 videoFilename 自动反查绑定） */
+  taskId: z.string().max(32).optional(),
 });
 
 const patchSchema = z.object({
@@ -51,6 +54,7 @@ const listRoute = createRoute({
             marks: z.array(
               z.object({
                 id: z.string(),
+                taskId: z.string().nullable(),
                 videoFilename: z.string(),
                 platform: z.string(),
                 url: z.string().nullable(),
@@ -74,17 +78,21 @@ uploadMarksRoute.openapi(listRoute, async (c) => {
     .from(uploadMarks)
     .where(videoFilename ? eq(uploadMarks.videoFilename, videoFilename) : undefined)
     .orderBy(desc(uploadMarks.createdAt));
-  return c.json({
-    marks: rows.map((r) => ({
-      id: r.id,
-      videoFilename: r.videoFilename,
-      platform: r.platform,
-      url: r.url,
-      note: r.note,
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
-    })),
-  });
+  return c.json(
+    {
+      marks: rows.map((r) => ({
+        id: r.id,
+        taskId: r.taskId,
+        videoFilename: r.videoFilename,
+        platform: r.platform,
+        url: r.url,
+        note: r.note,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      })),
+    },
+    200,
+  );
 });
 
 const createRouteDef = createRoute({
@@ -102,6 +110,7 @@ const createRouteDef = createRoute({
         "application/json": {
           schema: z.object({
             id: z.string(),
+            taskId: z.string().nullable(),
             videoFilename: z.string(),
             platform: z.string(),
             url: z.string().nullable(),
@@ -112,14 +121,20 @@ const createRouteDef = createRoute({
         },
       },
     },
-    400: { description: "非法文件名" },
-    404: { description: "视频文件不存在" },
+    400: {
+      description: "非法文件名",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
+    404: {
+      description: "视频文件不存在",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
   },
   tags: ["upload-marks"],
 });
 
 uploadMarksRoute.openapi(createRouteDef, async (c) => {
-  const { videoFilename, platform, url, note } = c.req.valid("json");
+  const { videoFilename, platform, url, note, taskId: explicitTaskId } = c.req.valid("json");
   if (!isValidVideoFilename(videoFilename)) {
     return c.json({ error: "非法文件名" }, 400);
   }
@@ -128,23 +143,30 @@ uploadMarksRoute.openapi(createRouteDef, async (c) => {
   } catch {
     return c.json({ error: "视频文件不存在" }, 404);
   }
+  // 关联任务：优先显式传入，否则按 videoFilename 自动反查（保证标记按任务归属一致）
+  const taskId = explicitTaskId ?? (await resolveTaskIdByVideoFilename(videoFilename));
   const id = randomUUID().replaceAll("-", "");
   await db.insert(uploadMarks).values({
     id,
+    taskId,
     videoFilename,
     platform,
     url: url ?? null,
     note: note ?? null,
   });
-  return c.json({
-    id,
-    videoFilename,
-    platform,
-    url: url ?? null,
-    note: note ?? null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
+  return c.json(
+    {
+      id,
+      taskId,
+      videoFilename,
+      platform,
+      url: url ?? null,
+      note: note ?? null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    200,
+  );
 });
 
 const patchRouteDef = createRoute({
@@ -167,7 +189,14 @@ const patchRouteDef = createRoute({
         },
       },
     },
-    404: { description: "标记不存在" },
+    400: {
+      description: "无更新字段",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
+    404: {
+      description: "标记不存在",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
   },
   tags: ["upload-marks"],
 });
@@ -184,7 +213,7 @@ uploadMarksRoute.openapi(patchRouteDef, async (c) => {
   const existing = await db.select().from(uploadMarks).where(eq(uploadMarks.id, id));
   if (existing.length === 0) return c.json({ error: "标记不存在" }, 404);
   await db.update(uploadMarks).set(values).where(eq(uploadMarks.id, id));
-  return c.json({ success: true });
+  return c.json({ success: true }, 200);
 });
 
 const deleteRouteDef = createRoute({
@@ -198,7 +227,10 @@ const deleteRouteDef = createRoute({
       description: "删除成功",
       content: { "application/json": { schema: z.object({ success: z.boolean() }) } },
     },
-    404: { description: "标记不存在" },
+    404: {
+      description: "标记不存在",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
   },
   tags: ["upload-marks"],
 });
@@ -207,5 +239,5 @@ uploadMarksRoute.openapi(deleteRouteDef, async (c) => {
   const { id } = c.req.valid("param");
   const result = await db.delete(uploadMarks).where(eq(uploadMarks.id, id));
   if (result[0].affectedRows === 0) return c.json({ error: "标记不存在" }, 404);
-  return c.json({ success: true });
+  return c.json({ success: true }, 200);
 });
