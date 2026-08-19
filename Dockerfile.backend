@@ -1,0 +1,43 @@
+# ── 构建阶段：pnpm workspace 全量安装 ──
+FROM node:24-bookworm-slim AS build
+RUN corepack enable
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/backend/package.json packages/backend/
+COPY packages/frontend/package.json packages/frontend/
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+COPY . .
+RUN pnpm --filter @ai-english/backend build
+
+# ── 运行时阶段：ffmpeg + 中文字体 + Chromium + 依赖（tsx 直接跑 TS 源码） ──
+FROM node:24-bookworm-slim AS runtime
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages/shared ./packages/shared
+COPY --from=build /app/packages/backend ./packages/backend
+
+# Chromium（视频渲染用，Playwright 以 root 运行会自动加 --no-sandbox）
+# 下载源用 npmmirror（国内网络 Docker Hub 不通），可被构建时覆盖
+RUN cd /app/packages/backend \
+  && PLAYWRIGHT_DOWNLOAD_HOST=${PLAYWRIGHT_DOWNLOAD_HOST:-https://npmmirror.com/mirrors/playwright} \
+     npx playwright install chromium --with-deps
+
+# 上传目录（audio/video/bgm）与渲染临时目录
+RUN mkdir -p /app/packages/backend/uploads/audio \
+  /app/packages/backend/uploads/video \
+  /app/packages/backend/uploads/bgm \
+  /tmp/language-flow-render
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8080
+ENTRYPOINT ["/entrypoint.sh"]

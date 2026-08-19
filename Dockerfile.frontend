@@ -1,0 +1,22 @@
+# ── 构建阶段：生成 schema.d.ts + 编译前端 ──
+FROM node:24-bookworm-slim AS build
+RUN corepack enable
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/backend/package.json packages/backend/
+COPY packages/frontend/package.json packages/frontend/
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+COPY . .
+# 同源部署：API 走 nginx 反向代理，VITE_API_BASE_URL 置空
+RUN pnpm --filter @ai-english/frontend gen-api \
+  && VITE_API_BASE_URL="" pnpm --filter @ai-english/frontend build
+
+# ── 运行时阶段：nginx 托管静态文件 + 反向代理 /api /files ──
+FROM nginx:alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/packages/frontend/dist /usr/share/nginx/html
+
+EXPOSE 80
