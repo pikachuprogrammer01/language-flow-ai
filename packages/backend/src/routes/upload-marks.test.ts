@@ -135,6 +135,25 @@ describe("POST /api/upload-marks", () => {
     expect(res.status).toBe(400);
   });
 
+  it("新增标记：显式传入存在的 taskId 直接绑定", async () => {
+    const mocked = fakeDb();
+    vi.mocked(db).insert = mocked.insert as never;
+    vi.mocked(db).select = mocked.select as never;
+    mocked.__state.rows = [{ id: "cnt_ok" }]; // 任务存在
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        videoFilename: "__mark_tmp.mp4",
+        platform: "抖音",
+        taskId: "cnt_ok",
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { taskId: string | null };
+    expect(body.taskId).toBe("cnt_ok");
+  });
+
   it("视频文件不存在返回 404", async () => {
     const res = await app.request("/", {
       method: "POST",

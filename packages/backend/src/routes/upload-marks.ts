@@ -21,7 +21,7 @@ const markSchema = z.object({
   url: z.string().max(500).optional(),
   note: z.string().max(500).optional(),
   /** 关联任务 id（可选；不传则由后端按 videoFilename 自动反查绑定） */
-  taskId: z.string().max(32).optional(),
+  taskId: z.string().min(1).max(32).optional(),
 });
 
 const patchSchema = z.object({
@@ -122,7 +122,7 @@ const createRouteDef = createRoute({
       },
     },
     400: {
-      description: "非法文件名",
+      description: "非法文件名 / 任务不存在",
       content: { "application/json": { schema: z.object({ error: z.string() }) } },
     },
     404: {
