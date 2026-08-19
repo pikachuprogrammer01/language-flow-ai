@@ -2,10 +2,11 @@
 // 视频资产页（PRD 10.1.5）：已有成片的记录列表 / 播放 / 重命名 / 删除
 import { computed, onMounted, ref } from "vue";
 import { toast } from "vue-sonner";
-import { type UploadMark, deleteTask, listTasks, listUploadMarks } from "../api/client";
+import { deleteTask, listTasks } from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
+import { useUploadMarks } from "../composables/use-upload-marks";
 
 type VideoAsset = NonNullable<Awaited<ReturnType<typeof listTasks>>["tasks"]>[number];
 
@@ -20,50 +21,22 @@ const playing = ref<Set<string>>(new Set());
 const deleteOpen = ref(false);
 const pendingDeleteId = ref("");
 
-/** 上传状态过滤：全部 / 已上传 / 未上传 */
+/** 标记状态过滤：全部 / 已标记 / 未标记 */
 const uploadFilter = ref<"all" | "uploaded" | "not-uploaded">("all");
 const UPLOAD_TABS: { id: "all" | "uploaded" | "not-uploaded"; label: string }[] = [
   { id: "all", label: "全部" },
-  { id: "uploaded", label: "已上传" },
-  { id: "not-uploaded", label: "未上传" },
+  { id: "uploaded", label: "已标记" },
+  { id: "not-uploaded", label: "未标记" },
 ];
 
-/** 上传标记索引：filename → marks */
-const marksByFile = ref<Record<string, UploadMark[]>>({});
-
-async function loadMarks(): Promise<void> {
-  try {
-    const marks = await listUploadMarks();
-    const index: Record<string, UploadMark[]> = {};
-    for (const m of marks) {
-      const list = index[m.videoFilename] ?? [];
-      list.push(m);
-      index[m.videoFilename] = list;
-    }
-    marksByFile.value = index;
-  } catch {
-    // 标记加载失败不阻塞列表
-  }
-}
-
-/** 从记录提取视频文件名 */
-function videoFilenameOf(t: VideoAsset): string | null {
-  const v = t.video;
-  if (v && typeof v === "object" && "url" in v && typeof v.url === "string") {
-    return v.url.split("/").pop() ?? null;
-  }
-  return null;
-}
-
-function marksOf(t: VideoAsset): UploadMark[] {
-  const name = videoFilenameOf(t);
-  return name ? (marksByFile.value[name] ?? []) : [];
-}
+/** 上传标记索引（useUploadMarks：双索引，任务维度优先） */
+const { loadMarks, marksOfTask } = useUploadMarks();
 
 const filteredAssets = computed(() => {
-  if (uploadFilter.value === "uploaded") return assets.value.filter((t) => marksOf(t).length > 0);
+  if (uploadFilter.value === "uploaded")
+    return assets.value.filter((t) => marksOfTask(t).length > 0);
   if (uploadFilter.value === "not-uploaded")
-    return assets.value.filter((t) => marksOf(t).length === 0);
+    return assets.value.filter((t) => marksOfTask(t).length === 0);
   return assets.value;
 });
 
@@ -72,9 +45,9 @@ const markManager = ref<InstanceType<typeof UploadMarkManager> | null>(null);
 const markFilename = ref("");
 
 function openMarkManager(t: VideoAsset): void {
-  const name = videoFilenameOf(t);
-  if (!name) return;
-  markFilename.value = name;
+  const v = t.video;
+  if (!v || typeof v !== "object" || !("url" in v) || typeof v.url !== "string") return;
+  markFilename.value = v.url.split("/").pop() ?? "";
   markManager.value?.open();
 }
 
@@ -167,7 +140,7 @@ onMounted(() => {
       </div>
 
       <div v-if="filteredAssets.length === 0" class="mt-6 text-center text-sm text-gray-400">
-        {{ uploadFilter === "uploaded" ? "暂无已上传视频" : uploadFilter === "not-uploaded" ? "全部已上传 🎉" : "暂无视频" }}
+        {{ uploadFilter === "uploaded" ? "暂无已标记视频" : uploadFilter === "not-uploaded" ? "全部已标记 🎉" : "暂无视频" }}
       </div>
 
       <div v-else class="mt-3 space-y-3">
@@ -186,8 +159,8 @@ onMounted(() => {
                 <span>时长 {{ videoOf(t)?.duration ?? 0 }}s</span>
                 <span>词汇 {{ t.wordsCount }}</span>
                 <span v-if="t.audio">有配音</span>
-                <span v-if="marksOf(t).length > 0" class="rounded bg-green-50 px-1.5 py-0.5 text-green-700">
-                  已上传 ×{{ marksOf(t).length }}
+                <span v-if="marksOfTask(t).length > 0" class="rounded bg-green-50 px-1.5 py-0.5 text-green-700">
+                  已标记 ×{{ marksOfTask(t).length }}
                 </span>
                 <span>{{ new Date(String(t.createdAt)).toLocaleString("zh-CN") }}</span>
               </div>

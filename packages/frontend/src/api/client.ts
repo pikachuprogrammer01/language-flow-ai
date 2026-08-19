@@ -9,6 +9,12 @@ export const client = createClient<paths>({
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080",
 });
 
+/** 提取 API 错误信息：优先后端返回的 {error} 字段，fallback HTTP 状态码 */
+function apiError(error: { error?: unknown } | undefined, response: Response): string {
+  if (error && typeof error.error === "string") return error.error;
+  return `HTTP ${response.status}`;
+}
+
 export interface GenerateInput {
   topic: string;
   level: "CET4" | "CET6";
@@ -224,9 +230,10 @@ export async function revealVideoInFinder(url: string) {
   return data;
 }
 
-/** 上传标记（表示视频已上传到外部平台） */
+/** 上传标记（表示视频已上传到外部平台；taskId 关联任务，重渲染后标记仍按任务归属） */
 export interface UploadMark {
   id: string;
+  taskId: string | null;
   videoFilename: string;
   platform: string;
   url: string | null;
@@ -240,20 +247,21 @@ export async function listUploadMarks(videoFilename?: string) {
   const { data, error, response } = await client.GET("/api/upload-marks", {
     params: { query: videoFilename ? { videoFilename } : {} },
   });
-  if (error || !response.ok) throw new Error(`查询上传标记失败（HTTP ${response.status}）`);
+  if (error || !response.ok) throw new Error(`查询上传标记失败：${apiError(error, response)}`);
   if (!data) throw new Error("查询上传标记失败：空响应");
   return data.marks as UploadMark[];
 }
 
-/** 新增上传标记（videoFilename + platform 必填，url/note 可选） */
+/** 新增上传标记（videoFilename + platform 必填，url/note/taskId 可选） */
 export async function addUploadMark(input: {
   videoFilename: string;
   platform: string;
   url?: string;
   note?: string;
+  taskId?: string;
 }) {
   const { data, error, response } = await client.POST("/api/upload-marks", { body: input });
-  if (error || !response.ok) throw new Error(`新增上传标记失败（HTTP ${response.status}）`);
+  if (error || !response.ok) throw new Error(`新增上传标记失败：${apiError(error, response)}`);
   if (!data) throw new Error("新增上传标记失败：空响应");
   return data as UploadMark;
 }
@@ -267,7 +275,7 @@ export async function updateUploadMark(
     params: { path: { id } },
     body: input,
   });
-  if (error || !response.ok) throw new Error(`更新上传标记失败（HTTP ${response.status}）`);
+  if (error || !response.ok) throw new Error(`更新上传标记失败：${apiError(error, response)}`);
   if (!data) throw new Error("更新上传标记失败：空响应");
   return data;
 }
@@ -277,7 +285,7 @@ export async function deleteUploadMark(id: string) {
   const { data, error, response } = await client.DELETE("/api/upload-marks/{id}", {
     params: { path: { id } },
   });
-  if (error || !response.ok) throw new Error(`删除上传标记失败（HTTP ${response.status}）`);
+  if (error || !response.ok) throw new Error(`删除上传标记失败：${apiError(error, response)}`);
   if (!data) throw new Error("删除上传标记失败：空响应");
   return data;
 }

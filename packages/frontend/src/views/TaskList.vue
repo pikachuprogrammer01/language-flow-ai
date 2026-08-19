@@ -6,17 +6,12 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import {
-  type UploadMark,
-  batchDeleteTasks,
-  deleteTask,
-  listTasks,
-  listUploadMarks,
-  revealVideoInFinder,
-} from "../api/client";
+import { batchDeleteTasks, deleteTask, listTasks, revealVideoInFinder } from "../api/client";
+import TaskRow from "../components/task-row.vue";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
+import { useUploadMarks } from "../composables/use-upload-marks";
 
 const router = useRouter();
 /** 删除确认对话框状态 */
@@ -48,12 +43,12 @@ const visibleTasks = computed(() =>
   }),
 );
 
-/** 上传状态过滤（全部 / 已上传 / 未上传） */
+/** 标记状态过滤（全部 / 已标记 / 未标记） */
 const uploadFilter = ref<"all" | "uploaded" | "not-uploaded">("all");
 const UPLOAD_TABS: { id: "all" | "uploaded" | "not-uploaded"; label: string }[] = [
   { id: "all", label: "全部" },
-  { id: "uploaded", label: "已上传" },
-  { id: "not-uploaded", label: "未上传" },
+  { id: "uploaded", label: "已标记" },
+  { id: "not-uploaded", label: "未标记" },
 ];
 
 function toggleAll(): void {
@@ -76,17 +71,6 @@ const total = ref(0);
 const loading = ref(true);
 const errorMsg = ref("");
 
-const STATUS_LABEL: Record<string, string> = {
-  draft: "草稿",
-  ai_generating: "生成中",
-  content_ready: "内容就绪",
-  tts_processing: "配音中",
-  audio_ready: "配音完成",
-  video_rendering: "渲染中",
-  completed: "已完成",
-  failed: "失败",
-};
-
 /** 从记录中提取视频 URL（video 为可选的 VideoInfo，结构收窄避免 any） */
 function videoUrl(t: { video?: unknown }): string | null {
   if (t.video && typeof t.video === "object" && "url" in t.video) {
@@ -102,27 +86,11 @@ function videoName(t: { video?: unknown }): string | null {
   return url.split("/").pop() ?? null;
 }
 
-/** 上传标记索引：filename → marks（一次全量拉取，各页面共享） */
-const marksByFile = ref<Record<string, UploadMark[]>>({});
+/** 上传标记索引（useUploadMarks：一次全量拉取，四页面共用） */
+const { loadMarks, marksOfTask } = useUploadMarks();
 
-async function loadMarks(): Promise<void> {
-  try {
-    const marks = await listUploadMarks();
-    const index: Record<string, UploadMark[]> = {};
-    for (const m of marks) {
-      const list = index[m.videoFilename] ?? [];
-      list.push(m);
-      index[m.videoFilename] = list;
-    }
-    marksByFile.value = index;
-  } catch {
-    // 标记加载失败不阻塞列表
-  }
-}
-
-function marksCount(t: { video?: unknown }): number {
-  const name = videoName(t);
-  return name ? (marksByFile.value[name]?.length ?? 0) : 0;
+function marksCount(t: { id: string; video?: unknown }): number {
+  return marksOfTask(t).length;
 }
 
 /** 上传标记弹窗：当前操作的视频文件名 */
@@ -288,76 +256,21 @@ onMounted(() => {
     </div>
 
     <ul v-else class="space-y-3">
-      <li
+      <TaskRow
         v-for="t in visibleTasks"
         :key="t.id"
-        class="flex items-center justify-between rounded-xl border p-4 hover:shadow-sm"
-      >
-        <input
-          type="checkbox"
-          class="mr-3 shrink-0"
-          :checked="selected.has(t.id)"
-          @change="selected.has(t.id) ? selected.delete(t.id) : selected.add(t.id)"
-        />
-        <div class="min-w-0 cursor-pointer flex-1" @click="router.push(`/tasks/${t.id}`)">
-          <div class="truncate font-medium">{{ t.title }}</div>
-          <p v-if="t.textPreview" class="mt-1 truncate text-sm text-gray-600">{{ t.textPreview }}</p>
-          <div class="mt-1 flex items-center gap-3 text-xs text-gray-500">
-            <span class="rounded bg-gray-100 px-1.5 py-0.5">{{ t.level }}</span>
-            <span>{{ STATUS_LABEL[t.status] ?? t.status }}</span>
-            <span>{{ new Date(t.createdAt).toLocaleString("zh-CN") }}</span>
-            <span v-if="t.video" class="text-green-600">▶ 有视频</span>
-            <span v-else class="text-gray-400">暂无视频</span>
-            <span
-              v-if="marksCount(t) > 0"
-              class="rounded bg-green-50 px-1.5 py-0.5 text-green-700"
-              title="已上传平台"
-            >
-              已上传 ×{{ marksCount(t) }}
-            </span>
-          </div>
-        </div>
-        <div class="ml-4 flex shrink-0 gap-2">
-          <button
-            v-if="videoUrl(t)"
-            class="rounded-lg border px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
-            :class="inlineFeedback[`${t.id}-open`] ? 'border-blue-500 bg-blue-50 text-blue-700' : ''"
-            :title="inlineFeedback[`${t.id}-open`] ? undefined : '在 Finder 中打开视频所在目录'"
-            @click="openInFinder(t)"
-          >
-            {{ inlineFeedback[`${t.id}-open`] ?? "📂 打开" }}
-          </button>
-          <button
-            v-if="videoUrl(t)"
-            class="rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
-            title="管理上传平台标记"
-            @click="openMarkManager(t)"
-          >
-            🏷 标记
-          </button>
-          <button
-            v-if="videoName(t)"
-            class="rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
-            :class="inlineFeedback[`${t.id}-copy`] ? 'border-green-500 bg-green-50 text-green-700' : ''"
-            :title="inlineFeedback[`${t.id}-copy`] ? undefined : '复制视频文件名'"
-            @click="copyVideoName(t)"
-          >
-            {{ inlineFeedback[`${t.id}-copy`] ?? "📋 复制名称" }}
-          </button>
-          <button
-            class="rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
-            @click="router.push(`/tasks/${t.id}`)"
-          >
-            详情
-          </button>
-          <button
-            class="rounded-lg border px-3 py-1.5 text-xs text-red-500 hover:bg-red-50"
-            @click="remove(t.id)"
-          >
-            删除
-          </button>
-        </div>
-      </li>
+        :t="t"
+        :marks-count="marksCount(t)"
+        :open-feedback="inlineFeedback[`${t.id}-open`]"
+        :copy-feedback="inlineFeedback[`${t.id}-copy`]"
+        :selected="selected.has(t.id)"
+        @toggle-select="selected.has(t.id) ? selected.delete(t.id) : selected.add(t.id)"
+        @open-finder="openInFinder(t)"
+        @open-marks="openMarkManager(t)"
+        @copy-name="copyVideoName(t)"
+        @detail="router.push(`/tasks/${t.id}`)"
+        @remove="remove(t.id)"
+      />
     </ul>
   </div>
 

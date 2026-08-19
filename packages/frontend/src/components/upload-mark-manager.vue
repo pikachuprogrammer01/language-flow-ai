@@ -26,11 +26,35 @@ import ConfirmDialog from "./ui/confirm-dialog.vue";
 const props = defineProps<{
   /** 当前视频文件名（如 xxx.mp4）；为空时禁用添加 */
   filename: string;
+  /** 关联任务 id（可选；传了后端直接绑定，未传由后端按文件名自动反查） */
+  taskId?: string;
 }>();
 
 const emit = defineEmits<{ change: [] }>();
 
 const PLATFORMS = ["抖音", "小红书", "视频号", "B站", "快手", "西瓜视频", "其他"] as const;
+
+/** 备注预设（序号 _ 由用户改为数字；选「自定义」自由输入） */
+const NOTE_PRESETS = [
+  "情景英语四级词汇-第_集",
+  "单词卡片四级词汇-第_集",
+  "选择题四级词汇-第_集",
+  "情景英语六级词汇-第_集",
+  "单词卡片六级词汇-第_集",
+  "选择题六级词汇-第_集",
+] as const;
+
+/** 选中预设并填充备注输入框（自定义则清空） */
+const notePresetSel = ref("__custom__");
+const editNotePresetSel = ref("__custom__");
+
+function applyNotePreset(preset: string): void {
+  addNote.value = preset === "__custom__" ? "" : preset;
+}
+
+function applyEditNotePreset(preset: string): void {
+  editNote.value = preset === "__custom__" ? "" : preset;
+}
 
 const open = ref(false);
 const loading = ref(false);
@@ -87,11 +111,12 @@ async function save(): Promise<void> {
       platform,
       url: addUrl.value.trim() || undefined,
       note: addNote.value.trim() || undefined,
+      taskId: props.taskId,
     });
     addUrl.value = "";
     addNote.value = "";
     addCustomPlatform.value = "";
-    toast.success(`已标记上传到「${platform}」`);
+    // 成功不弹 toast：弹窗内列表立即出现新标记，父页面「已标记」徽章随 change 刷新
     emit("change");
     await load();
   } catch (err) {
@@ -124,7 +149,7 @@ async function saveEdit(m: UploadMark): Promise<void> {
       note: editNote.value.trim() || null,
     });
     editingId.value = null;
-    toast.success("标记已更新");
+    // 成功不弹 toast：编辑结果直接显示在弹窗列表中
     emit("change");
     await load();
   } catch (err) {
@@ -137,7 +162,7 @@ async function saveEdit(m: UploadMark): Promise<void> {
 async function confirmDelete(): Promise<void> {
   try {
     await deleteUploadMark(pendingDeleteId.value);
-    toast.success("标记已删除");
+    // 成功不弹 toast：弹窗内列表即时移除该条，页面徽章随 change 刷新
     emit("change");
     await load();
   } catch (err) {
@@ -202,7 +227,13 @@ const editIsCustom = computed(() => editPlatform.value === "其他");
               />
             </div>
             <input v-model="editUrl" placeholder="作品链接（可选）" class="w-full rounded border px-2 py-1 text-xs" />
-            <input v-model="editNote" placeholder="备注（可选）" class="w-full rounded border px-2 py-1 text-xs" />
+            <div class="flex gap-1.5">
+              <select v-model="editNotePresetSel" class="rounded border px-1.5 py-1 text-xs" @change="applyEditNotePreset(editNotePresetSel)">
+                <option value="__custom__">备注预设</option>
+                <option v-for="p in NOTE_PRESETS" :key="p" :value="p">{{ p }}</option>
+              </select>
+              <input v-model="editNote" placeholder="备注（可选）" class="min-w-0 flex-1 rounded border px-2 py-1 text-xs" />
+            </div>
           </div>
           <div class="flex shrink-0 gap-1.5">
             <template v-if="editingId !== m.id">
@@ -254,7 +285,11 @@ const editIsCustom = computed(() => editPlatform.value === "其他");
           />
         </div>
         <div class="mt-1.5 flex gap-1.5">
-          <input v-model="addNote" placeholder="备注（可选）" class="min-w-0 flex-1 rounded border px-2 py-1.5 text-sm" />
+          <select v-model="notePresetSel" class="rounded border px-2 py-1.5 text-sm" @change="applyNotePreset(notePresetSel)">
+            <option value="__custom__">备注预设</option>
+            <option v-for="p in NOTE_PRESETS" :key="p" :value="p">{{ p }}</option>
+          </select>
+          <input v-model="addNote" placeholder="备注（可选，序号 _ 改为数字）" class="min-w-0 flex-1 rounded border px-2 py-1.5 text-sm" />
           <button
             class="rounded-lg bg-blue-600 px-4 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
             :disabled="saving"
