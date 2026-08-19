@@ -118,6 +118,23 @@ describe("POST /api/upload-marks", () => {
     expect(body.taskId).toBeNull();
   });
 
+  it("新增标记：显式传入不存在的 taskId 返回 400", async () => {
+    const mocked = fakeDb();
+    vi.mocked(db).insert = mocked.insert as never;
+    vi.mocked(db).select = mocked.select as never;
+    mocked.__state.rows = []; // 任务不存在
+    const res = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        videoFilename: "__mark_tmp.mp4",
+        platform: "抖音",
+        taskId: "cnt_ghost",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("视频文件不存在返回 404", async () => {
     const res = await app.request("/", {
       method: "POST",

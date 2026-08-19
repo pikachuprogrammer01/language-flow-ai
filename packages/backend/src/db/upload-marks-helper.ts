@@ -8,6 +8,8 @@ import { contents } from "./schema";
 /**
  * 按视频文件名反查任务 id（匹配 contents.video.url 的 basename）
  * 用于：标记创建时绑定 task_id；迁移回填历史标记
+ * 注意：全表扫描（标记数量少可接受）；同名视频被多任务引用时返回第一条
+ * （歧义场景由前端显式传 taskId 覆盖）
  */
 export async function resolveTaskIdByVideoFilename(videoFilename: string): Promise<string | null> {
   const rows = await db.select({ id: contents.id, video: contents.video }).from(contents);

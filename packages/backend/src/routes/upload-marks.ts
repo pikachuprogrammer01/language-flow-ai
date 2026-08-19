@@ -10,7 +10,7 @@ import { basename, join } from "node:path";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../db";
-import { uploadMarks } from "../db/schema";
+import { contents, uploadMarks } from "../db/schema";
 import { resolveTaskIdByVideoFilename } from "../db/upload-marks-helper";
 
 const UPLOADS_DIR = join(import.meta.dirname, "../../uploads");
@@ -143,8 +143,18 @@ uploadMarksRoute.openapi(createRouteDef, async (c) => {
   } catch {
     return c.json({ error: "视频文件不存在" }, 404);
   }
-  // 关联任务：优先显式传入，否则按 videoFilename 自动反查（保证标记按任务归属一致）
-  const taskId = explicitTaskId ?? (await resolveTaskIdByVideoFilename(videoFilename));
+  // 关联任务：优先显式传入（校验存在，防止孤儿 task_id），否则按 videoFilename 自动反查
+  let taskId: string | null = null;
+  if (explicitTaskId) {
+    const taskRows = await db
+      .select({ id: contents.id })
+      .from(contents)
+      .where(eq(contents.id, explicitTaskId));
+    if (taskRows.length === 0) return c.json({ error: "任务不存在" }, 400);
+    taskId = explicitTaskId;
+  } else {
+    taskId = await resolveTaskIdByVideoFilename(videoFilename);
+  }
   const id = randomUUID().replaceAll("-", "");
   await db.insert(uploadMarks).values({
     id,
