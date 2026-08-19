@@ -17,6 +17,11 @@ import {
   synthesizeFromContent,
   updateTask,
 } from "../api/client";
+import CardEditor, { type WordCard } from "../components/editors/card-editor.vue";
+import QuizEditor from "../components/editors/quiz-editor.vue";
+import SegmentEditor from "../components/editors/segment-editor.vue";
+import WordChips from "../components/editors/word-chips.vue";
+import { useAudioPreview } from "../composables/use-audio-preview";
 
 type Step =
   | "idle"
@@ -42,12 +47,12 @@ const PRESET_TOPICS = [
 const suggestedTopics = ref<{ title: string; description: string }[]>([]);
 const suggesting = ref(false);
 const level = ref<GenerateInput["level"]>("CET4");
-/** 配音音色（PRD §10.1.1 配音可选） */
-const voice = ref("zh-CN-XiaoxiaoNeural");
+/** 配音音色（PRD §10.1.1 配音可选；默认云健·男·浑厚） */
+const voice = ref("zh-CN-YunjianNeural");
 /** 语速倍率（MVP 需求 #5：0.8 慢 / 1 正常 / 1.2 快） */
 const rate = ref(1);
-/** BGM 选择（生成时可选；重新渲染时混入，docs/13 素材清单） */
-const bgm = ref("");
+/** BGM 选择（生成时可选；默认钢琴曲 free-04-piano-iix.mp3，重新渲染时混入，docs/13 素材清单） */
+const bgm = ref("/files/bgm/free-04-piano-iix.mp3");
 const bgmFiles = ref<{ filename: string }[]>([]);
 const RATE_OPTIONS = [
   { value: 0.8, label: "慢" },
@@ -57,9 +62,15 @@ const RATE_OPTIONS = [
 const voices = ref<{ id: string; name: string; gender: string }[]>([]);
 /** 音色试听：固定试听文本 + 当前音色合成播放；播放中可暂停，切换音色自动停上一个（避免干扰） */
 const previewing = ref(false);
-const previewPlaying = ref(false);
 const previewText = "你好，欢迎来到四级词汇情景记忆课堂，今天我们一起学习吧。";
-let previewAudio: HTMLAudioElement | null = null;
+/** 试听控制（音色 + BGM 共用单例状态机：同时只播一个，按钮状态跟随） */
+const {
+  playing: previewPlaying,
+  play: playPreview,
+  stop: stopPreview,
+  toggle: togglePreview,
+  isPlaying,
+} = useAudioPreview();
 const step = ref<Step>("idle");
 const errorMsg = ref("");
 const title = ref("");
@@ -127,6 +138,30 @@ const stepLabel: Record<Step, string> = {
 const allWords = () => [
   ...new Map(segments.value.flatMap((s) => s.words.map((w) => [w.word, w]))).values(),
 ];
+
+/** 展示用段落文本（只读模式） */
+const segmentTexts = computed(() => segments.value.map((s) => s.text));
+
+/** 卡片编辑器适配：编辑态 text 字段 ↔ 组件 example 字段（编辑态统一结构） */
+const editCardsForEditor = computed<WordCard[]>({
+  get: () =>
+    editCards.value.map((c) => ({
+      word: c.word,
+      pos: c.pos,
+      meaning: c.meaning,
+      example: c.text,
+      exampleMeaning: c.exampleMeaning,
+    })),
+  set: (v) => {
+    editCards.value = v.map((c) => ({
+      word: c.word,
+      pos: c.pos,
+      meaning: c.meaning,
+      text: c.example,
+      exampleMeaning: c.exampleMeaning ?? "",
+    }));
+  },
+});
 
 // 加载 BGM 素材（重新渲染混音用；失败静默）
 listFiles({ type: "bgm" })
@@ -313,15 +348,6 @@ async function saveEdit(): Promise<void> {
   }
 }
 
-/** 停止当前试听播放（暂停并释放） */
-function stopPreview(): void {
-  if (previewAudio) {
-    previewAudio.pause();
-    previewAudio = null;
-  }
-  previewPlaying.value = false;
-}
-
 /** 试听当前音色（合成固定试听文本并播放；切换音色时先停掉上一个） */
 async function previewVoice(): Promise<void> {
   stopPreview(); // 上一个音色立即停止，避免叠加干扰
@@ -330,19 +356,19 @@ async function previewVoice(): Promise<void> {
   try {
     const audio = await previewVoiceApi(voice.value, previewText);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
-    const el = new Audio(`${base}${audio.url}`);
-    previewAudio = el;
-    el.onended = () => {
-      previewAudio = null;
-      previewPlaying.value = false;
-    };
-    await el.play();
-    previewPlaying.value = true;
+    playPreview("voice", `${base}${audio.url}`);
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
   } finally {
     previewing.value = false;
   }
+}
+
+/** 试听当前 BGM（本地素材直接播放；与音色试听共用单例，互斥播放） */
+function previewBgm(): void {
+  if (!bgm.value) return;
+  const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
+  togglePreview("bgm", base + bgm.value);
 }
 
 async function generateStep(): Promise<boolean> {
@@ -555,9 +581,9 @@ async function run(): Promise<void> {
               type="button"
               class="shrink-0 rounded-lg bg-gray-100 px-3 py-2 text-sm hover:bg-gray-200 disabled:opacity-50"
               :disabled="previewing"
-              @click="previewPlaying ? stopPreview() : previewVoice()"
+              @click="isPlaying('voice') ? stopPreview() : previewVoice()"
             >
-              {{ previewing ? "试听中…" : previewPlaying ? "⏸ 暂停" : "🔊 试听" }}
+              {{ previewing ? "试听中…" : isPlaying('voice') ? "⏸ 暂停" : "🔊 试听" }}
             </button>
           </div>
           <!-- 语速（MVP 需求 #5）+ BGM（生成时可选，重新渲染混音） -->
@@ -583,6 +609,14 @@ async function run(): Promise<void> {
                 {{ b.filename }}
               </option>
             </select>
+            <button
+              type="button"
+              class="shrink-0 rounded-lg bg-gray-100 px-3 py-1 text-xs hover:bg-gray-200 disabled:opacity-50"
+              :disabled="!bgm"
+              @click="previewBgm"
+            >
+              {{ isPlaying('bgm') ? "⏸ 暂停" : "🔊 试听" }}
+            </button>
             <span class="text-xs text-gray-400">生成后可改，重新配音/渲染时生效</span>
           </div>
         </div>
@@ -625,124 +659,27 @@ async function run(): Promise<void> {
         </button>
       </div>
       <div class="mb-4 space-y-3">
-        <div v-for="(seg, i) in segments" :key="i">
-          <textarea
-            v-if="editMode"
-            v-model="editTexts[i]"
-            rows="3"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            placeholder="正文段落"
-          />
-          <p v-else class="text-gray-700">{{ seg.text }}</p>
-        </div>
+        <SegmentEditor
+          :texts="editMode ? editTexts : segmentTexts"
+          :edit-mode="editMode"
+          @update:texts="editTexts = $event"
+        />
       </div>
       <!-- quiz 结果（编辑态输入） -->
-      <div v-if="template === 'quiz'" class="mb-4 space-y-3">
-        <div
-          v-for="(q, qi) in editMode ? editQuestions : questions"
-          :key="qi"
-          class="rounded-lg border border-gray-200 p-4"
-        >
-          <template v-if="editMode">
-            <input
-              v-model="editQuestions[qi].stem"
-              class="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm font-medium focus:border-blue-500 focus:outline-none"
-              placeholder="题干"
-            />
-            <div class="mt-2 space-y-1">
-              <div v-for="(opt, oi) in editQuestions[qi].options" :key="oi" class="flex items-center gap-2">
-                <input
-                  type="radio"
-                  :checked="editQuestions[qi].correctIndex === oi"
-                  @change="editQuestions[qi].correctIndex = oi"
-                />
-                <span class="text-xs text-gray-400">{{ String.fromCharCode(65 + oi) }}.</span>
-                <input
-                  v-model="editQuestions[qi].options[oi]"
-                  class="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                  :placeholder="`选项 ${String.fromCharCode(65 + oi)}`"
-                />
-              </div>
-            </div>
-            <textarea
-              v-model="editQuestions[qi].explanation"
-              rows="2"
-              class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
-              placeholder="解析"
-            />
-          </template>
-          <template v-else>
-            <p class="font-medium text-gray-900">{{ qi + 1 }}. {{ q.stem }}</p>
-            <ul class="mt-2 space-y-1">
-              <li
-                v-for="(opt, oi) in q.options"
-                :key="oi"
-                class="text-sm"
-                :class="oi === q.correctIndex ? 'font-medium text-green-700' : 'text-gray-600'"
-              >
-                {{ String.fromCharCode(65 + oi) }}. {{ opt }}{{ oi === q.correctIndex ? " ✓" : "" }}
-              </li>
-            </ul>
-            <p class="mt-2 text-xs text-gray-500">解析：{{ q.explanation }}</p>
-          </template>
-        </div>
-      </div>
+      <QuizEditor
+        v-if="template === 'quiz'"
+        :questions="editMode ? editQuestions : questions"
+        :edit-mode="editMode"
+        @update:questions="editQuestions = $event"
+      />
       <!-- word_card 结果（编辑态输入） -->
-      <div v-if="template === 'word_card'" class="mb-4 grid gap-3 sm:grid-cols-2">
-        <div
-          v-for="(_, i) in editMode ? editCards : cards"
-          :key="i"
-          class="rounded-lg border border-gray-200 p-4"
-        >
-          <template v-if="editMode">
-            <div class="flex gap-2">
-              <input
-                v-model="editCards[i].word"
-                class="w-1/2 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                placeholder="单词"
-              />
-              <input
-                v-model="editCards[i].pos"
-                class="w-1/2 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                placeholder="词性"
-              />
-            </div>
-            <input
-              v-model="editCards[i].meaning"
-              class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-              placeholder="释义"
-            />
-            <input
-              v-model="editCards[i].text"
-              class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-              placeholder="例句"
-            />
-            <input
-              v-model="editCards[i].exampleMeaning"
-              class="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-              placeholder="例句翻译"
-            />
-          </template>
-          <template v-else>
-            <div class="flex items-baseline gap-2">
-              <b class="text-lg text-gray-900">{{ cardViews[i].word }}</b>
-              <span class="text-xs text-gray-400">{{ cardViews[i].pos }}</span>
-            </div>
-            <p class="mt-1 text-sm text-gray-700">{{ cardViews[i].meaning }}</p>
-            <p class="mt-2 text-sm leading-relaxed text-gray-800">{{ cardViews[i].example }}</p>
-            <p v-if="cardViews[i].exampleMeaning" class="mt-1 text-xs text-gray-500">{{ cardViews[i].exampleMeaning }}</p>
-          </template>
-        </div>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <span
-          v-for="w in allWords()"
-          :key="w.word"
-          class="rounded-full bg-amber-100 px-3 py-1 text-sm text-gray-800"
-        >
-          <b class="text-gray-900">{{ w.word }}</b> {{ w.meaning }}
-        </span>
-      </div>
+      <CardEditor
+        v-if="template === 'word_card'"
+        :cards="editMode ? editCardsForEditor : cardViews"
+        :edit-mode="editMode"
+        @update:cards="editCardsForEditor = $event"
+      />
+      <WordChips :words="allWords()" />
       <p v-if="(step === 'done' || step === 'audioReady') && audioDuration" class="mt-3 text-xs text-gray-400">
         配音 {{ audioDuration.toFixed(1) }}s
       </p>

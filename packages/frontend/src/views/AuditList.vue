@@ -2,33 +2,15 @@
 // 审计统一管理界面（PRD 10.1.4）：搜索 / 单删 / 批量删除 / 行展开完整档案
 import { computed, onMounted, ref } from "vue";
 import { toast } from "vue-sonner";
-import {
-  type UploadMark,
-  batchDeleteTasks,
-  deleteTask,
-  getTask,
-  listTasks,
-  listUploadMarks,
-} from "../api/client";
+import { type UploadMark, batchDeleteTasks, deleteTask, getTask, listTasks } from "../api/client";
+import AuditRow, { type AuditDetail } from "../components/audit-row.vue";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 import Pagination from "../components/ui/pagination.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
+import { useUploadMarks } from "../composables/use-upload-marks";
 
 type TaskSummary = NonNullable<Awaited<ReturnType<typeof listTasks>>["tasks"]>[number];
-
-/** 行展开的详情类型（宽松解析，与后端 audit 结构对齐） */
-interface AuditDetail {
-  audit?: {
-    input?: { topic?: string; level?: string; wordCount?: number; targetDuration?: number };
-    process?: {
-      candidates?: { source?: string; word?: string }[];
-      attempts?: { result?: string; reason?: string; injectedWords?: string[] }[];
-    };
-    modifications?: { at?: string; fields?: string[] }[];
-  };
-  error?: string;
-}
 
 const loading = ref(true);
 const errorMsg = ref("");
@@ -47,17 +29,6 @@ const details = ref<Record<string, AuditDetail>>({});
 const deleteOpen = ref(false);
 const batchOpen = ref(false);
 const pendingDeleteId = ref("");
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: "草稿",
-  ai_generating: "生成中",
-  content_ready: "内容就绪",
-  tts_processing: "配音中",
-  audio_ready: "配音完成",
-  video_rendering: "渲染中",
-  completed: "已完成",
-  failed: "失败",
-};
 
 const allChecked = computed(
   () => tasks.value.length > 0 && selected.value.size === tasks.value.length,
@@ -148,32 +119,12 @@ onMounted(() => {
   void loadMarks();
 });
 
-/** 上传标记索引 + 弹窗（「上传」列只读展示平台，点击管理） */
-const marksByFile = ref<Record<string, UploadMark[]>>({});
+/** 上传标记索引（useUploadMarks：双索引，任务维度优先）+ 弹窗（「上传」列只读展示平台，点击管理） */
+const { loadMarks, marksOfTask } = useUploadMarks();
 const markManager = ref<InstanceType<typeof UploadMarkManager> | null>(null);
 const markFilename = ref("");
 
-async function loadMarks(): Promise<void> {
-  try {
-    const marks = await listUploadMarks();
-    const index: Record<string, UploadMark[]> = {};
-    for (const m of marks) {
-      const list = index[m.videoFilename] ?? [];
-      list.push(m);
-      index[m.videoFilename] = list;
-    }
-    marksByFile.value = index;
-  } catch {
-    // 标记加载失败不阻塞列表
-  }
-}
-
-function marksOf(t: { video?: unknown }): UploadMark[] {
-  const url = videoFilenameOf(t);
-  return url ? (marksByFile.value[url] ?? []) : [];
-}
-
-/** 从记录的 video 字段提取文件名（结构收窄，避免 any） */
+/** 从记录的 video 字段提取文件名（结构收窄，避免 any；标记弹窗按文件名定位） */
 function videoFilenameOf(t: { video?: unknown }): string | null {
   if (
     t.video &&
@@ -184,6 +135,10 @@ function videoFilenameOf(t: { video?: unknown }): string | null {
     return t.video.url.split("/").pop() ?? null;
   }
   return null;
+}
+
+function marksOf(t: { id: string; video?: unknown }): UploadMark[] {
+  return marksOfTask(t);
 }
 
 function openMarkManager(t: { video?: unknown }): void {
@@ -250,110 +205,19 @@ function openMarkManager(t: { video?: unknown }): void {
           </tr>
         </thead>
         <tbody class="divide-y">
-          <template v-for="t in tasks" :key="t.id">
-            <tr class="hover:bg-gray-50">
-              <td class="px-2 py-2.5">
-                <input
-                  type="checkbox"
-                  :checked="selected.has(t.id)"
-                  @change="selected.has(t.id) ? selected.delete(t.id) : selected.add(t.id)"
-                />
-              </td>
-              <td class="max-w-56 px-4 py-2.5">
-                <button class="text-left font-medium text-blue-600 hover:underline" @click="toggleExpand(t.id)">
-                  {{ t.title }}
-                  <span class="text-xs text-gray-400">{{ expanded.has(t.id) ? "▾" : "▸" }}</span>
-                </button>
-              </td>
-              <td class="px-4 py-2.5">
-                <span
-                  class="rounded px-1.5 py-0.5 text-xs"
-                  :class="t.status === 'completed' ? 'bg-green-50 text-green-700' : t.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'"
-                >
-                  {{ STATUS_LABEL[String(t.status)] ?? String(t.status) }}
-                </span>
-              </td>
-              <td class="px-4 py-2.5 text-gray-600">{{ String(t.level) }}</td>
-              <td class="px-4 py-2.5 text-gray-600">{{ t.wordsCount }}</td>
-              <td class="px-4 py-2.5 text-gray-600">
-                {{ t.auditSummary?.candidates ?? 0 }}
-                <span v-if="t.auditSummary?.hasAudit" class="ml-1 rounded bg-blue-50 px-1 text-xs text-blue-600">有档案</span>
-                <span v-else class="ml-1 rounded bg-gray-100 px-1 text-xs text-gray-400">无</span>
-              </td>
-              <td class="px-4 py-2.5 text-gray-600">
-                {{ t.auditSummary?.attempts ?? 0 }}
-                <span v-if="(t.auditSummary?.attempts ?? 0) > 1" class="ml-1 text-xs text-amber-600">重试过</span>
-              </td>
-              <td class="px-4 py-2.5 text-gray-600">{{ t.auditSummary?.modifications ?? 0 }}</td>
-              <td class="px-4 py-2.5">
-                <button
-                  class="flex flex-wrap items-center gap-1"
-                  :disabled="marksOf(t).length === 0"
-                  :title="marksOf(t).length > 0 ? '点击管理上传标记' : undefined"
-                  @click="openMarkManager(t)"
-                >
-                  <span
-                    v-for="m in marksOf(t).slice(0, 2)"
-                    :key="m.id"
-                    class="rounded bg-green-50 px-1.5 py-0.5 text-xs text-green-700"
-                  >
-                    {{ m.platform }}
-                  </span>
-                  <span v-if="marksOf(t).length === 0" class="text-xs text-gray-400">—</span>
-                </button>
-              </td>
-              <td class="px-4 py-2.5 text-gray-500">
-                {{ new Date(String(t.createdAt)).toLocaleString("zh-CN") }}
-              </td>
-              <td class="px-4 py-2.5">
-                <button class="text-xs text-red-500 hover:underline" @click="requestDelete(t.id)">删除</button>
-              </td>
-            </tr>
-            <!-- 行展开：完整档案 -->
-            <tr v-if="expanded.has(t.id)">
-              <td colspan="11" class="bg-gray-50 px-6 py-4">
-                <div class="space-y-2 text-xs leading-relaxed text-gray-600">
-                  <p class="text-gray-400">{{ String(t.textPreview) }}</p>
-                  <template v-if="details[t.id]?.audit">
-                    <div>
-                      输入：主题「{{ details[t.id]?.audit?.input?.topic }}」 · {{ details[t.id]?.audit?.input?.level }}
-                      · 词数 {{ details[t.id]?.audit?.input?.wordCount ?? "自动" }}
-                      · 目标时长 {{ details[t.id]?.audit?.input?.targetDuration ?? 60 }}s
-                    </div>
-                    <div v-if="details[t.id]?.audit?.process?.candidates?.length">
-                      候选词（{{ details[t.id]?.audit?.process?.candidates?.length }}）：
-                      <span
-                        v-for="c in details[t.id]?.audit?.process?.candidates"
-                        :key="c.word"
-                        class="mr-1.5 inline-block rounded bg-white px-1.5 py-0.5"
-                      >
-                        {{ c.word }}<span class="text-gray-400">（{{ c.source }}）</span>
-                      </span>
-                    </div>
-                    <div v-if="details[t.id]?.audit?.process?.attempts?.length">
-                      生成尝试：
-                      <ul class="ml-4 list-disc">
-                        <li v-for="(a, i) in details[t.id]?.audit?.process?.attempts" :key="i">
-                          第 {{ i + 1 }} 次：{{ a.result === "accepted" ? "通过" : "拒绝" }}{{ a.reason ? `（${a.reason}）` : "" }}
-                          <span v-if="a.injectedWords?.length"> · 注入 {{ a.injectedWords.length }} 词</span>
-                        </li>
-                      </ul>
-                    </div>
-                    <div v-if="details[t.id]?.audit?.modifications?.length">
-                      修改日志：
-                      <ul class="ml-4 list-disc">
-                        <li v-for="(m, i) in details[t.id]?.audit?.modifications" :key="i">
-                          {{ new Date(String(m.at)).toLocaleString("zh-CN") }} · {{ (m.fields ?? []).join("、") }}
-                        </li>
-                      </ul>
-                    </div>
-                  </template>
-                  <p v-else-if="details[t.id]?.error" class="text-red-400">{{ details[t.id].error }}</p>
-                  <p v-else class="text-gray-400">该记录无审计档案（生成于审计功能上线前）</p>
-                </div>
-              </td>
-            </tr>
-          </template>
+          <AuditRow
+            v-for="t in tasks"
+            :key="t.id"
+            :t="t"
+            :marks="marksOf(t)"
+            :selected="selected.has(t.id)"
+            :expanded="expanded.has(t.id)"
+            :detail="details[t.id] ?? null"
+            @toggle-select="selected.has(t.id) ? selected.delete(t.id) : selected.add(t.id)"
+            @toggle-expand="toggleExpand(t.id)"
+            @open-marks="openMarkManager(t)"
+            @remove="requestDelete(t.id)"
+          />
         </tbody>
       </table>
     </div>

@@ -6,16 +6,12 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import {
-  type UploadMark,
-  batchDeleteFiles,
-  deleteFile,
-  listFiles,
-  listUploadMarks,
-} from "../api/client";
+import { type UploadMark, batchDeleteFiles, deleteFile, listFiles } from "../api/client";
+import FileRow from "../components/file-row.vue";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
+import { useUploadMarks } from "../composables/use-upload-marks";
 
 const router = useRouter();
 
@@ -76,26 +72,11 @@ async function load(): Promise<void> {
   }
 }
 
-/** 上传标记索引：filename → marks（video 分类行显示徽章 + 管理入口） */
-const marksByFile = ref<Record<string, UploadMark[]>>({});
+/** 上传标记索引（useUploadMarks：一次全量拉取，四页面共用） */
+const { loadMarks, marksOf } = useUploadMarks();
 
-async function loadMarks(): Promise<void> {
-  try {
-    const marks = await listUploadMarks();
-    const index: Record<string, UploadMark[]> = {};
-    for (const m of marks) {
-      const list = index[m.videoFilename] ?? [];
-      list.push(m);
-      index[m.videoFilename] = list;
-    }
-    marksByFile.value = index;
-  } catch {
-    // 标记加载失败不阻塞列表
-  }
-}
-
-function marksOf(f: { filename: string }): UploadMark[] {
-  return marksByFile.value[f.filename] ?? [];
+function marksOfFile(f: { filename: string }): UploadMark[] {
+  return marksOf(f.filename);
 }
 
 /** 上传标记弹窗 */
@@ -117,7 +98,7 @@ function openCleanup(): void {
     toast.success("没有可清理的未引用视频");
     return;
   }
-  cleanupTip.value = `将删除 ${orphans.length} 个未被任何生成记录引用的视频文件（含其上传标记），不可恢复。`;
+  cleanupTip.value = `将删除 ${orphans.length} 个未被任何生成记录引用的视频文件（含其上传标记），不可恢复。仅视频分类，BGM 与配音素材不受影响。`;
   cleanupOpen.value = true;
 }
 
@@ -161,6 +142,16 @@ async function doRemove(): Promise<void> {
     pendingDelete.value = null;
   }
 }
+
+/** 删除确认描述：素材（BGM/配音）强确认，视频按引用状态提示 */
+const deleteTip = computed(() => {
+  const f = pendingDelete.value;
+  if (!f) return "";
+  if (f.type !== "video") {
+    return `该文件为${f.type === "bgm" ? "BGM" : "配音"}素材，删除后不可恢复，请确认。`;
+  }
+  return f.inUse ? "该文件被生成记录引用，删除后记录中的视频/音频将无法播放" : "确定删除该文件？";
+});
 
 function keyOf(f: { filename: string; type: string }): string {
   return `${f.type}/${f.filename}`;
@@ -290,70 +281,16 @@ onMounted(() => {
       </div>
 
       <ul class="space-y-3">
-        <li v-for="f in filtered" :key="`${f.type}-${f.filename}`" class="rounded-xl border p-4">
-          <div class="flex items-center justify-between gap-4">
-            <div class="flex min-w-0 flex-1 items-center gap-3">
-              <input
-                type="checkbox"
-                :checked="selected.has(`${f.type}/${f.filename}`)"
-                @change="toggle(f)"
-              />
-              <div class="min-w-0 flex-1">
-                <div class="truncate font-mono text-xs text-gray-700">{{ f.filename }}</div>
-                <div class="mt-1 flex items-center gap-3 text-xs text-gray-500">
-                  <span class="rounded bg-gray-100 px-1.5 py-0.5">{{ TYPE_LABEL[f.type] }}</span>
-                  <span>{{ fmtSize(f.size) }}</span>
-                  <span>{{ new Date(f.mtime).toLocaleString("zh-CN") }}</span>
-                  <!-- 引用详情：被哪些生成记录使用（点击跳转） -->
-                  <span v-if="f.referencedBy.length > 0" class="flex flex-wrap items-center gap-1">
-                    <span class="text-blue-600">被引用：</span>
-                    <button
-                      v-for="r in f.referencedBy.slice(0, 2)"
-                      :key="r.id"
-                      class="max-w-[160px] truncate rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 hover:bg-blue-100"
-                      :title="r.title"
-                      @click="router.push(`/tasks/${r.id}`)"
-                    >
-                      {{ r.title }}
-                    </button>
-                    <span v-if="f.referencedBy.length > 2" class="text-gray-400">等 {{ f.referencedBy.length }} 条</span>
-                  </span>
-                  <span v-else class="text-orange-500">未引用</span>
-                  <!-- 上传标记：video 分类显示平台徽章 -->
-                  <span v-if="f.type === 'video' && marksOf(f).length > 0" class="flex flex-wrap items-center gap-1">
-                    <span class="text-green-600">已上传：</span>
-                    <span
-                      v-for="m in marksOf(f).slice(0, 3)"
-                      :key="m.id"
-                      class="rounded bg-green-50 px-1.5 py-0.5 text-green-700"
-                      :title="m.note ?? undefined"
-                    >
-                      {{ m.platform }}
-                    </span>
-                    <span v-if="marksOf(f).length > 3" class="text-gray-400">等 {{ marksOf(f).length }} 个平台</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div class="flex shrink-0 items-center gap-2">
-              <button
-                v-if="f.type === 'video'"
-                class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
-                @click="openMarkManager(f.filename)"
-              >
-                🏷 标记
-              </button>
-              <button
-                class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-red-500 hover:bg-red-50"
-                @click="remove(f)"
-              >
-                删除
-              </button>
-            </div>
-          </div>
-          <video v-if="f.type === 'video'" :src="`${base}/files/video/${f.filename}`" controls class="mt-3 max-h-64 w-full rounded-lg" />
-          <audio v-else :src="`${base}/files/${f.type}/${f.filename}`" controls class="mt-3 w-full" />
-        </li>
+        <FileRow
+          v-for="f in filtered"
+          :key="`${f.type}-${f.filename}`"
+          :f="f"
+          :marks="marksOfFile(f)"
+          :selected="selected.has(`${f.type}/${f.filename}`)"
+          @toggle-select="toggle(f)"
+          @open-marks="openMarkManager(f.filename)"
+          @remove="remove(f)"
+        />
       </ul>
       <p v-if="filtered.length === 0" class="py-10 text-center text-gray-400">没有匹配的文件</p>
     </template>
@@ -362,8 +299,8 @@ onMounted(() => {
   <!-- 删除确认对话框（shadcn-vue AlertDialog，替代原生 confirm） -->
   <ConfirmDialog
     v-model:open="confirmOpen"
-    title="删除文件"
-    :description="pendingDelete?.inUse ? '该文件被生成记录引用，删除后记录中的视频/音频将无法播放' : '确定删除该文件？'"
+    :title="pendingDelete?.type === 'video' ? '删除文件' : '删除素材'"
+    :description="deleteTip"
     confirm-text="删除"
     destructive
     @confirm="doRemove"
