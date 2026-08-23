@@ -1,7 +1,7 @@
 # 项目进度
 
-> 最后更新：2026-08-18
-> 当前阶段：Docker 容器化部署完成（一条 docker compose up 启动全栈，实测渲染通过）；下一项：生产部署（域名/反代/CI 构建产物）
+> 最后更新：2026-08-23
+> 当前阶段：用户反馈 5 问题修复（批次 A/B/C 已实施，待真机验证生成质量）；下一项：生产部署（域名/反代/CI 构建产物）
 
 ---
 
@@ -27,6 +27,13 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 → ✅ 2026-08-19 优化：标记备注预设（6 模板文案 + 自定义）；新建页默认音色云健/BGM free-04-piano-iix + BGM 试听按钮；代码抽离：三模板编辑器/三个列表行组件/audit-panel/word-chips/use-audio-preview/use-upload-marks（TaskList 298 / AuditList 258 / Files 317 行，CreateTask 723 / TaskDetail 661 保留核心流程）
 → ✅ 2026-08-20 优化：已上传/未上传文案统一为已标记/未标记（生成记录/视频资产/行徽章）；文件管理删除确认按类型加固（BGM/配音素材强确认，清理未引用明确仅视频）；修复审计管理表格空白（无指令 <template> 被编译为真实元素致 tr 进入 template.content）；试听状态机单例化（音色/BGM 互斥播放、按钮 UI 跟随点击，+5 单测）；容器栈加固（mysql healthcheck 走 TCP、backend entrypoint 探测超时退出）
 → ✅ 2026-08-20 一致性：上传标记按任务归属（upload_marks 加 task_id + 迁移回填 + 创建自动反查绑定），重新渲染后标记不丢失，任务/视频/审计三页面口径统一；本地 dev 限流解除（仅生产启用）；uploads 目录软链统一（本地与容器共享 ~/language-flow-uploads）；docs/12 更新开发/部署双模式说明
+→ ✅ 2026-08-23 修复：用户反馈 5 问题（方案见 .trae/documents/问题解决方案.md V2）—
+  ① scene_word 生成重构 V4.2：删 NARRATIVE_WORDS 死列表，改混合词表（主题词+随机补足120）+ 两段式生成（LLM 选词 → 内联必用清单写故事）+ 代码全池注入；**修复隐藏根因**：词库释义词性前缀（n./vt.）致义项注入匹配失败；验收下限 5→8（SCENE_MIN_WORDS_PER_CONTENT），真机 4 主题实测成功率 4/4、词数 9~14；
+  ② 上传标记弹窗打开时清空 marks/editingId/pendingDeleteId（旧文件数据闪现）；
+  ③ 文件管理清理未引用改为全局范围（含配音音频，BGM 不动），type 逐项透传 + 文案同步；
+  ④ 问题4「修改文字入视频」暂缓待诊断（TTS 反替换假设为主，诊断 SQL 已记录在文档）；
+  ⑤ 新增 ui/spinner.vue，CreateTask 5 处 / TaskDetail 2 处异步按钮加 loading 动画；
+  ⑥ 排查生成 500：V4 标注元任务在 qwen2.5:7b 真机不可行 → 两段式 + 词性前缀修复解决
 
 ---
 
