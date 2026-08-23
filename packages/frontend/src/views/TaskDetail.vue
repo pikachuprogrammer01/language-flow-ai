@@ -23,6 +23,7 @@ import CardEditor, { type WordCard } from "../components/editors/card-editor.vue
 import QuizEditor from "../components/editors/quiz-editor.vue";
 import SegmentEditor from "../components/editors/segment-editor.vue";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
+import Spinner from "../components/ui/spinner.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
 
@@ -571,10 +572,11 @@ listFiles({ type: "bgm" })
           <option v-for="b in bgmFiles" :key="b.filename" :value="`/files/bgm/${b.filename}`">{{ b.filename }}</option>
         </select>
         <button
-          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           :disabled="revoicing"
           @click="revoice"
         >
+          <Spinner v-if="revoicing" size="sm" />
           {{ revoicing ? "重新配音渲染中…" : "重新配音并渲染" }}
         </button>
         <span class="text-xs text-gray-500">选音色 + BGM（可无），重新组装新视频</span>
@@ -621,10 +623,11 @@ listFiles({ type: "bgm" })
       <!-- 编辑操作（PRD §10.1.3 审核修改） -->
       <div v-if="editing" class="mt-4 flex items-center gap-3">
         <button
-          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           :disabled="saving || revoicing"
           @click="saveEdit"
         >
+          <Spinner v-if="saving || revoicing" size="sm" />
           {{ saving || revoicing ? "保存并重新配音渲染中…" : "保存修改并重新渲染" }}
         </button>
         <button class="rounded-lg border px-4 py-2 text-sm hover:bg-gray-100" :disabled="saving" @click="cancelEdit">

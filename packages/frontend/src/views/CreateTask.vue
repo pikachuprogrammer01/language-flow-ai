@@ -21,6 +21,7 @@ import CardEditor, { type WordCard } from "../components/editors/card-editor.vue
 import QuizEditor from "../components/editors/quiz-editor.vue";
 import SegmentEditor from "../components/editors/segment-editor.vue";
 import WordChips from "../components/editors/word-chips.vue";
+import Spinner from "../components/ui/spinner.vue";
 import { useAudioPreview } from "../composables/use-audio-preview";
 
 type Step =
@@ -543,7 +544,10 @@ async function run(): Promise<void> {
             :disabled="suggesting"
             @click="suggest"
           >
-            {{ suggesting ? "推荐中…" : "✨ AI 推荐" }}
+            <span v-if="suggesting" class="inline-flex items-center gap-1.5">
+              <Spinner size="sm" /> 推荐中…
+            </span>
+            <span v-else>✨ AI 推荐</span>
           </button>
         </div>
         <!-- AI 推荐候选（本地模型生成，点击选用） -->
@@ -624,8 +628,9 @@ async function run(): Promise<void> {
       <button
         type="submit"
         :disabled="step === 'generating' || step === 'tts' || step === 'rendering'"
-        class="rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-6 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
       >
+        <Spinner v-if="step === 'generating' || step === 'tts' || step === 'rendering'" size="sm" />
         {{ step === "idle" || step === "done" || step === "error" ? "生成视频" : "处理中…" }}
       </button>
       <span v-if="step !== 'idle'" class="ml-4 text-sm text-gray-500">{{ stepLabel[step] }}</span>
@@ -687,18 +692,20 @@ async function run(): Promise<void> {
       <div class="mt-4 flex items-center gap-3">
         <button
           v-if="step === 'generated' || step === 'tts'"
-          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           :disabled="step === 'tts'"
           @click="ttsStep"
         >
+          <Spinner v-if="step === 'tts'" size="sm" />
           {{ step === 'tts' ? "配音生成中…" : audioMeta ? "重新配音" : "生成配音" }}
         </button>
         <button
           v-if="step === 'audioReady' || step === 'rendering'"
-          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           :disabled="step === 'rendering'"
           @click="renderStep"
         >
+          <Spinner v-if="step === 'rendering'" size="sm" />
           {{ step === 'rendering' ? "渲染中…" : videoUrl ? "重新渲染" : "渲染视频" }}
         </button>
         <span v-if="step === 'audioReady'" class="text-xs text-gray-500">配音完成，可渲染视频</span>
@@ -706,10 +713,11 @@ async function run(): Promise<void> {
       <!-- 编辑操作 -->
       <div v-if="editMode" class="mt-4 flex items-center gap-3">
         <button
-          class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           :disabled="saving"
           @click="saveEdit"
         >
+          <Spinner v-if="saving" size="sm" />
           {{ saving ? "保存并重新配音渲染中…" : "保存修改并重新渲染" }}
         </button>
         <button class="rounded-lg border px-4 py-2 text-sm hover:bg-gray-100" :disabled="saving" @click="cancelEdit">
