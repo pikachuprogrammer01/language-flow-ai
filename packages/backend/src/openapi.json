@@ -2045,6 +2045,9 @@
                     },
                     "minItems": 1,
                     "maxItems": 100
+                  },
+                  "force": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -2056,7 +2059,7 @@
         },
         "responses": {
           "200": {
-            "description": "批量删除结果（已删除 / 不存在 / 失败）",
+            "description": "批量删除结果（已删除 / 不存在 / 跳过 / 失败）",
             "content": {
               "application/json": {
                 "schema": {
@@ -2069,6 +2072,24 @@
                       "type": "array",
                       "items": {
                         "type": "string"
+                      }
+                    },
+                    "skipped": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "filename": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "filename",
+                          "reason"
+                        ]
                       }
                     },
                     "errors": {
@@ -2093,6 +2114,7 @@
                   "required": [
                     "deleted",
                     "notFound",
+                    "skipped",
                     "errors"
                   ]
                 }

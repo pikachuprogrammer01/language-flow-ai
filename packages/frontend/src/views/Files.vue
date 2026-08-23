@@ -116,17 +116,19 @@ function openCleanup(): void {
 async function doCleanup(): Promise<void> {
   const orphans = collectOrphans();
   try {
+    // 默认走服务端引用安全网（force 缺省 false）：列表快照过期时被新记录引用的文件会被跳过
     const result = await batchDeleteFiles(
       orphans.map((f) => ({ filename: f.filename, type: f.type })),
     );
     await load();
     await loadMarks();
-    if (result.errors.length > 0) {
-      toast.error(
-        `已清理 ${result.deleted} 个；${result.errors.length} 个失败（${result.errors.map((e) => e.filename).join("、")}）`,
-      );
+    const parts = [`已清理 ${result.deleted} 个未引用文件`];
+    if (result.skipped.length > 0) parts.push(`${result.skipped.length} 个因被引用而跳过`);
+    if (result.errors.length > 0) parts.push(`${result.errors.length} 个失败`);
+    if (result.skipped.length > 0 || result.errors.length > 0) {
+      toast.warning(parts.join("；"));
     } else {
-      toast.success(`已清理 ${result.deleted} 个未引用文件`);
+      toast.success(parts[0]);
     }
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
@@ -220,23 +222,26 @@ async function batchRemove(): Promise<void> {
   batchOpen.value = true;
 }
 
-/** 执行批量删除（ConfirmDialog 确认后） */
+/** 执行批量删除（ConfirmDialog 确认后）：用户已逐项勾选并确认，force 跳过引用检查 */
 async function doBatchRemove(): Promise<void> {
   try {
     const items = [...selected.value].map((k) => {
       const [type, filename] = k.split("/");
       return { type, filename } as { type: "audio" | "video" | "bgm"; filename: string };
     });
-    const result = await batchDeleteFiles(items);
+    const result = await batchDeleteFiles(items, { force: true });
     selected.value = new Set();
     await load();
     await loadMarks();
+    const parts = [`已删除 ${result.deleted} 个文件`];
+    if (result.notFound.length > 0) parts.push(`${result.notFound.length} 个不存在（已忽略）`);
     if (result.errors.length > 0) {
-      toast.error(
-        `已删除 ${result.deleted} 个；${result.errors.length} 个失败（${result.errors.map((e) => e.filename).join("、")}）`,
+      parts.push(
+        `${result.errors.length} 个失败（${result.errors.map((e) => e.filename).join("、")}）`,
       );
+      toast.warning(parts.join("；"));
     } else {
-      toast.success(`已删除 ${result.deleted} 个文件`);
+      toast.success(parts.join("；"));
     }
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);

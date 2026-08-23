@@ -207,12 +207,17 @@ export async function deleteFile(filename: string, type: "audio" | "video" | "bg
   return data;
 }
 
-/** 批量删除文件（文件管理批量处理；不存在的文件幂等跳过） */
+/**
+ * 批量删除文件（文件管理批量处理；不存在的文件幂等跳过）
+ * 默认开启引用安全网：被生成记录引用的文件会被服务端跳过（响应 skipped）；
+ * 手动批量删除已逐项确认时传 force: true 强制删除
+ */
 export async function batchDeleteFiles(
   items: { filename: string; type: "audio" | "video" | "bgm" }[],
+  opts?: { force?: boolean },
 ) {
   const { data, error, response } = await client.POST("/api/files/batch-delete", {
-    body: { items },
+    body: { items, force: opts?.force },
   });
   if (error || !response.ok) throw new Error(`批量删除失败（HTTP ${response.status}）`);
   if (!data) throw new Error("批量删除失败：空响应");

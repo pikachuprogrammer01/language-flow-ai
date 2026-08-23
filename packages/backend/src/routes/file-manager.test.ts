@@ -15,12 +15,15 @@ const app = fileManager;
 /** 记录 db.delete 的 where 调用次数（断言上传标记联动清理是否触发） */
 let deleteCallCount = 0;
 let deleteShouldThrow = false;
+/** referencedFiles 查询 contents 的替身返回行（模拟生成记录的 audio/video 引用） */
+let selectRows: { id: string; title: string; audio?: unknown; video?: unknown }[] = [];
 
 beforeEach(() => {
   deleteCallCount = 0;
   deleteShouldThrow = false;
-  // referencedFiles 查询 contents：select({audio, video}).from() 返回空数组；vitest mock 赋值类型断层用 as never（测试替身惯例）
-  vi.mocked(db).select = vi.fn(() => ({ from: async () => [] }) as never) as never;
+  selectRows = [];
+  // referencedFiles 查询 contents：select({...}).from() 返回可配置行；vitest mock 赋值类型断层用 as never（测试替身惯例）
+  vi.mocked(db).select = vi.fn(() => ({ from: async () => selectRows }) as never) as never;
   // delete 用于上传标记联动清理：计数调用，可配置抛错（验证删除结果不被阻断）
   vi.mocked(db).delete = vi.fn(() => ({
     where: async () => {
@@ -46,10 +49,58 @@ describe("POST /api/files/batch-delete", () => {
       }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { deleted: number; notFound: string[]; errors: unknown[] };
+    const body = (await res.json()) as {
+      deleted: number;
+      notFound: string[];
+      skipped: { filename: string }[];
+      errors: unknown[];
+    };
     expect(body.deleted).toBe(1);
     expect(body.notFound).toEqual(["gone.mp4"]);
+    expect(body.skipped).toEqual([]);
     expect(body.errors).toEqual([]);
+  });
+
+  it("引用安全网：被生成记录引用的文件默认跳过且不删除", async () => {
+    const tmpPath = join(process.cwd(), "uploads/audio/__batch_ref.mp3");
+    await writeFile(tmpPath, "x");
+    selectRows = [
+      { id: "t1", title: "T", audio: { url: "/files/audio/__batch_ref.mp3" }, video: null },
+    ];
+    const res = await app.request("/batch-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ items: [{ filename: "__batch_ref.mp3", type: "audio" }] }),
+    });
+    const body = (await res.json()) as {
+      deleted: number;
+      skipped: { filename: string; reason: string }[];
+    };
+    expect(body.deleted).toBe(0);
+    expect(body.skipped).toHaveLength(1);
+    expect(body.skipped[0]?.filename).toBe("__batch_ref.mp3");
+    // 文件仍在磁盘
+    await expect(readFile(tmpPath)).resolves.toBeTruthy();
+    await rm(tmpPath, { force: true });
+  });
+
+  it("force=true 时跳过引用检查，强制删除被引用文件", async () => {
+    const tmpPath = join(process.cwd(), "uploads/audio/__batch_ref2.mp3");
+    await writeFile(tmpPath, "x");
+    selectRows = [
+      { id: "t1", title: "T", audio: { url: "/files/audio/__batch_ref2.mp3" }, video: null },
+    ];
+    const res = await app.request("/batch-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        force: true,
+        items: [{ filename: "__batch_ref2.mp3", type: "audio" }],
+      }),
+    });
+    const body = (await res.json()) as { deleted: number; skipped: unknown[] };
+    expect(body.deleted).toBe(1);
+    expect(body.skipped).toEqual([]);
   });
 
   it("非法文件名进 errors 列表", async () => {

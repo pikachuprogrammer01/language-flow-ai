@@ -173,6 +173,8 @@ const batchDeleteRoute = createRoute({
               .array(z.object({ filename: z.string().min(1).max(100), type: z.enum(FILE_TYPES) }))
               .min(1)
               .max(100),
+            /** 强制删除被引用文件（默认 false：跳过被引用项，防止误删） */
+            force: z.boolean().optional(),
           }),
         },
       },
@@ -180,12 +182,13 @@ const batchDeleteRoute = createRoute({
   },
   responses: {
     200: {
-      description: "批量删除结果（已删除 / 不存在 / 失败）",
+      description: "批量删除结果（已删除 / 不存在 / 跳过 / 失败）",
       content: {
         "application/json": {
           schema: z.object({
             deleted: z.number(),
             notFound: z.array(z.string()),
+            skipped: z.array(z.object({ filename: z.string(), reason: z.string() })),
             errors: z.array(z.object({ filename: z.string(), reason: z.string() })),
           }),
         },
@@ -196,13 +199,21 @@ const batchDeleteRoute = createRoute({
 });
 
 fileManager.openapi(batchDeleteRoute, async (c) => {
-  const { items } = c.req.valid("json");
+  const { items, force } = c.req.valid("json");
+  // 引用安全网：默认跳过被生成记录引用的文件（防列表快照过期 / 后端连错库时全量误删）；
+  // 显式 force=true 才允许删除被引用文件（手动批量删除场景，用户已逐项勾选并确认）
+  const refs = force ? new Map() : await referencedFiles();
   const deleted: string[] = [];
   const notFound: string[] = [];
+  const skipped: { filename: string; reason: string }[] = [];
   const errors: { filename: string; reason: string }[] = [];
   for (const { filename, type } of items) {
     if (filename.includes("..") || basename(filename) !== filename) {
       errors.push({ filename, reason: "非法文件名" });
+      continue;
+    }
+    if (refs.has(filename)) {
+      skipped.push({ filename, reason: "被生成记录引用" });
       continue;
     }
     try {
@@ -216,11 +227,14 @@ fileManager.openapi(batchDeleteRoute, async (c) => {
         }
       }
       deleted.push(filename);
-    } catch {
-      notFound.push(filename); // 已删除/不存在视为幂等跳过
+    } catch (e) {
+      // 区分"不存在"（幂等跳过）与真实失败（权限/占用等）
+      const code = (e as { code?: string }).code ?? "";
+      if (code === "ENOENT") notFound.push(filename);
+      else errors.push({ filename, reason: code ? `删除失败（${code}）` : "删除失败" });
     }
   }
-  return c.json({ deleted: deleted.length, notFound, errors });
+  return c.json({ deleted: deleted.length, notFound, skipped, errors });
 });
 
 // ── 在 Finder 中显示视频（宿主机桥） ──
