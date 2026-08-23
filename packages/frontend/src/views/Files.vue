@@ -88,29 +88,45 @@ function openMarkManager(filename: string): void {
   markManager.value?.open();
 }
 
-/** 清理未引用文件：仅视频分类（无记录引用），删除联动清标记 */
+/** 清理未引用文件：全局范围（不受当前 Tab 影响），删除联动清标记；BGM 素材永不清理 */
 const cleanupOpen = ref(false);
 const cleanupTip = ref("");
 
+const collectOrphans = (): {
+  filename: string;
+  type: "audio" | "video" | "bgm";
+}[] =>
+  files.value
+    .filter((f) => f.type !== "bgm" && f.referencedBy.length === 0)
+    .map((f) => ({ filename: f.filename, type: f.type }));
+
 function openCleanup(): void {
-  const orphans = filtered.value.filter((f) => f.type === "video" && f.referencedBy.length === 0);
+  const orphans = collectOrphans();
   if (orphans.length === 0) {
-    toast.success("没有可清理的未引用视频");
+    toast.success("没有可清理的未引用文件");
     return;
   }
-  cleanupTip.value = `将删除 ${orphans.length} 个未被任何生成记录引用的视频文件（含其上传标记），不可恢复。仅视频分类，BGM 与配音素材不受影响。`;
+  const videos = orphans.filter((f) => f.type === "video").length;
+  const audios = orphans.length - videos;
+  cleanupTip.value = `将删除 ${orphans.length} 个未被任何生成记录引用的文件（视频 ${videos} 个、配音 ${audios} 个，含其上传标记），不可恢复。BGM 素材不受影响。`;
   cleanupOpen.value = true;
 }
 
 async function doCleanup(): Promise<void> {
-  const orphans = filtered.value.filter((f) => f.type === "video" && f.referencedBy.length === 0);
+  const orphans = collectOrphans();
   try {
     const result = await batchDeleteFiles(
-      orphans.map((f) => ({ filename: f.filename, type: "video" as const })),
+      orphans.map((f) => ({ filename: f.filename, type: f.type })),
     );
     await load();
     await loadMarks();
-    toast.success(`已清理 ${result.deleted} 个未引用视频`);
+    if (result.errors.length > 0) {
+      toast.error(
+        `已清理 ${result.deleted} 个；${result.errors.length} 个失败（${result.errors.map((e) => e.filename).join("、")}）`,
+      );
+    } else {
+      toast.success(`已清理 ${result.deleted} 个未引用文件`);
+    }
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -261,7 +277,7 @@ onMounted(() => {
         <span class="ml-auto flex items-center gap-2">
           <button
             class="rounded-lg border px-3 py-1.5 text-sm text-orange-600 hover:bg-orange-50"
-            title="删除未被任何生成记录引用的视频文件"
+            title="删除未被任何生成记录引用的视频和配音文件"
             @click="openCleanup"
           >
             清理未引用
@@ -315,7 +331,7 @@ onMounted(() => {
   />
   <ConfirmDialog
     v-model:open="cleanupOpen"
-    title="清理未引用视频"
+    title="清理未引用文件"
     :description="cleanupTip"
     confirm-text="清理"
     destructive

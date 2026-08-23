@@ -92,7 +92,13 @@ async function load(): Promise<void> {
 
 function onOpenChange(v: boolean): void {
   open.value = v;
-  if (v) void load();
+  if (v) {
+    // 清空上一文件的瞬时状态：避免 load() 期间闪现旧标记/残留编辑态
+    marks.value = [];
+    editingId.value = null;
+    pendingDeleteId.value = "";
+    void load();
+  }
 }
 
 /** 外部打开（父组件通过 ref 调用） */
