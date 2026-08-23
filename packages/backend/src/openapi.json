@@ -2266,6 +2266,7 @@
                   },
                   "taskId": {
                     "type": "string",
+                    "minLength": 1,
                     "maxLength": 32
                   }
                 },
@@ -2328,7 +2329,7 @@
             }
           },
           "400": {
-            "description": "非法文件名",
+            "description": "非法文件名 / 任务不存在",
             "content": {
               "application/json": {
                 "schema": {
