@@ -12,7 +12,7 @@ import {
  * 表示视频已上传到外部平台；一个视频可多条标记（多个平台）
  * 用法：<UploadMarkManager :filename="t.videoFilename" @change="reload" />
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import {
   type UploadMark,
@@ -59,6 +59,14 @@ function applyEditNotePreset(preset: string): void {
 const open = ref(false);
 const loading = ref(false);
 const marks = ref<UploadMark[]>([]);
+/** 当前生效文件名：open(name) 同步覆盖（不依赖父组件 prop 渲染时序）；prop 变化时跟随（详情页异步加载场景） */
+const activeFilename = ref(props.filename);
+watch(
+  () => props.filename,
+  (name) => {
+    if (name) activeFilename.value = name;
+  },
+);
 /** 添加表单 */
 const addPlatform = ref<string>("抖音");
 const addCustomPlatform = ref("");
@@ -82,7 +90,7 @@ const resolvePlatform = (selected: string, custom: string): string =>
 async function load(): Promise<void> {
   loading.value = true;
   try {
-    marks.value = await listUploadMarks(props.filename);
+    marks.value = await listUploadMarks(activeFilename.value);
   } catch (err) {
     toast.error(err instanceof Error ? err.message : String(err));
   } finally {
@@ -101,8 +109,13 @@ function onOpenChange(v: boolean): void {
   }
 }
 
-/** 外部打开（父组件通过 ref 调用） */
-defineExpose({ open: () => onOpenChange(true) });
+/** 外部打开（父组件通过 ref 调用）：传入 name 时立即生效，避免"先改 prop 再 open()"的渲染时序竞态 */
+defineExpose({
+  open: (name?: string): void => {
+    if (name) activeFilename.value = name;
+    onOpenChange(true);
+  },
+});
 
 async function save(): Promise<void> {
   const platform = resolvePlatform(addPlatform.value, addCustomPlatform.value);
@@ -113,7 +126,7 @@ async function save(): Promise<void> {
   saving.value = true;
   try {
     await addUploadMark({
-      videoFilename: props.filename,
+      videoFilename: activeFilename.value,
       platform,
       url: addUrl.value.trim() || undefined,
       note: addNote.value.trim() || undefined,
@@ -192,7 +205,7 @@ const editIsCustom = computed(() => editPlatform.value === "其他");
         class="fixed left-1/2 top-1/2 z-50 w-[520px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-white p-5 shadow-lg"
       >
       <DialogTitle class="text-base font-semibold">上传标记</DialogTitle>
-      <p class="mt-1 truncate text-xs text-gray-500">{{ filename }}</p>
+      <p class="mt-1 truncate text-xs text-gray-500">{{ activeFilename }}</p>
 
       <!-- 标记列表 -->
       <div v-if="loading" class="py-6 text-center text-sm text-gray-400">加载中…</div>

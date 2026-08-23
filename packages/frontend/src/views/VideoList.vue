@@ -47,8 +47,9 @@ const markFilename = ref("");
 function openMarkManager(t: VideoAsset): void {
   const v = t.video;
   if (!v || typeof v !== "object" || !("url" in v) || typeof v.url !== "string") return;
-  markFilename.value = v.url.split("/").pop() ?? "";
-  markManager.value?.open();
+  const name = v.url.split("/").pop() ?? "";
+  markFilename.value = name;
+  markManager.value?.open(name);
 }
 
 const STATUS_LABEL: Record<string, string> = {

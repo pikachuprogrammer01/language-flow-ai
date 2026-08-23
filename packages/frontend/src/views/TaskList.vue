@@ -101,7 +101,7 @@ function openMarkManager(t: { video?: unknown }): void {
   const name = videoName(t);
   if (!name) return;
   markFilename.value = name;
-  markManager.value?.open();
+  markManager.value?.open(name);
 }
 
 /** 按钮内联反馈：taskId+动作 → 短暂显示「✓ 已复制/已打开」后还原（不弹 toast） */

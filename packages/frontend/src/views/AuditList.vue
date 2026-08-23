@@ -145,7 +145,7 @@ function openMarkManager(t: { video?: unknown }): void {
   const name = videoFilenameOf(t);
   if (!name) return;
   markFilename.value = name;
-  markManager.value?.open();
+  markManager.value?.open(name);
 }
 </script>
 

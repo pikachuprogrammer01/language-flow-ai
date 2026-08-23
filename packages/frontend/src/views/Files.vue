@@ -85,7 +85,8 @@ const markFilename = ref("");
 
 function openMarkManager(filename: string): void {
   markFilename.value = filename;
-  markManager.value?.open();
+  // 文件名随 open() 同步传入，避免 prop 渲染时序竞态导致按旧文件名（或空）拉取全量标记
+  markManager.value?.open(filename);
 }
 
 /** 清理未引用文件：全局范围（不受当前 Tab 影响），删除联动清标记；BGM 素材永不清理 */
