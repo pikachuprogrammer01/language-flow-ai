@@ -2174,7 +2174,7 @@
             "description": "文件不存在"
           },
           "501": {
-            "description": "未配置 HOST_UPLOADS_DIR"
+            "description": "非 macOS 且未配置 HOST_UPLOADS_DIR"
           }
         }
       }

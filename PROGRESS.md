@@ -22,6 +22,7 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 ## 二、当前在做
 
 → 部署收尾：Docker 容器化已完成（docs/12 §六 已验证），生产部署（域名 + 反向代理）待用户决策
+→ ✅ 2026-08-29 修复：成片渲染左右留白 72/120 → 160px（scene_word/word_card/quiz），避开短视频平台右侧互动栏，正文居中更宽松
 → ✅ 2026-08-29 决策：去除 GitHub Actions CI（删除 `.github/workflows/ci.yml`）；质量门禁改由 lefthook 本地 hooks + 手动 `pnpm typecheck/lint/test`；已同步 README / SPEC §2.2 / docs/12
 → ✅ 2026-08-18 新增：生成记录「📂 打开」按钮 — 在 Finder 中定位视频（POST /api/files/reveal 写标记 → 宿主机 launchd 脚本 open -R；uploads 挂载宿主机 ~/language-flow-uploads）
 → ✅ 2026-08-19 新增：视频上传标记机制（upload_marks 表 + /api/upload-marks CRUD + 共享弹窗组件）— 嵌入生成记录/详情/文件管理/视频资产/审计管理；视频资产移除重命名（语义误导）改标记入口 + 全部/已上传/未上传过滤；文件管理新增「清理未引用」；删文件联动清标记

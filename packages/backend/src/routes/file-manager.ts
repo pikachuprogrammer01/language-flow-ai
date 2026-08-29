@@ -1,9 +1,11 @@
+import { execFile } from "node:child_process";
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 /**
  * 上传文件管理路由
  * GET    /api/files            — uploads 下音频/视频文件列表（含是否被生成记录引用）
  * DELETE /api/files/:filename  — 删除文件（按扩展名判断目录，防路径穿越）
+ * POST   /api/files/reveal     — 在 Finder 中定位视频（本地 darwin 直调 open；容器写 .open-requests）
  * 契约：PRD §10.1.5 视频 CRUD 的文件层（记录删除不自动删文件，由本接口管理）
  */
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -263,10 +265,17 @@ const revealRoute = createRoute({
     },
     400: { description: "非法 URL" },
     404: { description: "文件不存在" },
-    501: { description: "未配置 HOST_UPLOADS_DIR" },
+    501: { description: "非 macOS 且未配置 HOST_UPLOADS_DIR" },
   },
   tags: ["files"],
 });
+
+/** 在 Finder 中显示文件（仅 darwin；promise 化便于 await / 单测 mock） */
+function openInFinder(absPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile("open", ["-R", absPath], (err) => (err ? reject(err) : resolve()));
+  });
+}
 
 fileManager.openapi(revealRoute, async (c) => {
   const { url } = c.req.valid("json");
@@ -279,20 +288,32 @@ fileManager.openapi(revealRoute, async (c) => {
   if (!filename || filename.includes("..") || basename(filename) !== filename) {
     return c.json({ error: "非法文件名" }, 400);
   }
+  const localPath = join(UPLOADS_DIR, "video", filename);
   try {
-    await stat(join(UPLOADS_DIR, "video", filename));
+    await stat(localPath);
   } catch {
     return c.json({ error: "文件不存在" }, 404);
   }
-  const hostUploadsDir = process.env.HOST_UPLOADS_DIR;
-  if (!hostUploadsDir) {
-    return c.json({ error: "未配置 HOST_UPLOADS_DIR，无法定位宿主机路径" }, 501);
+  const hostUploadsDir = process.env.HOST_UPLOADS_DIR?.trim();
+  // 容器部署：写 .open-requests，由宿主机 launchd 脚本 open -R
+  if (hostUploadsDir) {
+    const reqDir = join(UPLOADS_DIR, ".open-requests");
+    await mkdir(reqDir, { recursive: true });
+    await writeFile(
+      join(reqDir, `${Date.now()}-${filename}.req`),
+      join(hostUploadsDir, "video", filename),
+    );
+    return c.json({ ok: true });
   }
-  const reqDir = join(UPLOADS_DIR, ".open-requests");
-  await mkdir(reqDir, { recursive: true });
-  await writeFile(
-    join(reqDir, `${Date.now()}-${filename}.req`),
-    join(hostUploadsDir, "video", filename),
-  );
-  return c.json({ ok: true });
+  // 本地 pnpm dev（macOS）：后端在宿主机，直接 open -R，无需 HOST_UPLOADS_DIR
+  if (process.platform === "darwin") {
+    try {
+      await openInFinder(localPath);
+      return c.json({ ok: true });
+    } catch (err) {
+      logger.error({ err, localPath }, "open -R 失败");
+      return c.json({ error: "打开 Finder 失败" }, 500);
+    }
+  }
+  return c.json({ error: "未配置 HOST_UPLOADS_DIR，无法定位宿主机路径" }, 501);
 });

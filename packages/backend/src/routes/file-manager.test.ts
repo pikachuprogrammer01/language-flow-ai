@@ -10,6 +10,16 @@ import { fileManager } from "./file-manager";
 
 vi.mock("../db", () => ({ db: {} }));
 
+const { execFileMock } = vi.hoisted(() => ({
+  execFileMock: vi.fn(((_cmd: string, _args: string[], cb?: (err: Error | null) => void) => {
+    cb?.(null);
+  }) as (cmd: string, args: string[], cb?: (err: Error | null) => void) => void),
+}));
+
+vi.mock("node:child_process", () => ({
+  execFile: execFileMock,
+}));
+
 const app = fileManager;
 
 /** 记录 db.delete 的 where 调用次数（断言上传标记联动清理是否触发） */
@@ -204,6 +214,7 @@ describe("POST /api/files/reveal", () => {
   beforeEach(async () => {
     await writeFile(tmpVideo, "x");
     vi.stubEnv("HOST_UPLOADS_DIR", "/Users/tester/language-flow-uploads");
+    execFileMock.mockClear();
   });
 
   afterEach(async () => {
@@ -226,6 +237,7 @@ describe("POST /api/files/reveal", () => {
     expect(entries[0]).toContain("__reveal_tmp.mp4");
     const content = await readFile(join(tmpReq, entries[0]), "utf8");
     expect(content).toBe("/Users/tester/language-flow-uploads/video/__reveal_tmp.mp4");
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   it("非视频 URL 返回 400", async () => {
@@ -255,13 +267,42 @@ describe("POST /api/files/reveal", () => {
     expect(res.status).toBe(400);
   });
 
-  it("未配置 HOST_UPLOADS_DIR 返回 501", async () => {
+  it("未配置 HOST_UPLOADS_DIR 时 darwin 直接 open -R", async () => {
     vi.stubEnv("HOST_UPLOADS_DIR", "");
-    const res = await app.request("/reveal", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: "/files/video/__reveal_tmp.mp4" }),
-    });
-    expect(res.status).toBe(501);
+    const original = process.platform;
+    Object.defineProperty(process, "platform", { configurable: true, value: "darwin" });
+    try {
+      const res = await app.request("/reveal", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: "/files/video/__reveal_tmp.mp4" }),
+      });
+      expect(res.status).toBe(200);
+      expect(execFileMock).toHaveBeenCalledOnce();
+      expect(execFileMock.mock.calls[0][0]).toBe("open");
+      expect(execFileMock.mock.calls[0][1]).toEqual([
+        "-R",
+        expect.stringContaining("__reveal_tmp.mp4"),
+      ]);
+    } finally {
+      Object.defineProperty(process, "platform", { configurable: true, value: original });
+    }
+  });
+
+  it("未配置 HOST_UPLOADS_DIR 且非 darwin 返回 501", async () => {
+    vi.stubEnv("HOST_UPLOADS_DIR", "");
+    const original = process.platform;
+    Object.defineProperty(process, "platform", { configurable: true, value: "linux" });
+    try {
+      const res = await app.request("/reveal", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: "/files/video/__reveal_tmp.mp4" }),
+      });
+      expect(res.status).toBe(501);
+      expect(execFileMock).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, "platform", { configurable: true, value: original });
+    }
   });
 });
