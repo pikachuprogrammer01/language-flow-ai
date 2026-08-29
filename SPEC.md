@@ -81,7 +81,6 @@
 | 测试框架 | Vitest 3 | backend 用 node 环境，frontend 用 jsdom |
 | 日志 | pino + pino-pretty | 结构化日志，开发环境彩色输出 |
 | 限流 | hono-rate-limiter | 按 IP 限流，无需 Redis |
-| CI/CD | GitHub Actions | push/PR 自动 typecheck + test + lint |
 
 ### 2.3 API 接口管理方案
 

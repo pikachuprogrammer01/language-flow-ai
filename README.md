@@ -55,7 +55,6 @@
 | 测试框架 | Vitest 3（backend=node / frontend=jsdom） |
 | 日志 | pino + pino-pretty |
 | 限流 | hono-rate-limiter（按 IP） |
-| CI/CD | GitHub Actions（typecheck + test + lint） |
 
 ## 项目结构
 
@@ -64,8 +63,6 @@ language-flow-ai/
 ├── tsconfig.base.json            # 根 TypeScript 配置基准
 ├── .gitignore
 ├── .env.example                  # 环境变量模板
-├── .github/workflows/
-│   └── ci.yml                    # CI 流程
 │
 ├── packages/
 │   ├── shared/                   ← 前后端共享

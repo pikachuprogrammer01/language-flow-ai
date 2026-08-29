@@ -20,6 +20,8 @@ dist/
 *.swo
 .reasonix
 reasonix.toml
+.trae
+.cursor
 
 # OS
 .DS_Store

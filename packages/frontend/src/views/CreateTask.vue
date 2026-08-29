@@ -35,14 +35,40 @@ type Step =
   | "error";
 
 const topic = ref("森林探险");
-/** 预设主题库（PRD §10.1.2 主题选择） */
-const PRESET_TOPICS = [
-  "森林探险",
-  "科技创业",
-  "美食探店",
-  "校园生活",
-  "旅行见闻",
-  "职场故事",
+/** 预设主题库（PRD §10.1.2：分组展示，覆盖学习/职场/旅行/情感等场景） */
+const TOPIC_GROUPS = [
+  {
+    label: "校园与成长",
+    topics: ["校园生活", "图书馆备考", "社团招新", "毕业季离别", "宿舍夜谈", "选修课翻车"],
+  },
+  {
+    label: "职场与创业",
+    topics: ["职场故事", "科技创业", "面试求职", "远程办公日常", "创业融资路演", "加班夜归"],
+  },
+  {
+    label: "美食与日常",
+    topics: ["美食探店", "深夜便利店", "咖啡店偶遇", "家庭聚餐", "周末市集", "厨房初体验"],
+  },
+  {
+    label: "旅行与户外",
+    topics: ["旅行见闻", "森林探险", "海边度假", "城市夜跑", "博物馆一日游", "山间露营"],
+  },
+  {
+    label: "生活切片",
+    topics: ["地铁通勤", "健身房打卡", "宠物日常", "网购开箱", "医院就诊", "搬家折腾"],
+  },
+  {
+    label: "情感与关系",
+    topics: ["久别重逢", "邻里互助", "老友叙旧", "异地思念", "第一次约会"],
+  },
+  {
+    label: "兴趣与文化",
+    topics: ["音乐节现场", "书店半日闲", "摄影街拍", "话剧散场后", "夜市逛吃"],
+  },
+  {
+    label: "社会与时事感",
+    topics: ["环保行动日", "社区志愿", "旧物改造", "数字断舍离", "清晨菜市场"],
+  },
 ] as const;
 /** AI 推荐的主题候选（本地模型生成） */
 const suggestedTopics = ref<{ title: string; description: string }[]>([]);
@@ -516,31 +542,11 @@ async function run(): Promise<void> {
             </button>
           </div>
         </div>
-        <label class="mb-1 block text-sm font-medium text-gray-700" for="topic">故事主题</label>
-        <!-- 预设主题库（点击即选） -->
-        <div class="mb-2 flex flex-wrap gap-2">
-          <button
-            v-for="p in PRESET_TOPICS"
-            :key="p"
-            type="button"
-            class="rounded-full border px-3 py-1 text-xs"
-            :class="topic === p ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
-            @click="pickTopic(p)"
-          >
-            {{ p }}
-          </button>
-        </div>
-        <div class="flex gap-2">
-          <input
-            id="topic"
-            v-model="topic"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-            placeholder="如：森林探险、美食探店，或点下方 AI 推荐"
-            maxlength="50"
-          />
+        <div class="mb-1 flex items-center justify-between gap-2">
+          <label class="block text-sm font-medium text-gray-700" for="topic">故事主题</label>
           <button
             type="button"
-            class="shrink-0 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+            class="shrink-0 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
             :disabled="suggesting"
             @click="suggest"
           >
@@ -550,8 +556,36 @@ async function run(): Promise<void> {
             <span v-else>✨ AI 推荐</span>
           </button>
         </div>
+        <!-- 分组预设主题库（点击即选） -->
+        <div class="mb-3 space-y-2.5 rounded-lg border border-gray-100 bg-gray-50/80 p-3">
+          <div v-for="g in TOPIC_GROUPS" :key="g.label">
+            <p class="mb-1.5 text-[11px] font-medium tracking-wide text-gray-400">{{ g.label }}</p>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="p in g.topics"
+                :key="p"
+                type="button"
+                class="rounded-full border px-2.5 py-1 text-xs"
+                :class="topic === p ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'"
+                @click="pickTopic(p)"
+              >
+                {{ p }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <input
+            id="topic"
+            v-model="topic"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+            placeholder="点选上方主题，或自定义输入，也可点 AI 推荐"
+            maxlength="50"
+          />
+        </div>
         <!-- AI 推荐候选（本地模型生成，点击选用） -->
         <div v-if="suggestedTopics.length > 0" class="mt-2 space-y-1">
+          <p class="text-xs text-gray-500">AI 推荐候选（点击选用）</p>
           <button
             v-for="t in suggestedTopics"
             :key="t.title"
@@ -727,9 +761,15 @@ async function run(): Promise<void> {
       </div>
     </div>
 
-    <!-- 视频播放 -->
-    <div v-if="step === 'done' && videoUrl" class="rounded-xl bg-white p-6 shadow-sm">
-      <video :src="videoUrl" controls class="mx-auto max-h-[70vh] rounded-lg" />
+    <!-- 视频播放（手机端收窄居中，两侧留白避免贴边） -->
+    <div v-if="step === 'done' && videoUrl" class="rounded-xl bg-white px-8 py-6 shadow-sm sm:px-12">
+      <div class="flex justify-center">
+        <video
+          :src="videoUrl"
+          controls
+          class="max-h-[70vh] w-full max-w-[240px] rounded-xl bg-black sm:max-w-[280px]"
+        />
+      </div>
       <p class="mt-3 break-all text-center text-xs text-gray-500">{{ videoUrl }}</p>
     </div>
   </div>

@@ -16,7 +16,7 @@ function isActive(path: string): boolean {
   <div class="min-h-screen bg-gray-50 text-gray-900">
     <Toaster position="top-center" rich-colors />
     <nav class="border-b bg-white">
-      <div class="mx-auto flex max-w-5xl items-center gap-2 px-6 py-3">
+      <div class="mx-auto flex max-w-5xl flex-wrap items-center gap-2 px-6 py-3">
         <span class="mr-2 text-lg font-bold">Language Flow AI</span>
         <Button as-child :variant="isActive('/') ? 'secondary' : 'ghost'" size="sm">
           <RouterLink to="/">新建视频</RouterLink>
@@ -29,6 +29,9 @@ function isActive(path: string): boolean {
         </Button>
         <Button as-child :variant="isActive('/videos') ? 'secondary' : 'ghost'" size="sm">
           <RouterLink to="/videos">视频资产</RouterLink>
+        </Button>
+        <Button as-child :variant="isActive('/marks') ? 'secondary' : 'ghost'" size="sm">
+          <RouterLink to="/marks">上传标记</RouterLink>
         </Button>
         <Button as-child :variant="isActive('/audit') ? 'secondary' : 'ghost'" size="sm">
           <RouterLink to="/audit">审计管理</RouterLink>

@@ -2389,6 +2389,141 @@
         }
       }
     },
+    "/api/upload-marks/overview": {
+      "get": {
+        "tags": [
+          "upload-marks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "required": false,
+            "name": "platform",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "required": false,
+            "name": "keyword",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "上传标记一览（含关联视频信息）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "marks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "taskId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "videoFilename": {
+                            "type": "string"
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "note": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string"
+                          },
+                          "video": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "title": {
+                                "type": "string"
+                              },
+                              "template": {
+                                "type": "string",
+                                "enum": [
+                                  "scene_word",
+                                  "word_card",
+                                  "quiz"
+                                ]
+                              },
+                              "level": {
+                                "type": "string",
+                                "enum": [
+                                  "CET4",
+                                  "CET6"
+                                ]
+                              },
+                              "wordsCount": {
+                                "type": "number"
+                              },
+                              "duration": {
+                                "type": "number",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "title",
+                              "template",
+                              "level",
+                              "wordsCount",
+                              "duration"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "taskId",
+                          "videoFilename",
+                          "platform",
+                          "url",
+                          "note",
+                          "createdAt",
+                          "updatedAt",
+                          "video"
+                        ]
+                      }
+                    },
+                    "platforms": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "marks",
+                    "platforms"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/upload-marks/{id}": {
       "patch": {
         "tags": [

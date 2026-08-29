@@ -1,7 +1,7 @@
 # 项目进度
 
-> 最后更新：2026-08-23
-> 当前阶段：用户反馈 5 问题修复（批次 A/B/C 已实施，待真机验证生成质量）；下一项：生产部署（域名/反代/CI 构建产物）
+> 最后更新：2026-08-29
+> 当前阶段：用户反馈 UX 优化（视频留白 / 主题扩充 / 标记一览页）；下一项：生产部署（域名/反代）
 
 ---
 
@@ -9,24 +9,27 @@
 
 ```
 设计阶段      [████████████] 100%  14 份设计文档 + PRD + SPEC + README
-工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / CI / pino
+工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / pino（无 CI）
 shared 包     [████████████] 100%  enums + ContentDTO + Request/Response DTO + 类型守卫
 后端 API      [████████████] 100%  三模板生成（scene_word/word_card/quiz）+ 审计档案 + TTS（混合音色+语速）/ 渲染（quiz 音画对齐+提示音）/ 任务 CRUD+搜索+批量 / 文件管理 / 词库 5999
 前端          [███████████░]  96%  生成页（三模板+主题选择+音色试听+语速/BGM）/ 记录列表（模板分类+全选+批量删除）/ 详情（生成档案+三模板编辑）/ 文件管理 / 视频资产 / 审计管理
 测试          [██████████░░]  92%  Vitest 110 用例（cet/tts/video/content/tasks/files/topics/quiz renderer）
-部署          [█████████░░░]  90%  Docker 容器化完成（mysql+backend+frontend，一条 compose 命令）；生产部署（域名/反代/CI）待做
+部署          [█████████░░░]  90%  Docker 容器化完成（mysql+backend+frontend，一条 compose 命令）；生产部署（域名/反代）待做
 ```
 
 ---
 
 ## 二、当前在做
 
-→ 部署收尾：Docker 容器化已完成（docs/12 §六 已验证），生产部署（域名 + 反向代理 + CI 构建产物上传）待用户决策
+→ 部署收尾：Docker 容器化已完成（docs/12 §六 已验证），生产部署（域名 + 反向代理）待用户决策
+→ ✅ 2026-08-29 决策：去除 GitHub Actions CI（删除 `.github/workflows/ci.yml`）；质量门禁改由 lefthook 本地 hooks + 手动 `pnpm typecheck/lint/test`；已同步 README / SPEC §2.2 / docs/12
 → ✅ 2026-08-18 新增：生成记录「📂 打开」按钮 — 在 Finder 中定位视频（POST /api/files/reveal 写标记 → 宿主机 launchd 脚本 open -R；uploads 挂载宿主机 ~/language-flow-uploads）
 → ✅ 2026-08-19 新增：视频上传标记机制（upload_marks 表 + /api/upload-marks CRUD + 共享弹窗组件）— 嵌入生成记录/详情/文件管理/视频资产/审计管理；视频资产移除重命名（语义误导）改标记入口 + 全部/已上传/未上传过滤；文件管理新增「清理未引用」；删文件联动清标记
 → ✅ 2026-08-19 优化：标记备注预设（6 模板文案 + 自定义）；新建页默认音色云健/BGM free-04-piano-iix + BGM 试听按钮；代码抽离：三模板编辑器/三个列表行组件/audit-panel/word-chips/use-audio-preview/use-upload-marks（TaskList 298 / AuditList 258 / Files 317 行，CreateTask 723 / TaskDetail 661 保留核心流程）
 → ✅ 2026-08-20 优化：已上传/未上传文案统一为已标记/未标记（生成记录/视频资产/行徽章）；文件管理删除确认按类型加固（BGM/配音素材强确认，清理未引用明确仅视频）；修复审计管理表格空白（无指令 <template> 被编译为真实元素致 tr 进入 template.content）；试听状态机单例化（音色/BGM 互斥播放、按钮 UI 跟随点击，+5 单测）；容器栈加固（mysql healthcheck 走 TCP、backend entrypoint 探测超时退出）
 → ✅ 2026-08-20 一致性：上传标记按任务归属（upload_marks 加 task_id + 迁移回填 + 创建自动反查绑定），重新渲染后标记不丢失，任务/视频/审计三页面口径统一；本地 dev 限流解除（仅生产启用）；uploads 目录软链统一（本地与容器共享 ~/language-flow-uploads）；docs/12 更新开发/部署双模式说明
+→ ✅ 2026-08-29 优化：① `GET /api/upload-marks/overview` 一览 API（关联视频标题/模板/等级/词数/时长 + platform/keyword）；前端 `/marks` 改走该接口；② 故事主题扩至 8 分类约 44 个预设
+→ ✅ 2026-08-29 体验：① 视频播放器手机端收窄居中（max-w 240/280px + 两侧留白），生成页/详情/视频资产；② 故事主题分组扩充 + AI 推荐按钮；③ 新增「上传标记」一览页 `/marks`
 → ✅ 2026-08-23 修复：用户反馈 5 问题（方案见 .trae/documents/问题解决方案.md V2）—
   ① scene_word 生成重构 V4.2：删 NARRATIVE_WORDS 死列表，改混合词表（主题词+随机补足120）+ 两段式生成（LLM 选词 → 内联必用清单写故事）+ 代码全池注入；**修复隐藏根因**：词库释义词性前缀（n./vt.）致义项注入匹配失败；验收下限 5→8（SCENE_MIN_WORDS_PER_CONTENT），真机 4 主题实测成功率 4/4、词数 9~14；
   ② 上传标记弹窗打开时清空 marks/editingId/pendingDeleteId（旧文件数据闪现）；
@@ -53,7 +56,7 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 | 6b | 创建 .env.example | ✅ 完成 |
 | 6c | 创建 tsconfig.base.json + 3 个子包 tsconfig.json | ✅ 完成 |
 | 6d | 创建 3 个 vitest.config.ts + shared 补 test 脚本 | ✅ 完成 |
-| 6e | 创建 .github/workflows/ci.yml | ✅ 完成 |
+| 6e | ~~创建 .github/workflows/ci.yml~~ → 2026-08-29 已去除 CI | ✅ 已废弃 |
 | 6f | 引入 pino 日志库 + logger.ts | ✅ 完成 |
 | 6g | 健康检查端点 + CORS + Rate Limiting | ✅ 完成 |
 | 6h | Drizzle ORM schema + drizzle.config.ts | ✅ 完成 |
@@ -141,7 +144,7 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 - [x] tsconfig 配置文件（base + 3 个子包）
 - [x] .gitignore + .env.example
 - [x] Vitest 测试基础设施配置
-- [x] GitHub Actions CI 流程
+- [x] ~~GitHub Actions CI 流程~~（2026-08-29 已去除，改 lefthook 本地门禁）
 - [x] pino 日志方案集成
 - [x] 后端骨架：健康检查 + CORS + Rate Limiting
 - [x] Drizzle ORM schema 定义（contents + cet_words 表）
@@ -188,7 +191,8 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 | 2026-07-28 | 代码检查：Biome 替代 ESLint + Prettier | 一个工具替代两个，速度快 30-50x |
 | 2026-07-28 | 日志方案：pino + pino-pretty | Node.js 最快结构化日志，Hono 原生支持 |
 | 2026-07-28 | 限流方案：hono-rate-limiter | 轻量，按 IP 限流，无需 Redis |
-| 2026-07-28 | CI/CD：GitHub Actions | push/PR 自动跑 typecheck + test + lint，Node 24 |
+| 2026-07-28 | ~~CI/CD：GitHub Actions~~ | 2026-08-29 决策去除；质量检查改 lefthook + 手动命令 |
+| 2026-08-29 | 去除 GitHub Actions CI | 本仓库不跑远程 CI；文档与 README/SPEC 已同步 |
 | 2026-07-28 | 测试框架：Vitest 3 | 与 Vite 共享配置，backend=node / frontend=jsdom |
 | 2026-08-17 | 去 Dify：后端直连 LLM（/api/content/generate） | 简化架构，少一个部署依赖，env 切换模型 |
 | 2026-08-17 | 模型：纯本地 Ollama qwen2.5:7b（不用 Agnes） | 完全免费离线；质量不足可换 14b 或接免费云 API |

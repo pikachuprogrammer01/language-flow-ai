@@ -184,13 +184,14 @@ onMounted(() => {
               </button>
             </div>
           </div>
-          <!-- 行内播放器（url 为相对路径，拼 base 完整地址） -->
-          <video
-            v-if="playing.has(t.id) && videoOf(t)"
-            :src="base + videoOf(t)!.url"
-            controls
-            class="mt-3 w-full max-w-md rounded-lg bg-black"
-          />
+          <!-- 行内播放器：手机端收窄居中，两侧留白 -->
+          <div v-if="playing.has(t.id) && videoOf(t)" class="mt-3 flex justify-center px-6 sm:px-10">
+            <video
+              :src="base + videoOf(t)!.url"
+              controls
+              class="max-h-[70vh] w-full max-w-[240px] rounded-xl bg-black sm:max-w-[280px]"
+            />
+          </div>
         </div>
       </div>
     </template>

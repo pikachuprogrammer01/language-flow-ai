@@ -1,12 +1,12 @@
 /**
  * GET/POST/PATCH/DELETE /api/upload-marks 测试
- * 覆盖：列表 / 新增（成功/文件不存在/非法文件名）/ 更新（成功/404）/ 删除（成功/404）
+ * 覆盖：列表 / 一览组装 / 新增 / 更新 / 删除
  */
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
-import { uploadMarksRoute } from "./upload-marks";
+import { buildUploadMarksOverview, uploadMarksRoute } from "./upload-marks";
 
 vi.mock("../db", () => ({ db: {} }));
 
@@ -45,6 +45,72 @@ afterEach(async () => {
   await rm(tmpVideo, { force: true });
 });
 
+describe("buildUploadMarksOverview", () => {
+  const mark = {
+    id: "m1",
+    taskId: "t1",
+    videoFilename: "a.mp4",
+    platform: "抖音",
+    url: "https://v.douyin.com/x",
+    note: "情景英语四级词汇-第1集",
+    createdAt: new Date("2026-08-20T10:00:00Z"),
+    updatedAt: new Date("2026-08-20T10:00:00Z"),
+  };
+  const task = {
+    id: "t1",
+    title: "森林探险",
+    template: "scene_word" as const,
+    level: "CET4" as const,
+    words: ["a", "b", "c"],
+    video: { url: "/files/video/a.mp4", duration: 12.5 },
+  };
+
+  it("按 taskId 关联视频信息", () => {
+    const rows = buildUploadMarksOverview([mark], [task]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].video).toEqual({
+      title: "森林探险",
+      template: "scene_word",
+      level: "CET4",
+      wordsCount: 3,
+      duration: 12.5,
+    });
+  });
+
+  it("taskId 缺失时按文件名回退", () => {
+    const orphan = { ...mark, taskId: null };
+    const rows = buildUploadMarksOverview([orphan], [task]);
+    expect(rows[0].video?.title).toBe("森林探险");
+  });
+
+  it("无匹配任务时 video 为 null", () => {
+    const rows = buildUploadMarksOverview(
+      [{ ...mark, taskId: null, videoFilename: "gone.mp4" }],
+      [],
+    );
+    expect(rows[0].video).toBeNull();
+  });
+
+  it("platform 过滤", () => {
+    const rows = buildUploadMarksOverview(
+      [mark, { ...mark, id: "m2", platform: "小红书" }],
+      [task],
+      { platform: "小红书" },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].platform).toBe("小红书");
+  });
+
+  it("keyword 过滤标题与备注", () => {
+    const byTitle = buildUploadMarksOverview([mark], [task], { keyword: "森林" });
+    expect(byTitle).toHaveLength(1);
+    const byNote = buildUploadMarksOverview([mark], [task], { keyword: "第1集" });
+    expect(byNote).toHaveLength(1);
+    const miss = buildUploadMarksOverview([mark], [task], { keyword: "不存在" });
+    expect(miss).toHaveLength(0);
+  });
+});
+
 describe("GET /api/upload-marks", () => {
   it("返回标记列表", async () => {
     const mocked = fakeDb();
@@ -69,11 +135,38 @@ describe("GET /api/upload-marks", () => {
   });
 });
 
+describe("GET /api/upload-marks/overview", () => {
+  it("返回一览列表与平台枚举", async () => {
+    const mocked = fakeDb();
+    vi.mocked(db).select = mocked.select as never;
+    mocked.__state.rows = [
+      {
+        id: "m1",
+        taskId: null,
+        videoFilename: "__mark_tmp.mp4",
+        platform: "抖音",
+        url: "https://v.douyin.com/x",
+        note: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    const res = await app.request("/overview");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      marks: { id: string; platform: string; video: unknown }[];
+      platforms: string[];
+    };
+    expect(body.marks).toHaveLength(1);
+    expect(body.marks[0].platform).toBe("抖音");
+    expect(body.platforms).toEqual(["抖音"]);
+  });
+});
+
 describe("POST /api/upload-marks", () => {
   it("新增标记成功（视频文件存在，自动反查绑定任务）", async () => {
     const mocked = fakeDb();
     vi.mocked(db).insert = mocked.insert as never;
-    // 反查任务：contents 行含匹配该视频文件名的 video.url
     vi.mocked(db).select = mocked.select as never;
     mocked.__state.rows = [
       {
@@ -107,7 +200,7 @@ describe("POST /api/upload-marks", () => {
     const mocked = fakeDb();
     vi.mocked(db).insert = mocked.insert as never;
     vi.mocked(db).select = mocked.select as never;
-    mocked.__state.rows = []; // contents 无匹配
+    mocked.__state.rows = [];
     const res = await app.request("/", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -122,7 +215,7 @@ describe("POST /api/upload-marks", () => {
     const mocked = fakeDb();
     vi.mocked(db).insert = mocked.insert as never;
     vi.mocked(db).select = mocked.select as never;
-    mocked.__state.rows = []; // 任务不存在
+    mocked.__state.rows = [];
     const res = await app.request("/", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -139,7 +232,7 @@ describe("POST /api/upload-marks", () => {
     const mocked = fakeDb();
     vi.mocked(db).insert = mocked.insert as never;
     vi.mocked(db).select = mocked.select as never;
-    mocked.__state.rows = [{ id: "cnt_ok" }]; // 任务存在
+    mocked.__state.rows = [{ id: "cnt_ok" }];
     const res = await app.request("/", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -185,7 +278,7 @@ describe("POST /api/upload-marks", () => {
 describe("PATCH /api/upload-marks/:id", () => {
   it("更新成功（幂等：值未变化也返回 success，不依赖 affectedRows）", async () => {
     const mocked = fakeDb();
-    mocked.__state.rows = [{ id: "m1" }]; // 标记存在
+    mocked.__state.rows = [{ id: "m1" }];
     vi.mocked(db).select = mocked.select as never;
     vi.mocked(db).update = mocked.update as never;
     const res = await app.request("/m1", {
@@ -200,7 +293,7 @@ describe("PATCH /api/upload-marks/:id", () => {
 
   it("标记不存在返回 404（select 判据）", async () => {
     const mocked = fakeDb();
-    mocked.__state.rows = []; // 标记不存在
+    mocked.__state.rows = [];
     vi.mocked(db).select = mocked.select as never;
     const res = await app.request("/m1", {
       method: "PATCH",

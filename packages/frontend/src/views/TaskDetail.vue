@@ -520,9 +520,15 @@ listFiles({ type: "bgm" })
         <span v-if="task.updatedAt">更新：{{ new Date(String(task.updatedAt)).toLocaleString("zh-CN") }}</span>
       </div>
 
-      <!-- 视频播放 -->
-      <div v-if="video" class="mt-6">
-        <video :src="base + video.url" controls class="mx-auto max-h-[70vh] rounded-xl border" />
+      <!-- 视频播放（手机端收窄居中，两侧留白避免贴边） -->
+      <div v-if="video" class="mt-6 rounded-xl bg-white px-8 py-4 sm:px-12">
+        <div class="flex justify-center">
+          <video
+            :src="base + video.url"
+            controls
+            class="max-h-[70vh] w-full max-w-[240px] rounded-xl border bg-black sm:max-w-[280px]"
+          />
+        </div>
         <p class="mt-2 text-center text-xs text-gray-500">
           时长 {{ video.duration.toFixed(1) }}s
         </p>

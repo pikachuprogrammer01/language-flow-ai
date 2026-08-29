@@ -1,14 +1,15 @@
 // 视频上传标记路由
-// GET    /api/upload-marks        — 标记列表（可选按 videoFilename 过滤）
-// POST   /api/upload-marks        — 新增标记（videoFilename + platform 必填，url/note 可选）
-// PATCH  /api/upload-marks/:id    — 修改标记
-// DELETE /api/upload-marks/:id    — 删除标记
+// GET    /api/upload-marks           — 标记列表（可选按 videoFilename 过滤）
+// GET    /api/upload-marks/overview  — 一览页（标记 + 关联视频信息，支持 platform/keyword）
+// POST   /api/upload-marks           — 新增标记（videoFilename + platform 必填，url/note 可选）
+// PATCH  /api/upload-marks/:id       — 修改标记
+// DELETE /api/upload-marks/:id       — 删除标记
 // 语义：表示视频已上传到外部平台；一个视频可多条标记（多个平台）
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { contents, uploadMarks } from "../db/schema";
 import { resolveTaskIdByVideoFilename } from "../db/upload-marks-helper";
@@ -30,9 +31,123 @@ const patchSchema = z.object({
   note: z.string().max(500).nullable().optional(),
 });
 
+/** 一览页关联视频信息（来自 contents） */
+const overviewVideoSchema = z.object({
+  title: z.string(),
+  template: z.enum(["scene_word", "word_card", "quiz"]),
+  level: z.enum(["CET4", "CET6"]),
+  wordsCount: z.number(),
+  duration: z.number().nullable(),
+});
+
+const overviewMarkSchema = z.object({
+  id: z.string(),
+  taskId: z.string().nullable(),
+  videoFilename: z.string(),
+  platform: z.string(),
+  url: z.string().nullable(),
+  note: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  video: overviewVideoSchema.nullable(),
+});
+
 /** 校验文件名：只允许 video 目录下的常规文件名（防路径穿越） */
 function isValidVideoFilename(filename: string): boolean {
   return !filename.includes("..") && basename(filename) === filename;
+}
+
+/** 从 contents.video JSON 提取文件名 */
+function videoFilenameFromTask(video: unknown): string | null {
+  if (video && typeof video === "object" && "url" in video && typeof video.url === "string") {
+    return video.url.split("/").pop() ?? null;
+  }
+  return null;
+}
+
+/** 从 contents.video JSON 提取时长 */
+function videoDurationFromTask(video: unknown): number | null {
+  if (video && typeof video === "object" && "duration" in video) {
+    const d = Number((video as { duration?: unknown }).duration);
+    return Number.isFinite(d) ? d : null;
+  }
+  return null;
+}
+
+type MarkRow = {
+  id: string;
+  taskId: string | null;
+  videoFilename: string;
+  platform: string;
+  url: string | null;
+  note: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type TaskRow = {
+  id: string;
+  title: string;
+  template: "scene_word" | "word_card" | "quiz";
+  level: "CET4" | "CET6";
+  words: unknown;
+  video: unknown;
+};
+
+export type OverviewMark = z.infer<typeof overviewMarkSchema>;
+
+/** 组装一览行：taskId 优先，其次按 videoFilename 回退；支持 platform/keyword 过滤 */
+export function buildUploadMarksOverview(
+  markRows: MarkRow[],
+  taskRows: TaskRow[],
+  filters: { platform?: string; keyword?: string } = {},
+): OverviewMark[] {
+  const byId = new Map(taskRows.map((t) => [t.id, t]));
+  const byFilename = new Map<string, TaskRow>();
+  for (const t of taskRows) {
+    const name = videoFilenameFromTask(t.video);
+    if (name) byFilename.set(name, t);
+  }
+  const kw = filters.keyword?.trim().toLowerCase() ?? "";
+  const out: OverviewMark[] = [];
+  for (const m of markRows) {
+    if (filters.platform && m.platform !== filters.platform) continue;
+    const task = (m.taskId ? byId.get(m.taskId) : undefined) ?? byFilename.get(m.videoFilename);
+    const video = task
+      ? {
+          title: task.title,
+          template: task.template,
+          level: task.level,
+          wordsCount: Array.isArray(task.words) ? task.words.length : 0,
+          duration: videoDurationFromTask(task.video),
+        }
+      : null;
+    if (kw) {
+      const hay = [
+        m.platform,
+        m.url ?? "",
+        m.note ?? "",
+        m.videoFilename,
+        video?.title ?? "",
+        video?.level ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!hay.includes(kw)) continue;
+    }
+    out.push({
+      id: m.id,
+      taskId: m.taskId,
+      videoFilename: m.videoFilename,
+      platform: m.platform,
+      url: m.url,
+      note: m.note,
+      createdAt: m.createdAt.toISOString(),
+      updatedAt: m.updatedAt.toISOString(),
+      video,
+    });
+  }
+  return out;
 }
 
 export const uploadMarksRoute = new OpenAPIHono();
@@ -93,6 +208,50 @@ uploadMarksRoute.openapi(listRoute, async (c) => {
     },
     200,
   );
+});
+
+const overviewRoute = createRoute({
+  method: "get",
+  path: "/overview",
+  request: {
+    query: z.object({
+      platform: z.string().max(50).optional(),
+      keyword: z.string().max(100).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "上传标记一览（含关联视频信息）",
+      content: {
+        "application/json": {
+          schema: z.object({
+            marks: z.array(overviewMarkSchema),
+            platforms: z.array(z.string()),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["upload-marks"],
+});
+
+uploadMarksRoute.openapi(overviewRoute, async (c) => {
+  const { platform, keyword } = c.req.valid("query");
+  const markRows = await db.select().from(uploadMarks).orderBy(desc(uploadMarks.createdAt));
+  const taskRows = await db
+    .select({
+      id: contents.id,
+      title: contents.title,
+      template: contents.template,
+      level: contents.level,
+      words: contents.words,
+      video: contents.video,
+    })
+    .from(contents)
+    .where(sql`${contents.video} is not null`);
+  const marks = buildUploadMarksOverview(markRows, taskRows, { platform, keyword });
+  const platforms = [...new Set(markRows.map((m) => m.platform))].sort();
+  return c.json({ marks, platforms }, 200);
 });
 
 const createRouteDef = createRoute({

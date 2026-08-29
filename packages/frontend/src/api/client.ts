@@ -247,6 +247,17 @@ export interface UploadMark {
   updatedAt: string;
 }
 
+/** 一览页标记（含后端关联的视频摘要） */
+export interface UploadMarkOverview extends UploadMark {
+  video: {
+    title: string;
+    template: "scene_word" | "word_card" | "quiz";
+    level: "CET4" | "CET6";
+    wordsCount: number;
+    duration: number | null;
+  } | null;
+}
+
 /** 上传标记列表（可选按视频文件名过滤） */
 export async function listUploadMarks(videoFilename?: string) {
   const { data, error, response } = await client.GET("/api/upload-marks", {
@@ -255,6 +266,18 @@ export async function listUploadMarks(videoFilename?: string) {
   if (error || !response.ok) throw new Error(`查询上传标记失败：${apiError(error, response)}`);
   if (!data) throw new Error("查询上传标记失败：空响应");
   return data.marks as UploadMark[];
+}
+
+/** 上传标记一览（关联视频信息；支持 platform / keyword） */
+export async function listUploadMarksOverview(
+  params: { platform?: string; keyword?: string } = {},
+) {
+  const { data, error, response } = await client.GET("/api/upload-marks/overview", {
+    params: { query: params },
+  });
+  if (error || !response.ok) throw new Error(`查询上传标记一览失败：${apiError(error, response)}`);
+  if (!data) throw new Error("查询上传标记一览失败：空响应");
+  return data as { marks: UploadMarkOverview[]; platforms: string[] };
 }
 
 /** 新增上传标记（videoFilename + platform 必填，url/note/taskId 可选） */
