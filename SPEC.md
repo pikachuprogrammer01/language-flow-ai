@@ -70,17 +70,17 @@
 | UI 组件库 | shadcn-vue | Vue 版 shadcn/ui，Radix Vue 底座，源码归己 |
 | 前端样式 | Tailwind CSS 4 | 原子化 CSS，与 shadcn-vue 原生配合 |
 | 前端路由 | Vue Router 4 | CSR 多页面路由：新建视频 / 生成记录 / 文件管理 / 视频资产 / 审计管理 |
-| 前端请求 | TanStack Vue Query | API 请求缓存/loading/error 状态管理 |
+| 前端请求 | openapi-fetch | 从 OpenAPI 生成类型安全客户端（Vue Query 已装未全面使用） |
 | 前端构建 | Vite 6 | 原生 TS 支持，HMR 秒级 |
 | API 文档 | @hono/zod-openapi + Scalar | 从 Hono 路由 + Zod schema 自动生成 OpenAPI 3.1 规范 |
 | API 客户端 | openapi-typescript + openapi-fetch | 从 OpenAPI spec 自动生成类型安全的前端请求客户端 |
 | 共享类型 | pnpm workspace shared 包 | ContentDTO 类型一次定义，前后端复用 |
 | AI 模型 | Ollama qwen2.5:7b（本地） | 纯本地推理（用户决策 2026-08-17）；三模板生成均走 LLM，词汇准确性由词库决定 |
-| 视频渲染 | HTML + Playwright + FFmpeg | 模板渲染 → 截图 → 合成 |
-| 文件存储 | S3 兼容对象存储 / CDN | 存储音频和视频文件 |
+| 视频渲染 | HTML + Playwright + FFmpeg | 模板渲染 → 截图 → 合成；可选 BGM 混音 |
+| 文件存储 | 本地 uploads/（开发与默认部署） | `uploads/{audio,video,bgm}`；生产可换 S3 兼容存储（非当前默认） |
 | 测试框架 | Vitest 3 | backend 用 node 环境，frontend 用 jsdom |
 | 日志 | pino + pino-pretty | 结构化日志，开发环境彩色输出 |
-| 限流 | hono-rate-limiter | 按 IP 限流，无需 Redis |
+| 限流 | hono-rate-limiter | 仅生产按 IP 限流，无需 Redis |
 
 ### 2.3 API 接口管理方案
 
@@ -519,9 +519,9 @@ POST /api/video/render
 ```
 1. 根据 ContentDTO.template 选择对应的 HTML 模板
 2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板（背景当前为纯白 CSS，不做图片注入）
-3. Playwright/Puppeteer 打开 HTML，按 segments/items 逐帧截图
-4. FFmpeg 将图片帧 + ContentDTO.audio 合成 MP4（MVP 静音合成，bgm 后续扩展）
-5. 上传到 CDN，返回 URL
+3. Playwright 打开 HTML，按 segments/items 逐帧截图（1080×1920）
+4. FFmpeg 将图片帧 + ContentDTO.audio 合成 MP4；若 `style.bgm` 有值则循环混入 BGM（音量约 0.12，配音为主）
+5. 写入本地 `uploads/video/`，经 `/files/video/:filename` 提供访问（非 CDN）
 ```
 
 **错误码**：
@@ -772,41 +772,23 @@ project-root/
 │   │
 │   ├── backend/                   ← Hono + Drizzle + Zod
 │   │   └── src/
-│   │       ├── routes/
-│   │       │   ├── cet.ts         # /api/cet/*（validate-words ✅，random-words ⏳）
-│   │       │   ├── tts.ts         # /api/tts/*（generate + from-content ✅）
-│   │       │   └── video.ts       # /api/video/* ⏳ 待实现（#18）
-│   │       ├── services/
-│   │       │   ├── cet.service.ts   # 词库校验 ✅
-│   │       │   ├── tts.service.ts   # Edge TTS 合成 + 拼接 + 时长 ✅
-│   │       │   └── video.service.ts # ⏳ 待实现（#18）
-│   │       ├── renderer/           # ⏳ 待实现（#18）
-│   │       │   ├── renderer.interface.ts
-│   │       │   ├── scene-word.renderer.ts
-│   │       │   ├── word-card.renderer.ts
-│   │       │   └── quiz.renderer.ts
-│   │       ├── db/
-│   │       │   ├── schema.ts      # Drizzle ORM 表定义 ✅
-│   │       │   └── index.ts       # 数据库连接 ✅
-│   │       └── openapi.json       # 自动生成的 OpenAPI 3.1 规范 ⏳ 待实现（#19）
+│   │       ├── routes/            # cet / content / tts / video / tasks /
+│   │       │                      # topics / files / upload-marks / health ✅
+│   │       ├── services/          # cet / llm / content / tts / video ✅
+│   │       ├── renderer/          # 三模板 Playwright 渲染器 ✅
+│   │       ├── db/                # schema + migrate + seed ✅
+│   │       └── openapi.json       # 启动时生成 ✅
 │   │
 │   └── frontend/                  ← Vue 3.5 + shadcn-vue + Vite
 │       └── src/
-│           ├── api/               # ⏳ 待实现（#26）
-│           │   ├── client.ts      # openapi-fetch 类型安全客户端
-│           │   └── schema.d.ts    # openapi-typescript 自动生成
-│           ├── pages/             # ⏳ 待实现（#28-#30）
-│           │   ├── CreateTask.vue
-│           │   ├── TaskList.vue
-│           │   └── TaskDetail.vue
-│           ├── components/
-│           │   └── ui/            # shadcn-vue 组件 ⏳ 待生成
-│           └── router.ts
+│           ├── api/               # openapi-fetch 客户端 ✅
+│           ├── views/             # CreateTask / TaskList / TaskDetail /
+│           │                      # Files / VideoList / MarksList / AuditList ✅
+│           └── router.ts          # / /tasks /files /videos /marks /audit
 │
 ```
 
-> 目录结构 2026-08-17 更新：dify/ 目录已废弃（去 Dify 架构，见 §12.3）；实际结构以仓库为准
-> （packages/backend + packages/frontend + uploads + docs）。
+> 目录结构以仓库为准。去 Dify 架构见 §12.3。
 
 ---
 
@@ -814,52 +796,45 @@ project-root/
 
 ### 12.1 基础设施
 
-- [ ] pnpm workspace 初始化（`pnpm-workspace.yaml`）
-- [ ] MySQL 数据库建库 + 四六级词库数据导入（CET4 + CET6）
-- [ ] S3 兼容存储配置（MinIO 本地 / 云 S3）
+- [x] pnpm workspace 初始化（`pnpm-workspace.yaml`）
+- [x] MySQL 数据库建库 + 四六级词库数据导入（CET4 + CET6，5999 词）
+- [ ] （可选）S3 兼容存储替换本地 uploads/
 
 ### 12.2 后端 API
 
-- [x] `POST /api/cet/validate-words` — 候选词批量验证 ✅
-- [ ] `POST /api/cet/random-words` — 按等级随机抽取
-- [x] `POST /api/tts/generate` — 底层文本合成 ✅
-- [x] `POST /api/tts/from-content` — ContentArray 拼接合成 ✅
-- [ ] `POST /api/video/render` — HTML 模板渲染 + FFmpeg 合成
-- [ ] OpenAPI 3.1 规范自动生成（`@hono/zod-openapi`）
+- [x] `POST /api/cet/validate-words` / `random-words`
+- [x] `POST /api/tts/generate` / `from-content`；`GET /api/tts/voices`
+- [x] `POST /api/video/render`
+- [x] `POST /api/content/generate`
+- [x] `GET|PATCH|DELETE /api/tasks`（及搜索、批量删除）
+- [x] `GET|POST|PATCH|DELETE /api/upload-marks`；`GET /api/upload-marks/overview`
+- [x] `POST /api/topics/suggest`；文件管理 `/api/files*`
+- [x] OpenAPI 3.1 自动生成 + `/doc` Scalar
 
-### 12.3 AI 内容生成（去 Dify，2026-08-17 架构变更）
+### 12.3 AI 内容生成（去 Dify）
 
-- [ ] `POST /api/content/generate` — LLM 生成情景故事 + 词库校验（docs/15）
-- [x] 模型配置：Ollama 本地（qwen2.5:7b）环境变量配置（docs/14，2026-08-17 完成）
-- [ ] 串联逻辑：content/generate → tts/from-content → video/render
+- [x] `POST /api/content/generate`（docs/15 V4）
+- [x] Ollama 本地模型配置（docs/14）
+- [x] 前端串联：content/generate → tts/from-content → video/render
 
 ### 12.4 shared 类型包
 
-- [ ] `enums.ts` — TemplateType, ContentStatus, CefrLevel
-- [ ] `content.dto.ts` — 所有子结构 + ContentDTO + ContentArray
-- [ ] `request.dto.ts` — CreateContentRequest + EditContentRequest
-- [ ] `response.dto.ts` — ContentListItem + ContentDetail + PaginatedResponse
+- [x] enums / content.dto / request.dto / response.dto
 
 ### 12.5 模板渲染器
 
-- [ ] TemplateRenderer 接口定义
-- [ ] SceneWordRenderer（HTML 模板 + Playwright 截图）
-- [ ] WordCardRenderer
-- [ ] QuizRenderer
+- [x] TemplateRenderer + SceneWord / WordCard / Quiz
 
 ### 12.6 Vue 前端
 
-- [ ] 项目脚手架（Vite + Vue 3.5 + TypeScript + Tailwind CSS 4）
-- [ ] shadcn-vue 组件初始化
-- [ ] `openapi-typescript` 从 `openapi.json` 生成 `schema.d.ts`
-- [ ] `openapi-fetch` 类型安全客户端封装
-- [ ] 新建任务页（`CreateTask.vue`）— 模板选择 + 参数表单
-- [ ] 任务列表页（`TaskList.vue`）— 分页列表 + 状态标签
-- [ ] 任务详情页（`TaskDetail.vue`）— 内容预览 + 视频播放
+- [x] Vite + Vue 3.5 + Tailwind 4 + shadcn-vue
+- [x] openapi-typescript + openapi-fetch
+- [x] 新建 / 记录 / 详情 / 文件 / 视频资产 / 上传标记 / 审计
 
 ---
 
 ## 十三、术语表
+
 
 | 术语 | 说明 |
 |------|------|

@@ -9,7 +9,12 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "test": "pnpm -r test",
-    "dev": "concurrently -n be,fe -c blue,green \"pnpm --filter backend dev\" \"pnpm --filter frontend dev\"",
+    "dev": "bash scripts/stack.sh dev",
+    "build": "bash scripts/stack.sh build",
+    "docker:up": "bash scripts/stack.sh docker",
+    "docker:rebuild": "bash scripts/stack.sh rebuild",
+    "docker:stop": "bash scripts/stack.sh stop",
+    "docker:mysql": "bash scripts/stack.sh mysql",
     "prepare": "lefthook install"
   },
   "devDependencies": {

@@ -45,16 +45,17 @@
 | 前端框架 | Vue 3.5 + Composition API + `<script setup lang="ts">` |
 | UI 组件 | shadcn-vue + Tailwind CSS 4 |
 | 前端路由 | Vue Router 4 |
-| 前端请求 | TanStack Vue Query + openapi-fetch（类型安全客户端） |
+| 前端请求 | openapi-fetch（类型安全客户端；schema 由 openapi-typescript 生成） |
 | 构建工具 | Vite 6 |
 | API 文档 | Hono + Zod → 自动生成 OpenAPI 3.1 → Scalar 可视化 |
 | 共享类型 | pnpm workspace `packages/shared`（前后端复用 ContentDTO 类型） |
-| AI 模型 | GPT-4o / Claude 3.5 Sonnet（Structured Output） |
+| AI 模型 | Ollama 本地 qwen2.5:7b（纯离线；docs/14 / docs/15） |
 | TTS | Edge TTS（微软公开 WebSocket 接口，零成本零密钥；音色映射见 SPEC §5.2） |
-| 视频渲染 | HTML 模板 + Playwright 截图 + FFmpeg 合成 |
+| 视频渲染 | HTML 模板 + Playwright 截图 + FFmpeg 合成（可选 BGM 混音） |
+| 文件存储 | 本地 `uploads/{audio,video,bgm}`（生产可换对象存储，非当前默认） |
 | 测试框架 | Vitest 3（backend=node / frontend=jsdom） |
 | 日志 | pino + pino-pretty |
-| 限流 | hono-rate-limiter（按 IP） |
+| 限流 | hono-rate-limiter（仅生产按 IP） |
 
 ## 项目结构
 
@@ -84,57 +85,37 @@ language-flow-ai/
 │   │       ├── lib/
 │   │       │   └── logger.ts     # pino 结构化日志
 │   │       ├── routes/
-│   │       │   ├── health.ts     # GET /health 健康检查 ✅
-│   │       │   ├── cet.ts        # /api/cet/validate-words ✅ /api/cet/random-words ⏳
-│   │       │   ├── tts.ts        # /api/tts/generate ✅ /api/tts/from-content ✅
-│   │       │   └── video.ts      # /api/video/render ⏳ 待实现（#18）
+│   │       │   ├── health.ts     # GET /health ✅
+│   │       │   ├── cet.ts        # validate-words / random-words ✅
+│   │       │   ├── content.ts    # POST /api/content/generate ✅
+│   │       │   ├── tts.ts        # generate / from-content / voices ✅
+│   │       │   ├── video.ts      # POST /api/video/render ✅
+│   │       │   ├── tasks.ts      # 生成记录 CRUD / 搜索 / 批量删除 ✅
+│   │       │   ├── topics.ts     # POST /api/topics/suggest ✅
+│   │       │   ├── file-manager.ts # 文件列表/删除/清理/reveal ✅
+│   │       │   └── upload-marks.ts # 上传标记 CRUD + overview ✅
 │   │       ├── services/
-│   │       │   ├── cet.service.ts    # 词库校验 ✅
-│   │       │   ├── tts.service.ts    # Edge TTS 合成 + 拼接 + 时长探测 ✅
-│   │       │   └── video.service.ts  # ⏳ 待实现（#18）
-│   │       ├── renderer/         # 模板渲染器（Playwright + HTML 模板）⏳ 待实现（#18）
-│   │       │   ├── renderer.interface.ts
-│   │       │   ├── scene-word.renderer.ts
-│   │       │   ├── word-card.renderer.ts
-│   │       │   └── quiz.renderer.ts
-│   │       ├── db/
-│   │       │   ├── schema.ts     # Drizzle ORM 表定义 ✅
-│   │       │   └── index.ts      # 数据库连接 ✅
-│   │       └── openapi.json      # 自动生成的 OpenAPI 3.1 规范 ✅（启动时生成 + /doc 页面）
+│   │       │   ├── cet.service.ts / llm.service.ts / content.service.ts ✅
+│   │       │   ├── tts.service.ts ✅
+│   │       │   └── video.service.ts ✅（帧合成 + 可选 BGM amix）
+│   │       ├── renderer/         # 三模板 Playwright 渲染器 ✅
+│   │       ├── db/               # schema + migrate + seed ✅
+│   │       └── openapi.json      # 启动时生成；/doc Scalar ✅
 │   │
 │   └── frontend/                 ← Vue 3.5 + shadcn-vue + Vite
-│       ├── tsconfig.json
-│       ├── vitest.config.ts
-│       ├── env.d.ts              # Vue SFC + Vite 类型声明
 │       └── src/
-│           ├── api/
-│           │   ├── client.ts     # openapi-fetch 类型安全客户端 ✅
-│           │   └── schema.d.ts   # openapi-typescript 自动生成（不入库）
+│           ├── api/client.ts     # openapi-fetch ✅
 │           ├── views/
-│           │   ├── CreateTask.vue  # 生成页：主题选择+AI推荐+音色试听 ✅
-│           │   ├── TaskList.vue    # 生成记录列表 ✅
-│           │   ├── TaskDetail.vue  # 详情+播放+重新配音 ✅
-│           │   └── Files.vue       # 文件管理（分类+批量删除）✅
-│           ├── components/
-│           │   └── ui/           # shadcn-vue 组件 ⏳ 待生成
-│           ├── App.vue           # 全局导航栏 ✅
-│           └── router.ts         # / /tasks /tasks/:id /files ✅
+│           │   ├── CreateTask.vue   # 新建：三模板+主题+音色+BGM ✅
+│           │   ├── TaskList.vue     # 生成记录 ✅
+│           │   ├── TaskDetail.vue   # 详情/编辑/重配音重渲染 ✅
+│           │   ├── Files.vue        # 文件管理 ✅
+│           │   ├── VideoList.vue    # 视频资产 ✅
+│           │   ├── MarksList.vue    # 上传标记一览 ✅
+│           │   └── AuditList.vue    # 审计管理 ✅
+│           ├── App.vue / router.ts  # 导航：/ /tasks /files /videos /marks /audit
 
-docs/                            ← 设计文档
-├── 01_项目概述文档.txt
-├── 02_MVP需求文档.txt
-├── 03_系统模块设计文档.txt
-├── 04_Content_DTO设计文档.txt
-├── 05_Dify_Workflow设计文档.txt（废弃，参考 docs/15）
-├── 06_视频生产SOP文档.txt
-├── 07_后续扩展规划文档.txt
-├── 08_TTS服务设计文档.md
-├── 09_词库数据方案.md
-├── 10_视频渲染设计文档.md
-├── 11_前端页面设计文档.md
-├── 12_部署与运行指南.md
-├── 情景词汇阅读视频模板设计规范 V1.0.txt
-└── 四级词汇情景记忆卡片设计方案.md
+docs/                            ← 设计文档（01–15 + 模板规范）
 ```
 
 ## ContentDTO 核心字段
@@ -162,19 +143,20 @@ interface ContentDTO {
 
 ## MVP 范围
 
-### 实现
-- ✅ 三种视频模板（静态图片 + 文本 + 高亮 + 配音；MVP 静音合成，BGM 后续扩展）
-- ✅ AI 文本生成（通过 LLM）
-- ✅ 四六级词汇校验（通过独立词库 API）
-- ✅ AI 配音（TTS）
-- ✅ 视频合成（FFmpeg）
+### 已实现
+- ✅ 三种视频模板（静态帧 + 文本高亮 + 配音；可选 BGM 混音，默认钢琴曲）
+- ✅ AI 内容生成（Ollama 本地；scene_word V4 两段式 + 代码注入，验收 ≥8 词）
+- ✅ 四六级词库校验与随机抽词
+- ✅ 配音可选（多音色 + 语速 + 试听）+ 主题预设 / AI 推荐
+- ✅ 生成记录 / 视频资产 / 文件管理 / 审计 / 上传标记一览
+- ✅ 生成后编辑并重新配音、重新渲染
+- ✅ Docker Compose（mysql + backend + frontend）
 
-### 暂不实现
-- ❌ 用户系统
-- ❌ 视频动画
-- ❌ 自动发布抖音
-- ❌ 数据分析
-- ❌ 多人协作
+### 暂不实现 / 后续
+- ❌ 正式「待审核 → 通过」状态机（当前为生成后直接可编辑定稿）
+- ❌ 用户系统 / 视频动画 / 自动发布 / 数据分析 / 多人协作
+- ❌ 批量多主题生产、词汇运营看板、对象存储（S3）默认化
+- ❌ 背景图预设库（当前固定纯白）
 
 ## 文档索引
 
@@ -192,45 +174,21 @@ interface ContentDTO {
 | [`08_TTS服务设计文档.md`](./docs/08_TTS服务设计文档.md) | Edge TTS 方案、音色映射、存储与错误处理 |
 | [`09_词库数据方案.md`](./docs/09_词库数据方案.md) | cet_words 词库数据来源与 seed 方案 |
 | [`10_视频渲染设计文档.md`](./docs/10_视频渲染设计文档.md) | renderer 接口、HTML 模板、Playwright + FFmpeg 管线 |
-| [`11_前端页面设计文档.md`](./docs/11_前端页面设计文档.md) | 三个页面规格：任务创建/列表/详情 |
-| [`12_部署与运行指南.md`](./docs/12_部署与运行指南.md) | 本地开发、数据库迁移、生产部署方向 |
+| [`11_前端页面设计文档.md`](./docs/11_前端页面设计文档.md) | 前端路由与页面规格 |
+| [`12_部署与运行指南.md`](./docs/12_部署与运行指南.md) | 本地开发、数据库迁移、Docker / 生产部署 |
+| [`14_模型层设计方案.md`](./docs/14_模型层设计方案.md) | Ollama 本地模型配置 |
+| [`15_AI内容生成服务设计.md`](./docs/15_AI内容生成服务设计.md) | content/generate（V4 策略） |
 
 ## 快速开始
 
-1. 克隆项目
-   ```bash
-   git clone git@github.com:your-org/language-flow-ai.git
-   cd language-flow-ai
-   ```
-2. 安装依赖
-   ```bash
-   pnpm install
-   ```
-3. 启动数据库（MySQL 8.4）
-   ```bash
-   docker compose up -d
-   ```
-4. 配置环境变量
-   ```bash
-   cp .env.example .env
-   # 按需编辑 .env 中的 API Key 等配置
-   ```
-5. 初始化数据库表结构（首次或 schema 变更后）
-   ```bash
-   DATABASE_URL="mysql://dev:dev@localhost:3306/language_flow" pnpm --filter backend db:generate
-   DATABASE_URL="mysql://dev:dev@localhost:3306/language_flow" pnpm --filter backend db:migrate
-   ```
-6. 启动开发服务器
-   ```bash
-   pnpm dev
-   # 后端 http://localhost:8080
-   # 前端 http://localhost:5173
-   ```
-7. （后续）生成 API 客户端类型
-   ```bash
-   pnpm --filter frontend gen-api     # 从 openapi.json 生成 schema.d.ts
-   ```
-8. （后续）配置 LLM 环境变量（`LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`，Ollama 本地，详见 [docs/14](./docs/14_模型层设计方案.md)）
+1. `pnpm install`
+2. 配置 `packages/backend/.env`（`DATABASE_URL`、`LLM_*`）
+3. **本地开发**（推荐日常）：`pnpm dev`  
+   （自动：停 Docker 应用容器 → 校准 MySQL → 起前后端；http://localhost:5173）
+4. **Docker 全栈**：`pnpm docker:up`（与本地互斥，脚本会先释放 8080/5173）
+5. 切换回本地：`pnpm docker:stop` 后 `pnpm dev`（或直接 `pnpm dev`）
+
+详见 [`docs/12_部署与运行指南.md`](./docs/12_部署与运行指南.md)。模式切换脚本：`scripts/stack.sh`。
 
 ## 开发规范
 

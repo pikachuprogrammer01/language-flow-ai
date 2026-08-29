@@ -233,7 +233,7 @@ TTS 文本拼接规则（由模块 4 的后端实现）：
   1. 根据 ContentDTO.template 选择对应的 HTML 模板
   2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板（背景当前为纯白 CSS）
   3. 使用 Playwright/Puppeteer 打开 HTML，按 segments/items 逐帧截图
-  4. FFmpeg 将图片帧 + ContentDTO.audio 合成 MP4（MVP 静音合成，bgm 后续扩展）
+  4. FFmpeg 将图片帧 + ContentDTO.audio 合成 MP4（可选 BGM 混音，见 video.service）
   5. 上传到 CDN，返回视频 URL
 
 输出规格：
@@ -387,7 +387,13 @@ MVP 不含人工审核。后续接入时，在 Workflow A（content_ready）和 
   · word_card  → { background: "white" }
   · quiz       → { background: "white" }
 
-  注：bgm 不设默认值（背景音乐素材未定，MVP 先静音合成，扩展时再按模板补默认曲目）。
+  注：bgm 可选；前端可传 /files/bgm/…，渲染时 FFmpeg 循环混音（默认可提供钢琴曲，亦可不选）。
+  背景图当前固定纯白，预设图库后续扩展。
+
+补充模块（2026-08 已落地，未改原 1–10 编号）：
+  · 文件管理（/api/files*）· 上传标记（upload_marks + /api/upload-marks）
+  · 主题推荐（/api/topics/suggest）· 审计档案（contents.audit + 前端 /audit）
+
 
 4. 说明
 

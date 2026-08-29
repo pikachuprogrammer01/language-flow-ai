@@ -12,6 +12,10 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    networks:
+      default:
+        aliases:
+          - mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-udev", "-pdev"]
       interval: 5s
@@ -62,3 +66,8 @@ services:
 
 volumes:
   mysql_data:
+
+# 固定网络名，避免 docker start 后掉网、backend 解析不到主机名 mysql
+networks:
+  default:
+    name: language-flow-ai_default

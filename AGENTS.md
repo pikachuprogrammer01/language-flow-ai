@@ -17,7 +17,8 @@
 LLM 配置    Ollama 本地（qwen2.5:7b，纯本地离线方案 2026-08-17 用户决策），配置在 packages/backend/.env
             （LLM_BASE_URL/LLM_API_KEY/LLM_MODEL；.env 已被 gitignore，密钥不入库）
 文档版本    SPEC V2.0 · docs/ 01-15（05 已废弃由 15 取代）· PROGRESS 持续更新
-常用命令    pnpm dev（backend 8080）· pnpm test / pnpm lint / pnpm typecheck
+常用命令    pnpm dev（自动校准 MySQL + 本地前后端）· pnpm docker:up / docker:stop
+            pnpm test / pnpm lint / pnpm typecheck
             pnpm db:generate / pnpm db:migrate / pnpm db:seed（词库 seed-data/cet_words.csv）
 ```
 

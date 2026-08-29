@@ -22,6 +22,8 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 ## 二、当前在做
 
 → 部署收尾：Docker 容器化已完成（docs/12 §六 已验证），生产部署（域名 + 反向代理）待用户决策
+→ ✅ 2026-08-29 工程：`scripts/stack.sh` + `pnpm dev|docker:up|docker:stop|docker:mysql` 互斥切换；compose 固定网络 `language-flow-ai_default`；消除端口争抢与 MySQL 掉网 502
+→ ✅ 2026-08-29 文档对齐（以代码为准）：更新 README / PRD §10.1 / SPEC §2.2·§5.3·§十一·§十二 / docs/10 BGM / docs/11 路由API / docs/15 V4 / docs/03 模块补充；去掉「暂不实现平台」「静音 MVP」「S3 默认」「生成 V3 待办」等过时表述
 → ✅ 2026-08-29 修复：成片渲染左右留白 72/120 → 160px（scene_word/word_card/quiz），避开短视频平台右侧互动栏，正文居中更宽松
 → ✅ 2026-08-29 决策：去除 GitHub Actions CI（删除 `.github/workflows/ci.yml`）；质量门禁改由 lefthook 本地 hooks + 手动 `pnpm typecheck/lint/test`；已同步 README / SPEC §2.2 / docs/12
 → ✅ 2026-08-18 新增：生成记录「📂 打开」按钮 — 在 Finder 中定位视频（POST /api/files/reveal 写标记 → 宿主机 launchd 脚本 open -R；uploads 挂载宿主机 ~/language-flow-uploads）
