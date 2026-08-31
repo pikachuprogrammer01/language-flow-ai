@@ -1,0 +1,52 @@
+专有软件许可声明（Proprietary — All Rights Reserved）
+====================================================
+
+Copyright (c) 2026 pikachuprogrammer01
+保留所有权利。
+
+本仓库「language-flow-ai」（四级词汇情景记忆短视频平台）及其全部源代码、文档、
+配置、脚本、设计文稿、数据结构与相关资产（以下统称「本软件」）的著作权及其他
+知识产权均归版权所有者所有。
+
+一、未授权不得使用
+
+未经版权所有者事先书面授权，任何个人或组织均不得对本软件实施下列行为，包括但不限于：
+
+1. 使用、运行、部署（含内部测试以外的任何环境）；
+2. 复制、下载、镜像或传播本软件之全部或任何部分；
+3. 修改、翻译、逆向工程、反编译、拆解或以其他方式衍生作品；
+4. 再分发、再许可、出售、出租、出借或商业利用；
+5. 删除、遮挡或篡改本软件中的版权声明、许可声明或其他权利标识。
+
+二、授权
+
+如需使用本软件，须事先取得版权所有者的明确书面授权。授权范围、期限、地域与
+限制条件以双方另行签署的书面协议为准。口头、默示或惯例均不构成授权。
+
+三、仓库可见性说明
+
+本软件若托管于公开或半公开的代码托管平台，**不构成**开源许可，亦不意味着
+放弃或转让任何权利。可见性不等于可自由使用。
+
+四、免责声明
+
+在适用法律允许的最大范围内，本软件按「现状（AS IS）」提供，不附带任何明示或
+默示担保，包括但不限于适销性、特定用途适用性及不侵权。因使用或无法使用本软件
+所产生的任何直接或间接损失，版权所有者不承担责任（法律强制规定除外）。
+
+五、其他
+
+本声明的解释与争议解决适用中华人民共和国法律（不含冲突法规范）。本声明任何
+条款被认定无效的，不影响其余条款效力。
+
+联系授权：请通过本仓库维护者公开联系方式提出书面申请。
+
+---
+
+English summary (for reference; Chinese text above prevails):
+
+Copyright (c) 2026 pikachuprogrammer01. All rights reserved.
+
+This software is proprietary. No permission is granted to use, copy, modify,
+distribute, or create derivative works without prior written authorization from
+the copyright holder. Public visibility of the repository does not grant a license.

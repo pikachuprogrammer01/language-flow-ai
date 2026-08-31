@@ -2,6 +2,7 @@
   "name": "language-flow-ai",
   "version": "0.0.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "AI 英语短视频内容生产平台",
   "scripts": {
     "typecheck": "pnpm -r typecheck",

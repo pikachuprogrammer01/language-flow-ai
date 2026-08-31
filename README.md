@@ -245,3 +245,9 @@ fix/*          ← 修 bug
 3. 实现对应的 `TemplateRenderer`
 
 核心 DTO 和 Workflow 逻辑不变。
+
+## 版权与许可
+
+本项目为**专有软件**，版权所有，保留一切权利。未经事先书面授权，不得使用、复制、修改或分发。详见仓库根目录 [LICENSE](./LICENSE)。
+
+`package.json` 中 `"license": "UNLICENSED"` 与 `"private": true` 表示本仓库不是可自由使用的开源包。
