@@ -16,7 +16,9 @@ import {
   listVoices,
   renderVideo,
   synthesizeFromContent,
+  updateRenderSettings,
   updateTask,
+  updateVideoAnalytics,
 } from "../api/client";
 import AuditPanel, { type AuditInfo } from "../components/audit-panel.vue";
 import CardEditor, { type WordCard } from "../components/editors/card-editor.vue";
@@ -62,6 +64,10 @@ const saving = ref(false);
 /** 重新组装：BGM 选择（来自文件管理 bgm 素材，组装新视频时混音） */
 const bgmFiles = ref<{ filename: string }[]>([]);
 const bgm = ref("");
+/** scene_word 片头动效（默认开） */
+const introEffect = ref(true);
+/** 水合完成标志：避免初始载入触发 intro 自动保存 */
+const introHydrated = ref(false);
 /** 确认对话框状态（重新配音确认 + 删除确认） */
 const revoiceOpen = ref(false);
 const revoiceConfirmTip = ref("");
@@ -80,7 +86,10 @@ interface SegmentInfo {
 interface VideoInfo {
   url: string;
   duration: number;
+  introStatus?: IntroStatus;
 }
+
+type IntroStatus = "rendered" | "failed" | "disabled" | "unknown";
 
 function isWordInfo(v: unknown): v is WordInfo {
   return typeof v === "object" && v !== null && "word" in v && "meaning" in v;
@@ -207,11 +216,22 @@ async function saveEdit(): Promise<void> {
       ...refreshed,
       template,
       audio,
-      style: { ...(refreshed.style ?? {}), bgm: bgm.value },
+      style: {
+        ...(refreshed.style ?? {}),
+        bgm: bgm.value,
+        introEffect: introEffect.value,
+        introTopic:
+          (refreshed.style as { introTopic?: string } | undefined)?.introTopic ??
+          (refreshed.audit as { input?: { topic?: string } } | undefined)?.input?.topic,
+      },
     };
     if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
+    if (template === "scene_word") {
+      await updateRenderSettings(String(route.params.id), { introEffect: introEffect.value });
+    }
     const video = await renderVideo(dto);
     await updateTask(String(route.params.id), { audio, video, status: "completed" });
+    await persistCanonicalVoiceBgm();
     await load();
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
@@ -238,6 +258,27 @@ function isRenderInput(v: unknown): v is RenderVideoInput {
 const video = computed<VideoInfo | null>(() => {
   const v = task.value?.video;
   return isVideoInfo(v) ? v : null;
+});
+
+/** 片头状态徽章（DS4/D5：图标+文字非仅颜色，role=status） */
+const introStatusBadge = computed<{ label: string; icon: string; cls: string } | null>(() => {
+  if (task.value?.template !== "scene_word") return null;
+  const s = video.value?.introStatus ?? "unknown";
+  const map = {
+    rendered: {
+      label: "片头已生成",
+      icon: "✓",
+      cls: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    },
+    failed: {
+      label: "片头生成失败·已跳过",
+      icon: "⚠",
+      cls: "border-amber-200 bg-amber-50 text-amber-700",
+    },
+    disabled: { label: "片头已关闭", icon: "○", cls: "border-gray-200 bg-gray-50 text-gray-500" },
+    unknown: { label: "片头状态未知", icon: "?", cls: "border-gray-200 bg-gray-50 text-gray-400" },
+  } as const;
+  return map[s];
 });
 
 /** 上传标记：文件名 + 列表（watch 视频变化时加载） */
@@ -360,8 +401,23 @@ async function load(): Promise<void> {
   loading.value = true;
   errorMsg.value = "";
   notFound.value = false;
+  introHydrated.value = false;
   try {
-    task.value = await getTask(String(route.params.id));
+    const loaded = await getTask(String(route.params.id));
+    task.value = loaded;
+    const style = loaded.style;
+    introEffect.value =
+      typeof style === "object" &&
+      style !== null &&
+      typeof (style as { introEffect?: unknown }).introEffect === "boolean"
+        ? (style as { introEffect: boolean }).introEffect
+        : true;
+    // 水合音色/BGM：修复“打开旧任务点重配音静默改音色/清 BGM”（🔴 DS2/E5）
+    const voiceId = (loaded.voice as { id?: unknown } | undefined)?.id;
+    if (typeof voiceId === "string" && voiceId) voice.value = voiceId;
+    const styleBgm = (style as { bgm?: unknown } | undefined)?.bgm;
+    bgm.value = typeof styleBgm === "string" ? styleBgm : "";
+    introHydrated.value = true;
   } catch (err) {
     if (err instanceof Error && err.message.includes("404")) {
       notFound.value = true; // 记录不存在或已删除（例如旧记录未落库）
@@ -372,6 +428,14 @@ async function load(): Promise<void> {
     loading.value = false;
   }
 }
+
+// 片头开关“变更即存”：仅 scene_word、水合完成后、用户改动时落库（消除“看似已存实则未存”误导 DS2）
+watch(introEffect, (val) => {
+  if (!introHydrated.value || task.value?.template !== "scene_word") return;
+  updateRenderSettings(String(route.params.id), { introEffect: val }).catch((err: unknown) => {
+    errorMsg.value = err instanceof Error ? err.message : String(err);
+  });
+});
 
 // 同组件内路由参数变化（详情 A → 详情 B）或刷新/直链时重新加载
 watch(() => route.params.id, load);
@@ -420,9 +484,19 @@ async function doRevoice(): Promise<void> {
       ...t,
       template: t.template === "word_card" || t.template === "quiz" ? t.template : "scene_word",
       audio,
-      style: { ...(t.style ?? {}), bgm: bgm.value },
+      style: {
+        ...(t.style ?? {}),
+        bgm: bgm.value,
+        introEffect: introEffect.value,
+        introTopic:
+          (t.style as { introTopic?: string } | undefined)?.introTopic ??
+          (t.audit as { input?: { topic?: string } } | undefined)?.input?.topic,
+      },
     };
     if (!isRenderInput(dto)) throw new Error("记录缺少渲染所需字段");
+    if (t.template === "scene_word") {
+      await updateRenderSettings(String(route.params.id), { introEffect: introEffect.value });
+    }
     const video = await renderVideo(dto);
     await updateTask(String(route.params.id), {
       ...(editing.value ? { title, content } : {}),
@@ -430,12 +504,26 @@ async function doRevoice(): Promise<void> {
       video,
       status: "completed",
     });
+    await persistCanonicalVoiceBgm();
     editing.value = false;
     await load();
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
   } finally {
     revoicing.value = false;
+  }
+}
+
+/** 重配音/重渲染后把本次选定音色/BGM 回写为规范值（E5：单一归属走 video-analytics）。
+ *  失败可见但不阻断已成功的渲染。 */
+async function persistCanonicalVoiceBgm(): Promise<void> {
+  try {
+    await updateVideoAnalytics(String(route.params.id), {
+      voice: voice.value,
+      bgm: bgm.value || null,
+    });
+  } catch (err) {
+    errorMsg.value = `视频已更新，但音色/BGM 未持久化为默认值：${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -557,7 +645,12 @@ listFiles({ type: "bgm" })
 
       <!-- 重新配音 + 组装（PRD §10.1.1 + 文件引用组装） -->
       <div class="mt-4 flex flex-wrap items-center gap-3 rounded-xl border p-4">
-        <select v-model="voice" class="rounded-lg border px-3 py-2 text-sm" :disabled="revoicing">
+        <select
+          v-model="voice"
+          aria-label="配音音色"
+          class="rounded-lg border px-3 py-2 text-sm"
+          :disabled="revoicing"
+        >
           <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
         </select>
         <div class="flex items-center gap-1.5" :class="revoicing ? 'opacity-50' : ''">
@@ -573,10 +666,22 @@ listFiles({ type: "bgm" })
             {{ r.label }}
           </button>
         </div>
-        <select v-model="bgm" class="rounded-lg border px-3 py-2 text-sm" :disabled="revoicing">
+        <select
+          v-model="bgm"
+          aria-label="背景音乐"
+          class="rounded-lg border px-3 py-2 text-sm"
+          :disabled="revoicing"
+        >
           <option value="">无 BGM</option>
           <option v-for="b in bgmFiles" :key="b.filename" :value="`/files/bgm/${b.filename}`">{{ b.filename }}</option>
         </select>
+        <label
+          v-if="task?.template === 'scene_word'"
+          class="inline-flex items-center gap-1.5 text-sm text-gray-600"
+        >
+          <input v-model="introEffect" type="checkbox" class="rounded border-gray-300" :disabled="revoicing" />
+          片头动效
+        </label>
         <button
           class="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           :disabled="revoicing"
@@ -585,7 +690,15 @@ listFiles({ type: "bgm" })
           <Spinner v-if="revoicing" size="sm" />
           {{ revoicing ? "重新配音渲染中…" : "重新配音并渲染" }}
         </button>
-        <span class="text-xs text-gray-500">选音色 + BGM（可无），重新组装新视频</span>
+        <span class="text-xs text-gray-500">选音色 + BGM（可无），重新组装新视频；改动仅影响下次渲染</span>
+        <span
+          v-if="introStatusBadge"
+          role="status"
+          class="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs"
+          :class="introStatusBadge.cls"
+        >
+          <span aria-hidden="true">{{ introStatusBadge.icon }}</span>{{ introStatusBadge.label }}
+        </span>
       </div>
 
       <!-- 词汇 -->
