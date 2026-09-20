@@ -29,6 +29,20 @@
       "when": 1787166786775,
       "tag": "0003_vengeful_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1789758824184,
+      "tag": "0004_jittery_triton",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1789879067546,
+      "tag": "0005_fuzzy_solo",
+      "breakpoints": true
     }
   ]
 }

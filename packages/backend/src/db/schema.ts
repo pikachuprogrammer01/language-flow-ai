@@ -2,6 +2,7 @@
 // 表结构详见 SPEC.md §十
 
 import {
+  datetime,
   float,
   index,
   int,
@@ -71,6 +72,22 @@ export const uploadMarks = mysqlTable(
     index("idx_upload_marks_task_id").on(table.taskId),
   ],
 );
+
+// ── 视频分析/发布元数据表 ──
+// 与 contents 解耦，避免改变既有 ContentDTO；一条内容最多一份分析配置。
+export const videoAnalytics = mysqlTable("video_analytics", {
+  contentId: varchar("content_id", { length: 32 })
+    .primaryKey()
+    .references(() => contents.id, { onDelete: "cascade" }),
+  storyTopic: varchar("story_topic", { length: 255 }),
+  // mode:"date" 保 JS Date 语义（与既有 toISOString/insert 代码一致）；datetime 免 timestamp 2038 上限与会话时区隐式转换
+  publishAt: datetime("publish_at", { mode: "date" }),
+  coverUrl: varchar("cover_url", { length: 500 }),
+  allowSave: int("allow_save").notNull().default(1),
+  customParams: json("custom_params"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+});
 
 // ── 四六级词库表 ──
 export const cetWords = mysqlTable(
