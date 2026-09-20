@@ -12,6 +12,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { cetWords, contents } from "../db/schema";
+import { apiError, internalError } from "../lib/api-error";
 import { logger } from "../lib/logger";
 
 // ── Zod schema ──
@@ -284,20 +285,26 @@ tasks.openapi(renderSettingsRoute, async (c) => {
   const { id } = c.req.valid("param");
   const { introEffect } = c.req.valid("json");
   try {
-    const rows = await db.select().from(contents).where(eq(contents.id, id)).limit(1);
-    const content = rows[0];
-    if (!content) return c.json({ error: "任务不存在" }, 404);
-    const style = {
-      ...(typeof content.style === "object" && content.style !== null
-        ? (content.style as Record<string, unknown>)
-        : {}),
-      introEffect,
-    };
-    await db.update(contents).set({ style, updatedAt: new Date() }).where(eq(contents.id, id));
+    // 与 video-analytics PATCH 同锁：style JSON 多写者行级互斥（F3/G2），事务内 FOR UPDATE 后读-改-写
+    const outcome = await db.transaction(async (tx) => {
+      const content = (
+        await tx.select().from(contents).where(eq(contents.id, id)).limit(1).for("update")
+      )[0];
+      if (!content) return "missing" as const;
+      const style = {
+        ...(typeof content.style === "object" && content.style !== null
+          ? (content.style as Record<string, unknown>)
+          : {}),
+        introEffect,
+      };
+      await tx.update(contents).set({ style, updatedAt: new Date() }).where(eq(contents.id, id));
+      return "ok" as const;
+    });
+    if (outcome === "missing") return c.json(apiError("NOT_FOUND", "任务不存在"), 404);
     return c.json({ introEffect }, 200);
   } catch (e) {
     logger.error({ err: e, id }, "更新渲染设置失败");
-    return c.json({ error: "更新渲染设置失败" }, 500);
+    return c.json(internalError(), 500);
   }
 });
 

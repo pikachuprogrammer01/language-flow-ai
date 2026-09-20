@@ -15,7 +15,11 @@ function fakeDb(rows: Record<string, unknown>[] = [], wordRows: Record<string, u
     // biome-ignore lint/suspicious/noThenProperty: 模拟 drizzle select builder 的 thenable（await 返回行）
     then: async (resolve: (v: unknown) => void) => resolve(r),
   });
-  const limitResult = (r: Record<string, unknown>[]) => ({ offset: () => leaf(r), ...leaf(r) });
+  const limitResult = (r: Record<string, unknown>[]) => ({
+    offset: () => leaf(r),
+    for: () => limitResult(r),
+    ...leaf(r),
+  });
   // update().set() 的参数捕获（断言审计/回写逻辑）
   const sets: Record<string, unknown>[] = [];
   const mock = {
@@ -71,6 +75,7 @@ beforeEach(() => {
   vi.mocked(db).select = vi.fn(fakeDb().select) as never;
   vi.mocked(db).update = vi.fn(fakeDb().update) as never;
   vi.mocked(db).delete = vi.fn(fakeDb().delete) as never;
+  vi.mocked(db).transaction = vi.fn(async (cb: (tx: unknown) => unknown) => await cb(db)) as never;
 });
 
 describe("GET /api/tasks", () => {
@@ -274,6 +279,34 @@ describe("PATCH /api/tasks/:id", () => {
     expect(audit.modifications).toHaveLength(2); // 原有 1 条 + 本次追加 1 条
     expect(audit.modifications[1]).toMatchObject({ fields: ["title"] });
     expect(typeof audit.modifications[1].at).toBe("string");
+  });
+});
+
+describe("PATCH /api/tasks/:id/render-settings", () => {
+  it("只更新 introEffect 并保留其他 style 字段", async () => {
+    const dbMock = fakeDb([{ ...ROW, style: { background: "white", bgm: "/files/bgm/a.mp3" } }]);
+    vi.mocked(db).select.mockImplementation(dbMock.select as never);
+    vi.mocked(db).update.mockImplementation(dbMock.update as never);
+    const response = await app.request("/t1/render-settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ introEffect: false }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ introEffect: false });
+    expect(dbMock.__sets[0]).toMatchObject({
+      style: { background: "white", bgm: "/files/bgm/a.mp3", introEffect: false },
+    });
+  });
+
+  it("任务不存在返回 404", async () => {
+    vi.mocked(db).select.mockImplementation(fakeDb([]).select as never);
+    const response = await app.request("/missing/render-settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ introEffect: false }),
+    });
+    expect(response.status).toBe(404);
   });
 });
 
