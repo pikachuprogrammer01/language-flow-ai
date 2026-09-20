@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>three-intro</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: #141418;
+      }
+      #c,
+      #l {
+        position: absolute;
+        inset: 0;
+        width: 1080px;
+        height: 1920px;
+      }
+      .badge {
+        font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        padding: 8px 22px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(255, 255, 255, 0.06);
+        color: #e5e7eb;
+        opacity: 0;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .intro-text {
+        font-family: Georgia, "Times New Roman", "Songti SC", serif;
+        font-weight: 700;
+        font-size: 52px;
+        line-height: 1.35;
+        max-width: 880px;
+        text-align: center;
+        color: #f8fafc;
+        text-shadow: 0 4px 24px rgba(0, 0, 0, 0.55);
+        pointer-events: none;
+        opacity: 0;
+      }
+      .intro-text .kw {
+        display: inline-block;
+        font-style: italic;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "../vendor/three.module.min.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="c"></div>
+    <div id="l"></div>
+    <script type="module">
+      import * as THREE from "three";
+      import { CSS2DObject, CSS2DRenderer } from "../vendor/CSS2DRenderer.js";
+
+      /** 紧凑 1 秒：母题入场 → 标题 → 点睛，无空等 */
+      const DURATION = 1;
+      const T_MOTIF = 0.28;
+      const T_TITLE_IN = 0.18;
+      const T_TITLE_OK = 0.55;
+      const T_PUNCH = 0.72;
+      const W = 1080;
+      const H = 1920;
+
+      function clamp01(x) {
+        return Math.min(1, Math.max(0, x));
+      }
+      function lerp(a, b, t) {
+        return a + (b - a) * t;
+      }
+      function easeOutCubic(t) {
+        const x = clamp01(t);
+        return 1 - (1 - x) ** 3;
+      }
+      function easeOutBack(t) {
+        const c1 = 1.70158;
+        const c3 = c1 + 1;
+        const x = clamp01(t);
+        return 1 + c3 * (x - 1) ** 3 + c1 * (x - 1) ** 2;
+      }
+
+      const state = {
+        ready: false,
+        motif: "default",
+        primary: "#60a5fa",
+        complement: "#fbbf24",
+        scene: null,
+        camera: null,
+        renderer: null,
+        labelRenderer: null,
+        motifRoot: null,
+        accentParts: [],
+        badgeObj: null,
+        badgeEl: null,
+        textObj: null,
+        textEl: null,
+        kwEl: null,
+        underline: null,
+        underlineMat: null,
+        camBase: new THREE.Vector3(0, 0.15, 4.6),
+      };
+
+      function mat(color, opts = {}) {
+        return new THREE.MeshStandardMaterial({
+          color: new THREE.Color(color),
+          emissive: new THREE.Color(opts.emissive ?? color),
+          emissiveIntensity: opts.emissiveIntensity ?? 0.55,
+          roughness: opts.roughness ?? 0.42,
+          metalness: opts.metalness ?? 0.18,
+          transparent: true,
+          opacity: opts.opacity ?? 1,
+        });
+      }
+
+      /** 按主题搭建可识别的 3D 母题（无外部模型） */
+      function buildMotif(motif, primary, complement) {
+        const root = new THREE.Group();
+        const accents = [];
+
+        if (motif === "coffee") {
+          const saucer = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.55, 0.55, 0.04, 32),
+            mat(complement, { roughness: 0.55, emissiveIntensity: 0.25 }),
+          );
+          saucer.position.y = -0.42;
+          const cup = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.32, 0.28, 0.48, 36),
+            mat(primary, { roughness: 0.28, metalness: 0.12, emissiveIntensity: 0.4 }),
+          );
+          cup.position.y = -0.12;
+          const rim = new THREE.Mesh(
+            new THREE.TorusGeometry(0.325, 0.028, 14, 48),
+            mat("#fef3c7", { emissiveIntensity: 0.35, roughness: 0.35 }),
+          );
+          rim.rotation.x = Math.PI / 2;
+          rim.position.y = 0.12;
+          const liquid = new THREE.Mesh(
+            new THREE.CircleGeometry(0.29, 32),
+            mat("#78350f", { emissiveIntensity: 0.2, roughness: 0.8 }),
+          );
+          liquid.rotation.x = -Math.PI / 2;
+          liquid.position.y = 0.1;
+          const handle = new THREE.Mesh(
+            new THREE.TorusGeometry(0.14, 0.028, 12, 28, Math.PI * 1.15),
+            mat(primary, { roughness: 0.3 }),
+          );
+          handle.position.set(0.42, -0.05, 0);
+          handle.rotation.set(0, Math.PI / 2, Math.PI / 2);
+          for (let i = 0; i < 4; i++) {
+            const s = new THREE.Mesh(
+              new THREE.SphereGeometry(0.028 - i * 0.003, 12, 12),
+              mat("#e7e5e4", { opacity: 0.55, emissiveIntensity: 0.4 }),
+            );
+            s.position.set((i - 1.5) * 0.05, 0.28 + i * 0.08, 0.02);
+            accents.push({ mesh: s, baseY: s.position.y, phase: i * 0.5 });
+            root.add(s);
+          }
+          root.add(saucer, cup, rim, liquid, handle);
+        } else if (motif === "forest") {
+          const ground = new THREE.Mesh(new THREE.CircleGeometry(1.1, 48), mat("#1a3d2c", { emissiveIntensity: 0.15, roughness: 0.9 }));
+          ground.rotation.x = -Math.PI / 2;
+          ground.position.y = -0.55;
+          const trees = [
+            [0, 0.15, 0, 0.95],
+            [-0.55, -0.05, 0.15, 0.7],
+            [0.5, -0.1, -0.1, 0.62],
+          ];
+          for (const [x, y, z, h] of trees) {
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.22, 8), mat("#6b4423", { emissiveIntensity: 0.1 }));
+            trunk.position.set(x, y - 0.35, z);
+            const crown = new THREE.Mesh(new THREE.ConeGeometry(0.28 * (h / 0.8), h, 10), mat(primary, { emissiveIntensity: 0.45 }));
+            crown.position.set(x, y, z);
+            root.add(trunk, crown);
+          }
+          root.add(ground);
+        } else if (motif === "campus") {
+          const coverL = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.75), mat(primary));
+          coverL.position.set(-0.28, 0, 0);
+          coverL.rotation.z = 0.18;
+          const coverR = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.75), mat(complement, { emissiveIntensity: 0.35 }));
+          coverR.position.set(0.28, 0, 0);
+          coverR.rotation.z = -0.18;
+          const page = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.03, 0.7), mat("#f8fafc", { emissiveIntensity: 0.05, roughness: 0.7 }));
+          page.position.y = 0.04;
+          root.add(coverL, coverR, page);
+        } else if (motif === "tech") {
+          const knot = new THREE.Mesh(
+            new THREE.TorusKnotGeometry(0.45, 0.12, 128, 16),
+            mat(primary, { metalness: 0.55, roughness: 0.25, emissiveIntensity: 0.7 }),
+          );
+          const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(0.95, 0.025, 12, 64),
+            mat(complement, { metalness: 0.6, emissiveIntensity: 0.9 }),
+          );
+          ring.rotation.x = Math.PI / 2.4;
+          accents.push({ mesh: knot, spin: 1.8 });
+          accents.push({ mesh: ring, spin: -1.1 });
+          root.add(knot, ring);
+        } else if (motif === "city") {
+          const heights = [0.5, 0.9, 0.65, 1.15, 0.75, 0.45];
+          heights.forEach((h, i) => {
+            const b = new THREE.Mesh(
+              new THREE.BoxGeometry(0.22, h, 0.22),
+              mat(i % 2 ? primary : complement, { metalness: 0.4, roughness: 0.35, emissiveIntensity: 0.35 }),
+            );
+            b.position.set((i - 2.5) * 0.28, h / 2 - 0.45, 0);
+            root.add(b);
+          });
+          const base = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.06, 0.5), mat("#334155", { emissiveIntensity: 0.1 }));
+          base.position.y = -0.5;
+          root.add(base);
+        } else if (motif === "night") {
+          // 加班夜归：月 + 窗灯光
+          const moon = new THREE.Mesh(
+            new THREE.SphereGeometry(0.38, 32, 32),
+            mat(complement, { emissiveIntensity: 1.2, roughness: 0.45, metalness: 0.05 }),
+          );
+          moon.position.set(0.55, 0.55, -0.2);
+          const moonCut = new THREE.Mesh(
+            new THREE.SphereGeometry(0.34, 32, 32),
+            mat("#07071a", { emissiveIntensity: 0.05, roughness: 1 }),
+          );
+          moonCut.position.set(0.72, 0.62, -0.15);
+          const building = new THREE.Mesh(
+            new THREE.BoxGeometry(1.1, 1.0, 0.35),
+            mat("#1e1b4b", { emissiveIntensity: 0.15, roughness: 0.7 }),
+          );
+          building.position.set(-0.25, -0.15, 0);
+          const winMats = [primary, complement, primary];
+          winMats.forEach((c, i) => {
+            const w = new THREE.Mesh(
+              new THREE.PlaneGeometry(0.18, 0.22),
+              mat(c, { emissiveIntensity: 1.4, roughness: 0.3 }),
+            );
+            w.position.set(-0.45 + (i % 2) * 0.35, 0.05 + Math.floor(i / 2) * 0.35, 0.19);
+            root.add(w);
+          });
+          for (let i = 0; i < 6; i++) {
+            const star = new THREE.Mesh(
+              new THREE.SphereGeometry(0.02, 8, 8),
+              mat("#e2e8f0", { emissiveIntensity: 1.5 }),
+            );
+            star.position.set(-0.9 + i * 0.28, 0.7 + (i % 3) * 0.15, -0.4);
+            accents.push({ mesh: star, baseY: star.position.y, phase: i });
+            root.add(star);
+          }
+          root.add(moon, moonCut, building);
+        } else if (motif === "interview") {
+          // 面试：桌 + 简历板 + 椅背暗示
+          const desk = new THREE.Mesh(
+            new THREE.BoxGeometry(1.4, 0.08, 0.7),
+            mat("#334155", { roughness: 0.5, metalness: 0.2 }),
+          );
+          desk.position.y = -0.15;
+          const legL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.45, 0.08), mat("#1e293b"));
+          legL.position.set(-0.55, -0.4, 0.2);
+          const legR = legL.clone();
+          legR.position.x = 0.55;
+          const paper = new THREE.Mesh(
+            new THREE.BoxGeometry(0.45, 0.02, 0.58),
+            mat("#f8fafc", { emissiveIntensity: 0.08, roughness: 0.65 }),
+          );
+          paper.position.set(-0.25, -0.08, 0.05);
+          paper.rotation.z = -0.08;
+          const badgeCard = new THREE.Mesh(
+            new THREE.BoxGeometry(0.35, 0.02, 0.22),
+            mat(primary, { emissiveIntensity: 0.7 }),
+          );
+          badgeCard.position.set(0.35, -0.08, 0.1);
+          const person = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.14, 0.25, 6, 12),
+            mat(complement, { emissiveIntensity: 0.35 }),
+          );
+          person.position.set(0.15, 0.35, -0.15);
+          root.add(desk, legL, legR, paper, badgeCard, person);
+        } else if (motif === "office") {
+          const monitor = new THREE.Mesh(
+            new THREE.BoxGeometry(0.95, 0.6, 0.06),
+            mat("#0f172a", { metalness: 0.5, roughness: 0.35 }),
+          );
+          monitor.position.set(0, 0.25, 0);
+          const screen = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.82, 0.48),
+            mat(primary, { emissiveIntensity: 1.1, roughness: 0.25 }),
+          );
+          screen.position.set(0, 0.25, 0.04);
+          const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.1, 0.25, 12), mat("#334155"));
+          stand.position.y = -0.2;
+          const base = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.04, 0.35), mat("#1e293b"));
+          base.position.y = -0.34;
+          const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.14, 16), mat(complement, { emissiveIntensity: 0.4 }));
+          mug.position.set(0.55, -0.2, 0.15);
+          root.add(monitor, screen, stand, base, mug);
+        } else if (motif === "commute") {
+          const car = new THREE.Mesh(
+            new THREE.BoxGeometry(1.5, 0.55, 0.55),
+            mat(primary, { metalness: 0.45, roughness: 0.35, emissiveIntensity: 0.25 }),
+          );
+          const win = new THREE.Mesh(
+            new THREE.PlaneGeometry(1.2, 0.28),
+            mat(complement, { emissiveIntensity: 0.9, opacity: 0.85 }),
+          );
+          win.position.set(0, 0.08, 0.28);
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.05, 0.12), mat("#475569"));
+          rail.position.y = -0.4;
+          root.add(car, win, rail);
+        } else if (motif === "beach") {
+          const sun = new THREE.Mesh(
+            new THREE.SphereGeometry(0.35, 28, 28),
+            mat(complement, { emissiveIntensity: 1.3, roughness: 0.4 }),
+          );
+          sun.position.set(0.45, 0.55, -0.2);
+          const water = new THREE.Mesh(
+            new THREE.CircleGeometry(1.2, 48),
+            mat(primary, { emissiveIntensity: 0.45, roughness: 0.35, metalness: 0.3 }),
+          );
+          water.rotation.x = -Math.PI / 2.3;
+          water.position.y = -0.35;
+          const sand = new THREE.Mesh(
+            new THREE.CircleGeometry(1.35, 48),
+            mat("#fef3c7", { emissiveIntensity: 0.15, roughness: 0.9 }),
+          );
+          sand.rotation.x = -Math.PI / 2;
+          sand.position.y = -0.42;
+          root.add(sand, water, sun);
+        } else if (motif === "romance") {
+          const a = new THREE.Mesh(
+            new THREE.SphereGeometry(0.32, 28, 28),
+            mat(primary, { emissiveIntensity: 0.7 }),
+          );
+          a.position.set(-0.28, 0.05, 0);
+          const b = new THREE.Mesh(
+            new THREE.SphereGeometry(0.32, 28, 28),
+            mat(complement, { emissiveIntensity: 0.7 }),
+          );
+          b.position.set(0.28, 0.05, 0);
+          const glow = new THREE.Mesh(
+            new THREE.SphereGeometry(0.18, 20, 20),
+            mat("#fff1f2", { emissiveIntensity: 1.2, opacity: 0.8 }),
+          );
+          glow.position.y = 0.05;
+          accents.push({ mesh: glow, baseY: 0.05, phase: 0 });
+          root.add(a, b, glow);
+        } else if (motif === "fitness") {
+          const bar = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.04, 0.04, 1.3, 12),
+            mat("#cbd5e1", { metalness: 0.7, roughness: 0.25 }),
+          );
+          bar.rotation.z = Math.PI / 2;
+          const plate = (x) => {
+            const p = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.28, 0.28, 0.1, 24),
+              mat(primary, { metalness: 0.5, emissiveIntensity: 0.4 }),
+            );
+            p.rotation.z = Math.PI / 2;
+            p.position.x = x;
+            return p;
+          };
+          root.add(bar, plate(-0.55), plate(-0.42), plate(0.42), plate(0.55));
+        } else if (motif === "music") {
+          const body = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.35, 0.4, 0.55, 28),
+            mat(primary, { metalness: 0.35, emissiveIntensity: 0.55 }),
+          );
+          const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(0.48, 0.35, 28),
+            mat(complement, { emissiveIntensity: 0.7 }),
+          );
+          cone.rotation.x = Math.PI / 2;
+          cone.position.z = 0.35;
+          accents.push({ mesh: body, spin: 1.2 });
+          root.add(body, cone);
+        } else if (motif === "store") {
+          const box = new THREE.Mesh(
+            new THREE.BoxGeometry(1.0, 0.75, 0.55),
+            mat(primary, { roughness: 0.45, emissiveIntensity: 0.35 }),
+          );
+          const awning = new THREE.Mesh(
+            new THREE.BoxGeometry(1.15, 0.08, 0.35),
+            mat(complement, { emissiveIntensity: 0.6 }),
+          );
+          awning.position.set(0, 0.42, 0.2);
+          const door = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.35, 0.5),
+            mat("#0f172a", { emissiveIntensity: 0.2 }),
+          );
+          door.position.set(0, -0.05, 0.28);
+          root.add(box, awning, door);
+        } else if (motif === "medical") {
+          const crossV = new THREE.Mesh(
+            new THREE.BoxGeometry(0.22, 0.85, 0.18),
+            mat(primary, { emissiveIntensity: 0.85 }),
+          );
+          const crossH = new THREE.Mesh(
+            new THREE.BoxGeometry(0.85, 0.22, 0.18),
+            mat(primary, { emissiveIntensity: 0.85 }),
+          );
+          const disc = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.7, 0.7, 0.08, 40),
+            mat(complement, { emissiveIntensity: 0.25, roughness: 0.5 }),
+          );
+          disc.rotation.x = Math.PI / 2;
+          root.add(disc, crossV, crossH);
+        } else if (motif === "home") {
+          const wall = new THREE.Mesh(
+            new THREE.BoxGeometry(1.1, 0.75, 0.55),
+            mat(primary, { roughness: 0.6, emissiveIntensity: 0.25 }),
+          );
+          const roof = new THREE.Mesh(
+            new THREE.ConeGeometry(0.85, 0.45, 4),
+            mat(complement, { emissiveIntensity: 0.45 }),
+          );
+          roof.position.y = 0.55;
+          roof.rotation.y = Math.PI / 4;
+          const door = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.28, 0.4),
+            mat("#1e293b", { emissiveIntensity: 0.15 }),
+          );
+          door.position.set(0, -0.12, 0.28);
+          root.add(wall, roof, door);
+        } else {
+          const outer = new THREE.Mesh(
+            new THREE.TorusGeometry(0.78, 0.045, 16, 72),
+            mat(primary, { emissiveIntensity: 0.85, metalness: 0.35 }),
+          );
+          const inner = new THREE.Mesh(
+            new THREE.TorusGeometry(0.48, 0.03, 12, 64),
+            mat(complement, { emissiveIntensity: 0.7 }),
+          );
+          inner.rotation.x = 0.4;
+          const core = new THREE.Mesh(new THREE.SphereGeometry(0.12, 24, 24), mat(complement, { emissiveIntensity: 1.1 }));
+          accents.push({ mesh: outer, spin: 0.9 });
+          accents.push({ mesh: inner, spin: -1.3 });
+          root.add(outer, inner, core);
+        }
+
+        root.position.y = 0.55;
+        root.scale.setScalar(0.82);
+        return { root, accents };
+      }
+
+      function buildTitleEl(title, highlightWord, primary) {
+        // 安全：title / highlightWord 均为用户/AI 文本，一律走 textContent 与 createTextNode，
+        // 不经 innerHTML（T5/E8）。仅 primary 进 style，且做 hex 白名单兜底（正常来自服务端调色板）。
+        const safePrimary = /^#[0-9a-fA-F]{3,8}$/.test(primary) ? primary : "#60a5fa";
+        const el = document.createElement("div");
+        el.className = "intro-text";
+        el.style.color = "#f8fafc";
+        const safeTitle = title || "";
+        const kwSpan = (text) => {
+          const span = document.createElement("span");
+          span.className = "kw";
+          span.style.color = safePrimary;
+          span.textContent = text;
+          return span;
+        };
+        if (highlightWord && safeTitle.toLowerCase().includes(highlightWord.toLowerCase())) {
+          const at = safeTitle.toLowerCase().indexOf(highlightWord.toLowerCase());
+          const before = safeTitle.slice(0, at);
+          const hit = safeTitle.slice(at, at + highlightWord.length);
+          const after = safeTitle.slice(at + hit.length);
+          if (before) el.appendChild(document.createTextNode(before));
+          el.appendChild(kwSpan(hit));
+          if (after) el.appendChild(document.createTextNode(after));
+        } else if (highlightWord) {
+          el.appendChild(document.createTextNode(safeTitle));
+          el.appendChild(document.createElement("br"));
+          el.appendChild(kwSpan(highlightWord));
+        } else {
+          el.textContent = safeTitle;
+        }
+        return el;
+      }
+
+      function init(payload) {
+        const title = String(payload?.title ?? "").slice(0, 40);
+        const highlightWord = String(payload?.highlightWord ?? "").slice(0, 24);
+        const topicLabel = String(payload?.topicLabel ?? "情景记忆").slice(0, 12);
+        state.motif = payload?.motif || "default";
+        state.primary = payload?.primaryColor || "#60a5fa";
+        state.complement = payload?.complementColor || "#fbbf24";
+        const bg = payload?.bgColor || "#141418";
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(bg);
+        scene.fog = new THREE.Fog(new THREE.Color(bg), 6, 14);
+
+        const camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 100);
+        camera.position.copy(state.camBase);
+        camera.lookAt(0, 0.2, 0);
+
+        const renderer = new THREE.WebGLRenderer({
+          antialias: true,
+          alpha: false,
+          preserveDrawingBuffer: true,
+        });
+        renderer.setSize(W, H);
+        renderer.setPixelRatio(1);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        document.getElementById("c").appendChild(renderer.domElement);
+
+        const labelRenderer = new CSS2DRenderer();
+        labelRenderer.setSize(W, H);
+        labelRenderer.domElement.style.position = "absolute";
+        labelRenderer.domElement.style.inset = "0";
+        document.getElementById("l").appendChild(labelRenderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.38));
+        const hemi = new THREE.HemisphereLight(0xfff7ed, 0x1c1917, 0.55);
+        scene.add(hemi);
+        const key = new THREE.DirectionalLight(0xffffff, 1.15);
+        key.position.set(2.2, 3.5, 3);
+        scene.add(key);
+        const fill = new THREE.DirectionalLight(0xffffff, 0.35);
+        fill.position.set(-2.5, 1.2, 1.5);
+        scene.add(fill);
+        const rim = new THREE.DirectionalLight(new THREE.Color(state.primary), 0.45);
+        rim.position.set(-1.5, 2, -2.5);
+        scene.add(rim);
+
+        const { root, accents } = buildMotif(state.motif, state.primary, state.complement);
+        scene.add(root);
+
+        const underlineMat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(state.primary),
+          transparent: true,
+          opacity: 0,
+        });
+        const underline = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.04), underlineMat);
+        underline.position.set(0, -0.55, 0.2);
+        scene.add(underline);
+
+        const badgeEl = document.createElement("div");
+        badgeEl.className = "badge";
+        badgeEl.textContent = topicLabel;
+        badgeEl.style.borderColor = state.primary;
+        badgeEl.style.color = state.complement;
+        const badgeObj = new CSS2DObject(badgeEl);
+        badgeObj.position.set(0, 1.55, 0);
+        scene.add(badgeObj);
+
+        let textObj = null;
+        let textEl = null;
+        let kwEl = null;
+        if (title) {
+          textEl = buildTitleEl(title, highlightWord, state.primary);
+          kwEl = textEl.querySelector(".kw");
+          textObj = new CSS2DObject(textEl);
+          textObj.position.set(0, -1.15, 0);
+          scene.add(textObj);
+        }
+
+        state.scene = scene;
+        state.camera = camera;
+        state.renderer = renderer;
+        state.labelRenderer = labelRenderer;
+        state.motifRoot = root;
+        state.accentParts = accents;
+        state.badgeObj = badgeObj;
+        state.badgeEl = badgeEl;
+        state.textObj = textObj;
+        state.textEl = textEl;
+        state.kwEl = kwEl;
+        state.underline = underline;
+        state.underlineMat = underlineMat;
+        state.ready = true;
+        seek(0);
+      }
+
+      function seek(tRaw) {
+        if (!state.ready) return;
+        const t = Math.min(DURATION, Math.max(0, Number(tRaw) || 0));
+        const {
+          motifRoot,
+          accentParts,
+          badgeEl,
+          textEl,
+          kwEl,
+          underline,
+          underlineMat,
+          camera,
+          renderer,
+          labelRenderer,
+          scene,
+        } = state;
+
+        // 母题：开场即见，0.28s 内到位
+        const motifP = easeOutBack(clamp01(t / T_MOTIF));
+        motifRoot.scale.setScalar(lerp(0.72, 1, motifP));
+        motifRoot.rotation.y = lerp(-0.25, 0.15, easeOutCubic(clamp01(t / 0.9)));
+        motifRoot.visible = true;
+
+        for (const part of accentParts) {
+          if (part.spin) part.mesh.rotation.y = t * part.spin;
+          if (part.baseY !== undefined) {
+            part.mesh.position.y = part.baseY + Math.sin(t * 8 + part.phase) * 0.06 + t * 0.12;
+            part.mesh.material.opacity = lerp(0.4, 0.85, clamp01(t / 0.4));
+          }
+        }
+
+        // 主题徽章
+        if (badgeEl) {
+          const bp = easeOutCubic(clamp01((t - 0.05) / 0.22));
+          badgeEl.style.opacity = String(bp);
+          badgeEl.style.transform = `translateY(${lerp(12, 0, bp)}px)`;
+        }
+
+        // 标题上移淡入（无远距飞入，避免粗糙感）
+        if (textEl) {
+          if (t < T_TITLE_IN) {
+            textEl.style.opacity = "0";
+            textEl.style.transform = "translateY(28px)";
+          } else {
+            const u = easeOutCubic(clamp01((t - T_TITLE_IN) / (T_TITLE_OK - T_TITLE_IN)));
+            textEl.style.opacity = String(u);
+            textEl.style.transform = `translateY(${lerp(28, 0, u)}px)`;
+          }
+        }
+
+        if (kwEl) {
+          kwEl.style.fontSize = "";
+          kwEl.style.filter = "";
+        }
+        underlineMat.opacity = 0;
+        underline.scale.x = 0.2;
+        camera.position.copy(state.camBase);
+
+        if (t >= T_PUNCH) {
+          const hp = easeOutCubic(clamp01((t - T_PUNCH) / 0.22));
+          if (kwEl) {
+            kwEl.style.fontSize = `${52 * lerp(1, 1.28, hp)}px`;
+            kwEl.style.filter = `drop-shadow(0 0 ${8 * hp}px ${state.primary})`;
+          }
+          underlineMat.opacity = lerp(0, 0.9, hp);
+          underline.scale.x = lerp(0.25, 1, hp);
+          if (t < T_PUNCH + 0.12) {
+            const shake = 1 - (t - T_PUNCH) / 0.12;
+            camera.position.x = state.camBase.x + 0.012 * shake;
+          }
+        }
+
+        renderer.render(scene, camera);
+        labelRenderer.render(scene, camera);
+      }
+
+      function sampleMaxLuma() {
+        const gl = state.renderer.getContext();
+        const pixels = new Uint8Array(4);
+        let max = 0;
+        const step = 48;
+        for (let y = 0; y < H; y += step) {
+          for (let x = 0; x < W; x += step) {
+            gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            max = Math.max(max, (pixels[0] + pixels[1] + pixels[2]) / 3);
+          }
+        }
+        return max;
+      }
+
+      window.__intro = {
+        init,
+        seek,
+        get ready() {
+          return state.ready;
+        },
+        sampleMaxLuma,
+      };
+    </script>
+  </body>
+</html>
