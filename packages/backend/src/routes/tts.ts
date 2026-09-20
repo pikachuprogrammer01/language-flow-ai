@@ -9,6 +9,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { logger } from "../lib/logger";
+import { MAC_VOICES, TTS_VOICES } from "../lib/tts-catalog";
 import { buildTtsText, getAudioDuration, synthesizeSpeech } from "../services/tts.service";
 
 // ── Zod schema ──
@@ -19,24 +20,7 @@ const ttsSchema = z.object({
   voice: z.string().optional().default("zh-CN-XiaoxiaoNeural"),
 });
 
-/** 常用中文配音（edge-tts 支持，2026-08-17 整理；PRD §10.1.1 配音可选） */
-/** Mac 本地音色（say 可用中文音色：Tingting 普通话；Sinji/Meijia 粤语；Eddy 等需下载暂不可用） */
-export const MAC_VOICES = [
-  { id: "Tingting", name: "婷婷（普通话·本地）", gender: "女" },
-  { id: "Sinji", name: "阿欣（粤语·本地）", gender: "女" },
-  { id: "Meijia", name: "美佳（粤语·本地）", gender: "女" },
-];
-
-export const TTS_VOICES = [
-  { id: "zh-CN-XiaoxiaoNeural", name: "晓晓（女·温暖）", gender: "女" },
-  { id: "zh-CN-XiaoyiNeural", name: "晓伊（女·活泼）", gender: "女" },
-  { id: "zh-CN-YunxiNeural", name: "云希（男·阳光）", gender: "男" },
-  { id: "zh-CN-YunjianNeural", name: "云健（男·浑厚）", gender: "男" },
-  { id: "zh-CN-YunyangNeural", name: "云扬（男·新闻）", gender: "男" },
-  { id: "zh-CN-XiaochenNeural", name: "晓辰（女·温柔）", gender: "女" },
-  { id: "zh-CN-XiaohanNeural", name: "晓涵（女·知性）", gender: "女" },
-  { id: "zh-CN-XiaomengNeural", name: "晓梦（女·少年感）", gender: "女" },
-];
+/** 可用音色列表见 lib/tts-catalog（F6 单一来源，与 video-analytics 白名单校验共用） */
 
 // content 为上游传入的动态 JSON（AGENTS.md §3.1：Record<string, unknown> 例外）
 const fromContentSchema = z.object({
