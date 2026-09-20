@@ -22,8 +22,16 @@ export interface ChatMessage {
 
 const TIMEOUT_MS = 60_000;
 
+export interface ChatCompletionOptions {
+  temperature?: number;
+  timeoutMs?: number;
+}
+
 /** 调用 LLM Chat Completions，返回助手文本；超时/网络错误抛 Error */
-export async function chatCompletion(messages: ChatMessage[]): Promise<string> {
+export async function chatCompletion(
+  messages: ChatMessage[],
+  options: ChatCompletionOptions = {},
+): Promise<string> {
   const baseUrl = process.env.LLM_BASE_URL?.replace(/\/+$/, "");
   const apiKey = process.env.LLM_API_KEY;
   const model = process.env.LLM_MODEL;
@@ -31,8 +39,10 @@ export async function chatCompletion(messages: ChatMessage[]): Promise<string> {
     throw new LlmNotConfiguredError();
   }
 
+  const temperature = options.temperature ?? 0.7;
+  const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -40,7 +50,7 @@ export async function chatCompletion(messages: ChatMessage[]): Promise<string> {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model, messages, temperature: 0.7 }),
+      body: JSON.stringify({ model, messages, temperature }),
       signal: controller.signal,
     });
     if (!res.ok) {

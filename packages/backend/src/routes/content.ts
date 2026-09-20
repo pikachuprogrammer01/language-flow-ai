@@ -42,6 +42,8 @@ const styleSchema = z.object({
   font: z.string().optional(),
   colorScheme: z.string().optional(),
   bgm: z.string().optional(),
+  introEffect: z.boolean().optional(),
+  introTopic: z.string().optional(),
 });
 
 const voiceSchema = z.object({
@@ -80,7 +82,11 @@ export const contentDtoSchema = z.object({
   updatedAt: z.string(),
 });
 
-const generateResponseSchema = z.object({ content: contentDtoSchema });
+const generateResponseSchema = z.object({
+  content: contentDtoSchema,
+  /** 任务记录（contents）是否成功落库；false = 内容已生成但记录未建，前端可提示重试建记录（E2） */
+  taskRecordSaved: z.boolean(),
+});
 
 // ── 路由定义 ──
 
@@ -117,7 +123,8 @@ export const content = new OpenAPIHono().openapi(generateRoute, async (c): Promi
       { template: dto.template, title: dto.title, segments: dto.content.length },
       "content generated",
     );
-    // 自动建任务记录（contents 表，状态 content_ready）；落库失败仅告警不阻塞响应
+    // 自动建任务记录（contents 表，状态 content_ready）；落库失败不阻断生成结果，但可见化（E2）
+    let taskRecordSaved = true;
     try {
       await db.insert(contents).values({
         id: dto.id,
@@ -134,9 +141,10 @@ export const content = new OpenAPIHono().openapi(generateRoute, async (c): Promi
       });
       logger.info({ id: dto.id }, "task record created");
     } catch (dbErr) {
-      logger.warn({ err: dbErr, id: dto.id }, "task record 落库失败（不影响生成结果）");
+      taskRecordSaved = false;
+      logger.error({ err: dbErr, id: dto.id }, "task record 落库失败（内容已生成，记录未建）");
     }
-    return c.json({ content: dto });
+    return c.json({ content: dto, taskRecordSaved });
   } catch (err) {
     if (err instanceof LlmNotConfiguredError) {
       return c.json({ error: err.message }, 503);
