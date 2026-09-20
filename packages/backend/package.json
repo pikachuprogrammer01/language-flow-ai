@@ -12,6 +12,7 @@
     "copy:vendor": "tsx scripts/copy-vendor.ts",
     "openapi:gen": "GEN_OPENAPI=1 tsx src/index.ts",
     "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run src/db/integration.test.ts",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
