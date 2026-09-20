@@ -134,6 +134,59 @@ export async function listTasks(
   return data;
 }
 
+export type VideoAnalytics = {
+  contentId: string;
+  template: "scene_word" | "word_card" | "quiz";
+  targetDuration: number;
+  duration: number | null;
+  storyTopic: string | null;
+  publishAt: string | null;
+  coverUrl: string | null;
+  voice: string | null;
+  bgm: string | null;
+  allowSave: boolean;
+  customParams: Array<{ key: string; label: string; type: "text" | "image"; value: string }> | null;
+};
+
+export async function getVideoAnalytics(contentId: string): Promise<VideoAnalytics> {
+  const { data, error, response } = await client.GET("/api/video-analytics/{contentId}", {
+    params: { path: { contentId } },
+  });
+  if (error || !response.ok || !data)
+    throw new Error(`查询视频分析失败（HTTP ${response.status}）`);
+  return data;
+}
+
+export async function getVideoAnalyticsBatch(contentIds: string[]): Promise<VideoAnalytics[]> {
+  const { data, error, response } = await client.GET("/api/video-analytics", {
+    params: { query: { ids: contentIds.join(",") } },
+  });
+  if (error || !response.ok || !data)
+    throw new Error(`批量查询视频分析失败（HTTP ${response.status}）`);
+  return data;
+}
+
+export async function updateVideoAnalytics(
+  contentId: string,
+  body: {
+    storyTopic?: string | null;
+    publishAt?: string | null;
+    coverUrl?: string | null;
+    allowSave?: boolean;
+    voice?: string;
+    bgm?: string | null;
+    customParams?: NonNullable<VideoAnalytics["customParams"]> | null;
+  },
+): Promise<VideoAnalytics> {
+  const { data, error, response } = await client.PATCH("/api/video-analytics/{contentId}", {
+    params: { path: { contentId } },
+    body,
+  });
+  if (error || !response.ok || !data)
+    throw new Error(`保存视频分析失败（HTTP ${response.status}）`);
+  return data;
+}
+
 /** 生成记录详情（ContentDTO 全量） */
 export async function getTask(id: string) {
   const { data, error, response } = await client.GET("/api/tasks/{id}", {
@@ -169,6 +222,19 @@ export async function updateTask(
   });
   if (error || !response.ok) throw new Error(`更新任务失败（HTTP ${response.status}）`);
   if (!data) throw new Error("更新任务失败：空响应");
+  return data;
+}
+
+export async function updateRenderSettings(
+  id: string,
+  body: { introEffect: boolean },
+): Promise<{ introEffect: boolean }> {
+  const { data, error, response } = await client.PATCH("/api/tasks/{id}/render-settings", {
+    params: { path: { id } },
+    body,
+  });
+  if (error || !response.ok || !data)
+    throw new Error(`更新渲染设置失败（HTTP ${response.status}）`);
   return data;
 }
 

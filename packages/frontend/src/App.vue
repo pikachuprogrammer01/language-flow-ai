@@ -33,6 +33,9 @@ function isActive(path: string): boolean {
         <Button as-child :variant="isActive('/marks') ? 'secondary' : 'ghost'" size="sm">
           <RouterLink to="/marks">上传标记</RouterLink>
         </Button>
+        <Button as-child :variant="isActive('/analytics') ? 'secondary' : 'ghost'" size="sm">
+          <RouterLink to="/analytics">视频发布管理</RouterLink>
+        </Button>
         <Button as-child :variant="isActive('/audit') ? 'secondary' : 'ghost'" size="sm">
           <RouterLink to="/audit">审计管理</RouterLink>
         </Button>

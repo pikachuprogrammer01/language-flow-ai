@@ -287,7 +287,7 @@ watch(selectedId, (nextId, previousId) => {
 <template>
   <main class="mx-auto max-w-6xl px-6 py-8">
     <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
-      <div><h1 class="text-2xl font-bold">视频数据分析</h1><p class="mt-1 text-sm text-gray-500">统一查看视频元数据，并维护发布与保存策略。</p></div>
+      <div><h1 class="text-2xl font-bold">视频发布管理</h1><p class="mt-1 text-sm text-gray-500">统一维护视频的发布元数据与保存策略。</p></div>
       <button class="rounded-lg border px-3 py-2 text-sm hover:bg-gray-100" @click="load">刷新数据</button>
     </div>
     <div v-if="errorMsg" role="alert" class="mb-4 flex items-center justify-between gap-3 rounded-lg bg-red-50 p-3 text-sm text-red-600"><span>{{ errorMsg }}</span><button class="rounded border border-red-300 px-2 py-1 text-xs hover:bg-red-100" @click="load">重试</button></div>

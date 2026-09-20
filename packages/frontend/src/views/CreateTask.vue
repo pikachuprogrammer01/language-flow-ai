@@ -4,6 +4,7 @@
  * 调用链：/api/content/generate → /api/tts/from-content → /api/video/render
  */
 import { computed, onMounted, ref } from "vue";
+import { toast } from "vue-sonner";
 import {
   type GenerateInput,
   type RenderInput,
@@ -81,6 +82,8 @@ const rate = ref(1);
 /** BGM 选择（生成时可选；默认钢琴曲 free-04-piano-iix.mp3，重新渲染时混入，docs/13 素材清单） */
 const bgm = ref("/files/bgm/free-04-piano-iix.mp3");
 const bgmFiles = ref<{ filename: string }[]>([]);
+/** scene_word 片头 Three.js 动效（默认开；约 1 秒静音占位） */
+const introEffect = ref(true);
 const RATE_OPTIONS = [
   { value: 0.8, label: "慢" },
   { value: 1, label: "正常" },
@@ -131,6 +134,13 @@ const questions = ref<
   { word: string; stem: string; options: string[]; correctIndex: number; explanation: string }[]
 >([]);
 const videoUrl = ref("");
+/** 本次渲染片头结果（scene_word）：驱动完成页徽章（DS4/D5） */
+const introStatus = ref<"" | "rendered" | "failed" | "disabled">("");
+const INTRO_BADGE: Record<string, { label: string; cls: string }> = {
+  rendered: { label: "片头已生成", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  failed: { label: "片头生成失败·已跳过", cls: "border-amber-200 bg-amber-50 text-amber-700" },
+  disabled: { label: "片头已关闭", cls: "border-gray-200 bg-gray-50 text-gray-500" },
+};
 const audioDuration = ref(0);
 /** 配音成果（分步执行保留：渲染/重试直接复用，失败不重来） */
 const audioMeta = ref<{ url: string; duration: number; format: string } | null>(null);
@@ -360,11 +370,16 @@ async function saveEdit(): Promise<void> {
       style: {
         ...((dtoSnapshot.value.style as Record<string, unknown> | undefined) ?? {}),
         bgm: bgm.value,
+        introEffect: introEffect.value,
+        introTopic: topic.value,
       },
     };
     const video = await renderVideo(dtoWithAudio);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
     videoUrl.value = `${base}${video.url}`;
+    introStatus.value =
+      ((video as { introStatus?: unknown }).introStatus as "rendered" | "failed" | "disabled") ??
+      "";
     await updateTask(dtoId.value, { audio, video, status: "completed" });
     step.value = "done";
   } catch (err) {
@@ -491,17 +506,24 @@ async function renderStep(): Promise<boolean> {
       style: {
         ...((dtoSnapshot.value.style as Record<string, unknown> | undefined) ?? {}),
         bgm: bgm.value,
+        introEffect: introEffect.value,
+        introTopic: topic.value,
       },
     } as unknown as RenderInput;
     const video = await renderVideo(dtoWithAudio);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
     videoUrl.value = `${base}${video.url}`;
+    introStatus.value =
+      ((video as { introStatus?: unknown }).introStatus as "rendered" | "failed" | "disabled") ??
+      "";
     step.value = "done";
-    // 回写生成记录（generate 已自动落库）：配音 + 视频 + 完成状态；失败静默（不影响主流程）
+    // 回写生成记录（generate 已自动落库）：配音 + 视频 + 完成状态；失败可见（E2：不再静默假成功）
     try {
       await updateTask(dtoId.value, { audio: audioMeta.value, video, status: "completed" });
-    } catch {
-      /* 静默：记录回写失败不影响视频产出 */
+    } catch (err) {
+      toast.error(
+        `视频已生成，但记录回写失败（${err instanceof Error ? err.message : "未知错误"}），可到列表重试渲染`,
+      );
     }
     return true;
   } catch (err) {
@@ -655,6 +677,13 @@ async function run(): Promise<void> {
             >
               {{ isPlaying('bgm') ? "⏸ 暂停" : "🔊 试听" }}
             </button>
+            <label
+              v-if="template === 'scene_word'"
+              class="ml-2 inline-flex items-center gap-1.5 text-xs text-gray-600"
+            >
+              <input v-model="introEffect" type="checkbox" class="rounded border-gray-300" />
+              片头动效（约 1 秒，暂无声）
+            </label>
             <span class="text-xs text-gray-400">生成后可改，重新配音/渲染时生效</span>
           </div>
         </div>
@@ -771,6 +800,15 @@ async function run(): Promise<void> {
         />
       </div>
       <p class="mt-3 break-all text-center text-xs text-gray-500">{{ videoUrl }}</p>
+      <div v-if="introStatus && INTRO_BADGE[introStatus]" class="mt-3 flex justify-center">
+        <span
+          role="status"
+          class="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs"
+          :class="INTRO_BADGE[introStatus]?.cls"
+        >
+          <span aria-hidden="true">{{ introStatus === "rendered" ? "✓" : introStatus === "failed" ? "⚠" : "○" }}</span>{{ INTRO_BADGE[introStatus]?.label }}
+        </span>
+      </div>
     </div>
   </div>
 </template>
