@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "pnpm gen-api",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "gen-api": "openapi-typescript ../backend/src/openapi.json -o src/api/schema.d.ts",

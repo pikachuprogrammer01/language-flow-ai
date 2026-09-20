@@ -17,6 +17,7 @@ import { topics } from "./routes/topics";
 import { tts } from "./routes/tts";
 import { uploadMarksRoute } from "./routes/upload-marks";
 import { video } from "./routes/video";
+import { videoAnalyticsRoute } from "./routes/video-analytics";
 
 // ── 环境变量校验 ──
 const requiredEnvVars = ["DATABASE_URL"] as const;
@@ -92,9 +93,10 @@ app.route("/api/tasks", tasks);
 app.route("/api/topics", topics);
 app.route("/api/files", fileManager);
 app.route("/api/upload-marks", uploadMarksRoute);
+app.route("/api/video-analytics", videoAnalyticsRoute);
 app.route("/files", files);
 
-// ── OpenAPI 文档（#19）：/doc Scalar UI + openapi.json 自动生成 ──
+// ── OpenAPI 文档（#19）：/doc Scalar UI 实时服务；openapi.json 由显式 `pnpm openapi:gen` 生成 ──
 app.doc("/doc", {
   openapi: "3.1.0",
   info: {
@@ -103,18 +105,23 @@ app.doc("/doc", {
     description: "四级词汇情景记忆短视频平台 API",
   },
 });
-writeFileSync(
-  join(import.meta.dirname, "openapi.json"),
-  JSON.stringify(
-    app.getOpenAPIDocument({
-      openapi: "3.1.0",
-      info: { title: "Language Flow AI API", version: "0.1.0" },
-    }),
-    null,
-    2,
-  ),
-);
-logger.info({}, "openapi.json generated");
+
+// 仅在显式生成模式写文件后退出（修复 DX-3：常规启动/类型检查不再重写受追踪的 openapi.json）
+if (process.env.GEN_OPENAPI === "1") {
+  writeFileSync(
+    join(import.meta.dirname, "openapi.json"),
+    JSON.stringify(
+      app.getOpenAPIDocument({
+        openapi: "3.1.0",
+        info: { title: "Language Flow AI API", version: "0.1.0" },
+      }),
+      null,
+      2,
+    ),
+  );
+  logger.info({}, "openapi.json generated");
+  process.exit(0);
+}
 
 // ── 启动服务器 ──
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
