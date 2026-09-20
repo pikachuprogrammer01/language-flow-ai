@@ -10,6 +10,8 @@ COPY packages/frontend/package.json packages/frontend/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
+# Three.js vendor 构建期拷贝（--ignore-scripts 跳过 postinstall，故显式生成；产物落 src/renderer/vendor 供 tsx 运行时读取）
+RUN pnpm --filter @ai-english/backend copy:vendor
 RUN pnpm --filter @ai-english/backend build
 
 # ── 运行时阶段：ffmpeg + 中文字体 + Chromium + 依赖（tsx 直接跑 TS 源码） ──

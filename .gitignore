@@ -34,6 +34,9 @@ packages/backend/uploads
 # OpenAPI generated (auto-generated, not committed)
 packages/frontend/src/api/schema.d.ts
 
+# Three.js vendor 构建产物（npm 依赖 + 构建期拷贝生成，见 packages/backend/scripts/copy-vendor.ts；不入库以保 lockfile 溯源）
+packages/backend/src/renderer/vendor/
+
 # Dify
 dify/**/*.env
 

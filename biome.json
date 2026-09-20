@@ -14,7 +14,8 @@
       "*.gen.ts",
       "openapi.json",
       "packages/frontend/src/api/schema.d.ts",
-      "packages/backend/src/openapi.json"
+      "packages/backend/src/openapi.json",
+      "packages/backend/src/renderer/vendor"
     ]
   },
   "formatter": {

@@ -92,11 +92,18 @@ ensure_mysql() {
   log "警告: 等待 MySQL healthy 超时（当前状态=${status}），继续尝试"
 }
 
+# Three.js vendor 构建期产物（npm 依赖 + 拷贝生成，已 gitignore）：缺失时本地渲染片头会失败，故启动前确保生成
+ensure_vendor() {
+  log "生成 Three.js vendor（copy:vendor）"
+  pnpm --filter @ai-english/backend copy:vendor
+}
+
 cmd_dev() {
   stop_compose_app
   free_ports
   ensure_mysql
   ensure_uploads_link
+  ensure_vendor
   log "启动本地 pnpm 前后端（http://localhost:5173 · API :8080）"
   exec pnpm exec concurrently -n be,fe -c blue,green \
     "pnpm --filter backend dev" \

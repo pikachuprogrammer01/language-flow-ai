@@ -11,4 +11,5 @@ uploads
 .env.*
 !.env.example
 packages/frontend/src/api/schema.d.ts
+packages/backend/src/renderer/vendor
 .dockerignore
