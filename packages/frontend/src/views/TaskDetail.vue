@@ -546,12 +546,12 @@ async function doRemove(): Promise<void> {
 
 onMounted(load);
 
-// 加载配音列表（失败静默，默认音色兜底）
+// 加载配音列表（失败静默）。仅在尚未水合时把默认音色填入；已水合的遗留目录外音色
+// 不强改（由 select 的“当前值不可选”兜底项可见保留，避免静默改写规范值）
 listVoices()
   .then((data) => {
     voices.value = data.voices;
-    // 当前音色不在列表（引擎切换后旧 id 失效）时切到默认
-    if (!voices.value.some((v) => v.id === voice.value)) {
+    if (!introHydrated.value && !voices.value.some((v) => v.id === voice.value)) {
       voice.value = data.default ?? voices.value[0]?.id ?? "";
     }
   })
@@ -653,6 +653,9 @@ listFiles({ type: "bgm" })
           :disabled="revoicing"
         >
           <option v-for="v in voices" :key="v.id" :value="v.id">{{ v.name }}</option>
+          <option v-if="voice && !voices.some((v) => v.id === voice)" :value="voice" disabled>
+            {{ voice }}（当前值不可选）
+          </option>
         </select>
         <div class="flex items-center gap-1.5" :class="revoicing ? 'opacity-50' : ''">
           <span class="text-xs text-gray-500">语速</span>
@@ -675,6 +678,9 @@ listFiles({ type: "bgm" })
         >
           <option value="">无 BGM</option>
           <option v-for="b in bgmFiles" :key="b.filename" :value="`/files/bgm/${b.filename}`">{{ b.filename }}</option>
+          <option v-if="bgm && !bgmFiles.some((b) => `/files/bgm/${b.filename}` === bgm)" :value="bgm" disabled>
+            {{ bgm.split("/").pop() }}（当前值不可选）
+          </option>
         </select>
         <label
           v-if="task?.template === 'scene_word'"
