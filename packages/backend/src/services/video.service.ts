@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
-import type { ContentDTO, TemplateType } from "@ai-english/shared";
+import type { ContentDTO, IntroStatus, TemplateType } from "@ai-english/shared";
 import { logger } from "../lib/logger";
 import { QuizRenderer } from "../renderer/quiz.renderer";
 import type { RenderFrame, TemplateRenderer } from "../renderer/renderer.interface";
@@ -27,6 +27,8 @@ export interface RenderVideoResult {
   resolution: string;
   format: string;
   size: number;
+  /** scene_word 片头渲染结果（渲染产物事实，供前端回写落库 D5） */
+  introStatus?: IntroStatus;
 }
 
 const renderers: Record<TemplateType, TemplateRenderer> = {
@@ -119,6 +121,31 @@ export async function composeVideo(
     outputPath,
   ];
   await execFileAsync("ffmpeg", args, { timeout: 120_000 });
+}
+
+/** 在音频前垫静音（片头占位，暂无片头口播） */
+async function padLeadingSilence(
+  inputPath: string,
+  outputPath: string,
+  padSec: number,
+): Promise<void> {
+  const delayMs = Math.round(padSec * 1000);
+  await execFileAsync(
+    "ffmpeg",
+    [
+      "-y",
+      "-i",
+      inputPath,
+      "-af",
+      `adelay=${delayMs}|${delayMs}:all=1`,
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      outputPath,
+    ],
+    { timeout: 60_000 },
+  );
 }
 
 /** /files/audio|bgm/xxx.mp3 → uploads 对应目录的本地路径（只取 basename + 白名单目录，防路径穿越） */
@@ -232,6 +259,17 @@ export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
     }
     const result = await renderer.render(dto, workDir, renderExtra);
 
+    if (result.introPadSec && result.introPadSec > 0) {
+      const introPadSec = result.introPadSec;
+      const paddedPath = join(workDir, "audio-with-intro-pad.m4a");
+      await padLeadingSilence(audioPath, paddedPath, introPadSec);
+      audioPath = paddedPath;
+      // quiz 提示音若存在，整体后移片头时长
+      if (result.beepTimes?.length) {
+        result.beepTimes = result.beepTimes.map((t) => t + introPadSec);
+      }
+    }
+
     await mkdir(dirname(outputPath), { recursive: true });
     try {
       // style.bgm（可选）：组装时选择背景音乐混音（docs/13 素材清单；BGM 音量 0.12 垫底）
@@ -262,6 +300,7 @@ export async function renderVideo(dto: ContentDTO): Promise<RenderVideoResult> {
       resolution: "1080x1920",
       format: "mp4",
       size,
+      introStatus: result.introStatus,
     };
   } finally {
     await rm(workDir, { recursive: true, force: true });
