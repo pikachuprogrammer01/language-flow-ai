@@ -5,6 +5,19 @@ import { videoAnalyticsRoute } from "./video-analytics";
 
 vi.mock("../db", () => ({ db: {} }));
 
+// 音色/BGM 目录模块：白名单取真实语义（不含 legacy）；BGM 目录文件不存在（fs 语义）——
+// “未变更遗留值放行”的判定在 handler 内完成，与 fs 无关。
+const { VALID_VOICES } = vi.hoisted(() => ({
+  VALID_VOICES: new Set(["zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-YunxiNeural"]),
+}));
+vi.mock("../lib/tts-catalog", () => ({
+  allVoiceIds: () => [...VALID_VOICES],
+  isVoiceAllowed: (voice: string) => VALID_VOICES.has(voice),
+  // 真实语义：null/空串 = 无 BGM 允许；非空在测试环境无对应素材文件 → 拒绝
+  isBgmAllowed: (ref: string | null | undefined) => ref === null || ref === undefined || ref === "",
+  listBgmFiles: () => [],
+}));
+
 type ContentRow = {
   id: string;
   template: "scene_word" | "word_card" | "quiz";
@@ -245,5 +258,41 @@ describe("video analytics routes", () => {
     expect(payload.error.field).toBe("voice");
     expect(payload.error.hint).toContain("/api/tts/voices");
     expect(state.contents[0].voice.id).toBe("voice-old");
+  });
+
+  it("lets a legacy voice pass through unchanged so other fields remain editable (smoke-test regression)", async () => {
+    const response = await videoAnalyticsRoute.request("/cnt_analytics_001", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        storyTopic: "只改主题",
+        voice: "voice-old",
+        bgm: "/files/bgm/old.mp3",
+      }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ storyTopic: "只改主题" });
+    expect(state.analytics).toHaveLength(1);
+    expect(state.contents[0].voice.id).toBe("voice-old");
+  });
+
+  it("rejects a NEW voice outside the catalog even when legacy value exists", async () => {
+    const response = await videoAnalyticsRoute.request("/cnt_analytics_001", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ voice: "brand-new-voice" }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects changed bgm that is not an existing material file", async () => {
+    const response = await videoAnalyticsRoute.request("/cnt_analytics_001", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ bgm: "/files/bgm/does-not-exist.mp3" }),
+    });
+    expect(response.status).toBe(400);
+    const payload = (await response.json()) as { error: { code: string } };
+    expect(payload.error.code).toBe("BGM_NOT_ALLOWED");
   });
 });

@@ -188,18 +188,38 @@ const patchRoute = createRoute({
 });
 
 /**
+ * PATCH 事务结果判别联合：缺失/白名单拒绝/成功响应。
+ * 白名单规则：非法值但与该行已存值相同 → 视为“未变更的遗留值”放行（no-op），
+ * 否则拒绝——保证老数据（如目录前的 female_01 音色）改其它字段不被无关字段锁死。
+ */
+type AnalyticsPatchResult =
+  | { kind: "missing" }
+  | { kind: "voice-rejected" }
+  | { kind: "bgm-rejected" }
+  | { kind: "response"; result: VideoAnalyticsResponse };
+
+/**
  * 事务写 contents（voice/style 回写）+ upsert video_analytics。
  * 对 contents 行 FOR UPDATE，与 tasks render-settings 共用同一行锁语义（F3/G2 全写者互斥）。
  */
 async function writeAnalyticsAndCanonical(
   contentId: string,
   body: z.infer<typeof bodySchema>,
-): Promise<VideoAnalyticsResponse | null> {
+): Promise<AnalyticsPatchResult> {
   return db.transaction(async (tx) => {
     const content = (
       await tx.select().from(contents).where(eq(contents.id, contentId)).limit(1).for("update")
     )[0];
-    if (!content) return null;
+    if (!content) return { kind: "missing" };
+
+    const currentVoiceId = asString(asRecord(content.voice).id);
+    if (body.voice !== undefined && body.voice !== currentVoiceId && !isVoiceAllowed(body.voice)) {
+      return { kind: "voice-rejected" };
+    }
+    const currentBgm = asString(asRecord(content.style).bgm) ?? "";
+    if (body.bgm !== undefined && (body.bgm ?? "") !== currentBgm && !isBgmAllowed(body.bgm)) {
+      return { kind: "bgm-rejected" };
+    }
 
     const currentStyle = { ...asRecord(content.style) };
     const currentVoice = asRecord(content.voice);
@@ -260,39 +280,39 @@ async function writeAnalyticsAndCanonical(
       await tx.select().from(videoAnalytics).where(eq(videoAnalytics.contentId, contentId)).limit(1)
     )[0];
     return updatedContent && updatedAnalytics
-      ? buildResponse(updatedContent, updatedAnalytics)
-      : null;
+      ? { kind: "response", result: buildResponse(updatedContent, updatedAnalytics) }
+      : { kind: "missing" };
   });
 }
 
 videoAnalyticsRoute.openapi(patchRoute, async (c) => {
   const { contentId } = c.req.valid("param");
   const body = c.req.valid("json");
-  if (body.voice !== undefined && !isVoiceAllowed(body.voice)) {
-    return c.json(
-      apiError("VOICE_NOT_ALLOWED", "音色不在允许列表", {
-        field: "voice",
-        received: body.voice,
-        allowed: allVoiceIds(),
-        hint: "GET /api/tts/voices",
-      }),
-      400,
-    );
-  }
-  if (body.bgm !== undefined && !isBgmAllowed(body.bgm)) {
-    return c.json(
-      apiError("BGM_NOT_ALLOWED", "背景音乐素材不存在", {
-        field: "bgm",
-        received: body.bgm ?? undefined,
-        hint: "GET /api/files?type=bgm",
-      }),
-      400,
-    );
-  }
   try {
-    const result = await writeAnalyticsAndCanonical(contentId, body);
-    if (!result) return c.json(apiError("NOT_FOUND", "内容不存在"), 404);
-    return c.json(result, 200);
+    const outcome = await writeAnalyticsAndCanonical(contentId, body);
+    if (outcome.kind === "missing") return c.json(apiError("NOT_FOUND", "内容不存在"), 404);
+    if (outcome.kind === "voice-rejected") {
+      return c.json(
+        apiError("VOICE_NOT_ALLOWED", "音色不在允许列表", {
+          field: "voice",
+          received: body.voice,
+          allowed: allVoiceIds(),
+          hint: "GET /api/tts/voices",
+        }),
+        400,
+      );
+    }
+    if (outcome.kind === "bgm-rejected") {
+      return c.json(
+        apiError("BGM_NOT_ALLOWED", "背景音乐素材不存在", {
+          field: "bgm",
+          received: body.bgm ?? undefined,
+          hint: "GET /api/files?type=bgm",
+        }),
+        400,
+      );
+    }
+    return c.json(outcome.result, 200);
   } catch (e) {
     logger.error({ err: e, contentId }, "video-analytics 保存失败");
     return c.json(internalError(), 500);
