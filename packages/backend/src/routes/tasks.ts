@@ -1,4 +1,5 @@
 import type { WordInfo } from "@ai-english/shared";
+import { INTRO_STATUS_VALUES } from "@ai-english/shared";
 /**
  * 任务（生成记录）管理路由
  * GET /api/tasks        — 列表（status 过滤 + 分页）
@@ -55,6 +56,7 @@ const patchBodySchema = z.object({
       url: z.string(),
       duration: z.number(),
       format: z.string(),
+      introStatus: z.enum(INTRO_STATUS_VALUES).optional(),
     })
     .optional(),
   status: z
@@ -69,6 +71,10 @@ const patchBodySchema = z.object({
       "failed",
     ])
     .optional(),
+});
+
+const renderSettingsBodySchema = z.object({
+  introEffect: z.boolean(),
 });
 
 const idParamSchema = z.object({ id: z.string().min(1).max(32) });
@@ -254,6 +260,44 @@ tasks.openapi(detailRoute, async (c) => {
   } catch (e) {
     logger.error({ err: e, id }, "查询任务详情失败");
     return c.json({ error: "查询任务详情失败" }, 500);
+  }
+});
+
+const renderSettingsRoute = createRoute({
+  method: "patch",
+  path: "/{id}/render-settings",
+  request: {
+    params: idParamSchema,
+    body: { content: { "application/json": { schema: renderSettingsBodySchema } } },
+  },
+  responses: {
+    200: {
+      description: "渲染设置更新成功",
+      content: { "application/json": { schema: z.object({ introEffect: z.boolean() }) } },
+    },
+    404: { description: "任务不存在" },
+  },
+  tags: ["tasks"],
+});
+
+tasks.openapi(renderSettingsRoute, async (c) => {
+  const { id } = c.req.valid("param");
+  const { introEffect } = c.req.valid("json");
+  try {
+    const rows = await db.select().from(contents).where(eq(contents.id, id)).limit(1);
+    const content = rows[0];
+    if (!content) return c.json({ error: "任务不存在" }, 404);
+    const style = {
+      ...(typeof content.style === "object" && content.style !== null
+        ? (content.style as Record<string, unknown>)
+        : {}),
+      introEffect,
+    };
+    await db.update(contents).set({ style, updatedAt: new Date() }).where(eq(contents.id, id));
+    return c.json({ introEffect }, 200);
+  } catch (e) {
+    logger.error({ err: e, id }, "更新渲染设置失败");
+    return c.json({ error: "更新渲染设置失败" }, 500);
   }
 });
 

@@ -3,7 +3,7 @@
  * 依据：SPEC.md §四 + docs/04_Content_DTO设计文档.txt §四~六
  * content 字段使用 discriminated union，以 template 为判别键
  */
-import type { CefrLevel, ContentStatus, TemplateType } from "./enums";
+import type { CefrLevel, ContentStatus, IntroStatus, TemplateType } from "./enums";
 
 // ── 词汇信息 ──
 
@@ -43,6 +43,13 @@ export interface StyleConfig {
   colorScheme?: string;
   /** 背景音乐曲目 ID，如 "bgm_calm_01"；MVP 不设默认值（静音合成，见 docs/03 模块 9） */
   bgm?: string;
+  /**
+   * scene_word 片头 Three.js 动效（默认 true）。
+   * 为 false 时跳过片头；片头时段音频垫静音（约 1 秒），暂无口播。
+   */
+  introEffect?: boolean;
+  /** 片头配色用主题文案（生成时的 topic；缺省则用 title 匹配色表） */
+  introTopic?: string;
 }
 
 // ── 媒体产物 ──
@@ -67,6 +74,8 @@ export interface VideoInfo {
   format: string;
   /** 文件大小（bytes） */
   size?: number;
+  /** scene_word 片头渲染结果（输出事实；旧记录缺省视为 unknown） */
+  introStatus?: IntroStatus;
 }
 
 // ── 模板一：情景背词 (scene_word) ──
