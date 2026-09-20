@@ -76,7 +76,7 @@
 | API 客户端 | openapi-typescript + openapi-fetch | 从 OpenAPI spec 自动生成类型安全的前端请求客户端 |
 | 共享类型 | pnpm workspace shared 包 | ContentDTO 类型一次定义，前后端复用 |
 | AI 模型 | Ollama qwen2.5:7b（本地） | 纯本地推理（用户决策 2026-08-17）；三模板生成均走 LLM，词汇准确性由词库决定 |
-| 视频渲染 | HTML + Playwright + FFmpeg | 模板渲染 → 截图 → 合成；可选 BGM 混音 |
+| 视频渲染 | HTML + Playwright + FFmpeg | 模板渲染 → 截图 → 合成；scene_word 可选 Three.js 2s 片头；可选 BGM 混音 |
 | 文件存储 | 本地 uploads/（开发与默认部署） | `uploads/{audio,video,bgm}`；生产可换 S3 兼容存储（非当前默认） |
 | 测试框架 | Vitest 3 | backend 用 node 环境，frontend 用 jsdom |
 | 日志 | pino + pino-pretty | 结构化日志，开发环境彩色输出 |
@@ -214,6 +214,10 @@ interface StyleConfig {
   font?: string;           // 字体
   colorScheme?: string;    // 配色方案
   bgm?: string;            // 背景音乐曲目 ID
+  /** scene_word 片头 Three.js 动效，默认 true；false 跳过 */
+  introEffect?: boolean;
+  /** 片头配色用主题文案（生成 topic）；缺省用 title */
+  introTopic?: string;
 }
 
 // ── 媒体产物 ──
@@ -521,7 +525,8 @@ POST /api/video/render
 2. 注入 ContentDTO.content + ContentDTO.style 到 HTML 模板（背景当前为纯白 CSS，不做图片注入）
 3. Playwright 打开 HTML，按 segments/items 逐帧截图（1080×1920）
 4. FFmpeg 将图片帧 + ContentDTO.audio 合成 MP4；若 `style.bgm` 有值则循环混入 BGM（音量约 0.12，配音为主）
-5. 写入本地 `uploads/video/`，经 `/files/video/:filename` 提供访问（非 CDN）
+5. scene_word 且片头成功时：帧序列前含约 1s 主题化 Three.js 截帧，TTS 前垫等长静音
+6. 写入本地 `uploads/video/`，经 `/files/video/:filename` 提供访问（非 CDN）
 ```
 
 **错误码**：
@@ -531,6 +536,25 @@ POST /api/video/render
 | 200 | 正常 |
 | 400 | ContentDTO 格式错误或缺少必要字段 |
 | 500 | 渲染引擎错误 |
+
+### 5.4 视频分析与渲染设置
+
+视频分析配置与内容的 canonical 音色、BGM 配置通过以下接口管理：
+
+```text
+GET   /api/video-analytics?ids=id1,id2
+GET   /api/video-analytics/:contentId
+PATCH /api/video-analytics/:contentId
+PATCH /api/tasks/:id/render-settings
+```
+
+批量查询最多接收 100 个内容 ID，并返回按请求顺序排列的分析配置。分析配置包含故事主题、发布时间、封面、保存权限、自定义参数、音色和 BGM；`allowSave` 对外始终为布尔值。
+
+`PATCH /api/tasks/:id/render-settings` 只更新 `contents.style.introEffect`（事务内对 `contents` 行 `FOR UPDATE`，与下方 analytics 写者同锁），不改变已有任务 PATCH 契约，也不改变任务状态流转。
+
+**配置所有权**（避免多入口歧义）：音色 / BGM 的 canonical 值由 `/api/video-analytics` 单一写者维护（`voice`/`bgm` 经 `lib/tts-catalog` 白名单校验，未知值以 `VOICE_NOT_ALLOWED`/`BGM_NOT_ALLOWED` 结构化 400 拒绝）；`introEffect`（输入意图）由 `render-settings` 维护。
+
+**片头渲染结果**：`contents.video.introStatus` ∈ `rendered | failed | disabled | unknown`（`unknown` 为旧记录缺省），由渲染器产出、经任务 PATCH 的 `video` 对象回写，是输出事实（与 `style.introEffect` 输入意图区分）。对应前端页由“视频数据分析”更名为“视频发布管理”（API 路径 `/api/video-analytics` 与表名 `video_analytics` 保持契约不变）。
 
 ---
 

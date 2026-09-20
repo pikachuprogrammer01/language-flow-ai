@@ -1,7 +1,7 @@
 # 项目进度
 
-> 最后更新：2026-08-29
-> 当前阶段：用户反馈 UX 优化（视频留白 / 主题扩充 / 标记一览页）；下一项：生产部署（域名/反代）
+> 最后更新：2026-09-01
+> 当前阶段：scene_word Three.js 片头（约 5s）已接入；下一项：生产部署（域名/反代） / 片头特效观感迭代与片头音频决策
 
 ---
 
@@ -21,6 +21,10 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 
 ## 二、当前在做
 
+→ ✅ 2026-09-20 提交就绪收口（/autoplan 评审驱动，分支 feature/intro-analytics-closeout）：vendor 改 npm three+构建期拷贝（不入库）；`introStatus`（rendered/failed/disabled/unknown）落库与页内徒留痕；视频分析页更名“视频发布管理”+持久化状态机+音色/BGM 改 select+白名单；TaskDetail 音色/BGM 水合修复；style JSON 双写者行锁；video_analytics FK 级联 + publish_at→datetime（migration 0005）；渲染器拆分+截帧超时+黑屏 fail-closed+模板 DOM 构造除注入；openapi 生成移出启动
+→ ✅ 2026-09-19 功能：视频数据分析页；分析元数据持久化、OpenAPI 契约、音色/BGM 同步、自定义文本/图像参数隔离与防抖保存
+→ ✅ 2026-09-19 修复：分析列表批量 hydration、失效选中 ID、片头动效持久化、视频分析跨表事务与原子 upsert
+→ ✅ 2026-09-01 功能：scene_word Three.js **约 1s 主题化片头**；主题归类改由**本地 LLM**（任意/AI 推荐均可），缓存 + 失败兜底；`style.introEffect` / `introTopic`
 → 部署收尾：Docker 容器化已完成（docs/12 §六 已验证），生产部署（域名 + 反向代理）待用户决策
 → ✅ 2026-08-29 工程：`scripts/stack.sh` + `pnpm dev|docker:up|docker:stop|docker:mysql` 互斥切换；compose 固定网络 `language-flow-ai_default`；消除端口争抢与 MySQL 掉网 502
 → ✅ 2026-08-29 文档对齐（以代码为准）：更新 README / PRD §10.1 / SPEC §2.2·§5.3·§十一·§十二 / docs/10 BGM / docs/11 路由API / docs/15 V4 / docs/03 模块补充；去掉「暂不实现平台」「静音 MVP」「S3 默认」「生成 V3 待办」等过时表述
