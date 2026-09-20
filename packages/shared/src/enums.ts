@@ -37,12 +37,7 @@ export type CefrLevel = "CET4" | "CET6";
 
 // ── 片头渲染结果状态（scene_word 专属，随渲染产物写入 contents.video，是输出事实而非输入配置） ──
 // rendered: 片头已生成 · failed: 生成失败已跳过 · disabled: 用户关闭 · unknown: 旧记录无此字段
+// 注：本包为纯源码共享类型包，运行时不导出值（tsx 无法解析裸包命名值导出）；
+// 需运行时元组见 backend/src/lib/intro-status.ts。
 
 export type IntroStatus = "rendered" | "failed" | "disabled" | "unknown";
-
-export const INTRO_STATUS_VALUES = [
-  "rendered",
-  "failed",
-  "disabled",
-  "unknown",
-] as const satisfies readonly IntroStatus[];

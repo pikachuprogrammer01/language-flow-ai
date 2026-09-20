@@ -366,6 +366,12 @@
                             },
                             "bgm": {
                               "type": "string"
+                            },
+                            "introEffect": {
+                              "type": "boolean"
+                            },
+                            "introTopic": {
+                              "type": "string"
                             }
                           },
                           "required": [
@@ -439,10 +445,14 @@
                         "createdAt",
                         "updatedAt"
                       ]
+                    },
+                    "taskRecordSaved": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
-                    "content"
+                    "content",
+                    "taskRecordSaved"
                   ]
                 }
               }
@@ -752,6 +762,12 @@
                           },
                           "bgm": {
                             "type": "string"
+                          },
+                          "introEffect": {
+                            "type": "boolean"
+                          },
+                          "introTopic": {
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -961,6 +977,12 @@
                           },
                           "bgm": {
                             "type": "string"
+                          },
+                          "introEffect": {
+                            "type": "boolean"
+                          },
+                          "introTopic": {
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -1154,6 +1176,12 @@
                           },
                           "bgm": {
                             "type": "string"
+                          },
+                          "introEffect": {
+                            "type": "boolean"
+                          },
+                          "introTopic": {
+                            "type": "string"
                           }
                         },
                         "required": [
@@ -1337,6 +1365,15 @@
                         },
                         "size": {
                           "type": "number"
+                        },
+                        "introStatus": {
+                          "type": "string",
+                          "enum": [
+                            "rendered",
+                            "failed",
+                            "disabled",
+                            "unknown"
+                          ]
                         }
                       },
                       "required": [
@@ -1645,6 +1682,15 @@
                       },
                       "format": {
                         "type": "string"
+                      },
+                      "introStatus": {
+                        "type": "string",
+                        "enum": [
+                          "rendered",
+                          "failed",
+                          "disabled",
+                          "unknown"
+                        ]
                       }
                     },
                     "required": [
@@ -1720,6 +1766,65 @@
                   },
                   "required": [
                     "success"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "任务不存在"
+          }
+        }
+      }
+    },
+    "/api/tasks/{id}/render-settings": {
+      "patch": {
+        "tags": [
+          "tasks"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "introEffect": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "introEffect"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "渲染设置更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "introEffect": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "introEffect"
                   ]
                 }
               }
@@ -2676,6 +2781,458 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/video-analytics": {
+      "get": {
+        "tags": [
+          "video-analytics"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "required": true,
+            "name": "ids",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "批量视频分析配置",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "contentId": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": "string",
+                        "enum": [
+                          "scene_word",
+                          "word_card",
+                          "quiz"
+                        ]
+                      },
+                      "targetDuration": {
+                        "type": "number"
+                      },
+                      "duration": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "storyTopic": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "voice": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "bgm": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "publishAt": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "coverUrl": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "allowSave": {
+                        "type": "boolean"
+                      },
+                      "customParams": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100
+                            },
+                            "label": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 255
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text",
+                                "image"
+                              ]
+                            },
+                            "value": {
+                              "type": "string",
+                              "maxLength": 2000
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label",
+                            "type",
+                            "value"
+                          ]
+                        }
+                      }
+                    },
+                    "required": [
+                      "contentId",
+                      "template",
+                      "targetDuration",
+                      "duration",
+                      "storyTopic",
+                      "voice",
+                      "bgm",
+                      "publishAt",
+                      "coverUrl",
+                      "allowSave",
+                      "customParams"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "内容 ID 数量或格式不合法"
+          }
+        }
+      }
+    },
+    "/api/video-analytics/{contentId}": {
+      "get": {
+        "tags": [
+          "video-analytics"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "视频分析配置",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "contentId": {
+                      "type": "string"
+                    },
+                    "template": {
+                      "type": "string",
+                      "enum": [
+                        "scene_word",
+                        "word_card",
+                        "quiz"
+                      ]
+                    },
+                    "targetDuration": {
+                      "type": "number"
+                    },
+                    "duration": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "storyTopic": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "voice": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "bgm": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "publishAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "coverUrl": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "allowSave": {
+                      "type": "boolean"
+                    },
+                    "customParams": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "text",
+                              "image"
+                            ]
+                          },
+                          "value": {
+                            "type": "string",
+                            "maxLength": 2000
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label",
+                          "type",
+                          "value"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "contentId",
+                    "template",
+                    "targetDuration",
+                    "duration",
+                    "storyTopic",
+                    "voice",
+                    "bgm",
+                    "publishAt",
+                    "coverUrl",
+                    "allowSave",
+                    "customParams"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "内容不存在"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "video-analytics"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "storyTopic": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 255
+                  },
+                  "publishAt": {
+                    "type": "string",
+                    "nullable": true,
+                    "format": "date-time"
+                  },
+                  "coverUrl": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 500
+                  },
+                  "allowSave": {
+                    "type": "boolean"
+                  },
+                  "voice": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "bgm": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 500
+                  },
+                  "customParams": {
+                    "type": "array",
+                    "nullable": true,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 255
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "image"
+                          ]
+                        },
+                        "value": {
+                          "type": "string",
+                          "maxLength": 2000
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "type",
+                        "value"
+                      ]
+                    },
+                    "maxItems": 50
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "保存成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "contentId": {
+                      "type": "string"
+                    },
+                    "template": {
+                      "type": "string",
+                      "enum": [
+                        "scene_word",
+                        "word_card",
+                        "quiz"
+                      ]
+                    },
+                    "targetDuration": {
+                      "type": "number"
+                    },
+                    "duration": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "storyTopic": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "voice": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "bgm": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "publishAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "coverUrl": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "allowSave": {
+                      "type": "boolean"
+                    },
+                    "customParams": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "text",
+                              "image"
+                            ]
+                          },
+                          "value": {
+                            "type": "string",
+                            "maxLength": 2000
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label",
+                          "type",
+                          "value"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "contentId",
+                    "template",
+                    "targetDuration",
+                    "duration",
+                    "storyTopic",
+                    "voice",
+                    "bgm",
+                    "publishAt",
+                    "coverUrl",
+                    "allowSave",
+                    "customParams"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "内容不存在"
           }
         }
       }

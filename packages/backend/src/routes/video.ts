@@ -4,8 +4,8 @@
  * 契约详见 SPEC.md §5.3 + docs/10_视频渲染设计文档.md（@hono/zod-openapi）
  */
 import type { ContentDTO } from "@ai-english/shared";
-import { INTRO_STATUS_VALUES } from "@ai-english/shared";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { INTRO_STATUS_VALUES } from "../lib/intro-status";
 import { logger } from "../lib/logger";
 import { renderVideo } from "../services/video.service";
 

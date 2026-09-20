@@ -1,5 +1,4 @@
 import type { WordInfo } from "@ai-english/shared";
-import { INTRO_STATUS_VALUES } from "@ai-english/shared";
 /**
  * 任务（生成记录）管理路由
  * GET /api/tasks        — 列表（status 过滤 + 分页）
@@ -13,6 +12,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { cetWords, contents } from "../db/schema";
 import { apiError, internalError } from "../lib/api-error";
+import { INTRO_STATUS_VALUES } from "../lib/intro-status";
 import { logger } from "../lib/logger";
 
 // ── Zod schema ──
