@@ -3,7 +3,7 @@
  * 任务详情页 — 生成记录详情 + 视频播放（完整链路产物回溯）
  * 数据源：GET /api/tasks/:id（ContentDTO 全量）
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import {
@@ -417,6 +417,7 @@ async function load(): Promise<void> {
     if (typeof voiceId === "string" && voiceId) voice.value = voiceId;
     const styleBgm = (style as { bgm?: unknown } | undefined)?.bgm;
     bgm.value = typeof styleBgm === "string" ? styleBgm : "";
+    await nextTick(); // 先让本次水合引发的 introEffect watcher 回调（introHydrated 仍 false）跳过，再放行
     introHydrated.value = true;
   } catch (err) {
     if (err instanceof Error && err.message.includes("404")) {

@@ -135,7 +135,7 @@ const questions = ref<
 >([]);
 const videoUrl = ref("");
 /** 本次渲染片头结果（scene_word）：驱动完成页徽章（DS4/D5） */
-const introStatus = ref<"" | "rendered" | "failed" | "disabled">("");
+const introStatus = ref<"" | "rendered" | "failed" | "disabled" | "unknown">("");
 const INTRO_BADGE: Record<string, { label: string; cls: string }> = {
   rendered: { label: "片头已生成", cls: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   failed: { label: "片头生成失败·已跳过", cls: "border-amber-200 bg-amber-50 text-amber-700" },
@@ -377,9 +377,7 @@ async function saveEdit(): Promise<void> {
     const video = await renderVideo(dtoWithAudio);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
     videoUrl.value = `${base}${video.url}`;
-    introStatus.value =
-      ((video as { introStatus?: unknown }).introStatus as "rendered" | "failed" | "disabled") ??
-      "";
+    introStatus.value = video.introStatus ?? "";
     await updateTask(dtoId.value, { audio, video, status: "completed" });
     step.value = "done";
   } catch (err) {
@@ -513,9 +511,7 @@ async function renderStep(): Promise<boolean> {
     const video = await renderVideo(dtoWithAudio);
     const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
     videoUrl.value = `${base}${video.url}`;
-    introStatus.value =
-      ((video as { introStatus?: unknown }).introStatus as "rendered" | "failed" | "disabled") ??
-      "";
+    introStatus.value = video.introStatus ?? "";
     step.value = "done";
     // 回写生成记录（generate 已自动落库）：配音 + 视频 + 完成状态；失败可见（E2：不再静默假成功）
     try {
