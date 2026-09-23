@@ -6,8 +6,11 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { type UploadMarkOverview, listUploadMarksOverview } from "../api/client";
+import DataTable from "../components/ui/data-table.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
+import type { DataTableColumn } from "../lib/data-table";
+import { TEMPLATE_LABEL } from "../lib/status";
 
 const router = useRouter();
 const loading = ref(true);
@@ -16,17 +19,25 @@ const marks = ref<UploadMarkOverview[]>([]);
 const platforms = ref<string[]>([]);
 const platformFilter = ref<string>("all");
 const keyword = ref("");
+/** 客户端分页状态 */
+const page = ref(1);
+const pageSize = ref(10);
+
+/** 列定义：自定义渲染走 #cell-<key> 插槽 */
+const COLUMNS: DataTableColumn[] = [
+  { key: "video", label: "视频", cellClass: "min-w-[220px]" },
+  { key: "platform", label: "平台" },
+  { key: "url", label: "链接", cellClass: "min-w-[200px]" },
+  { key: "note", label: "备注", cellClass: "whitespace-nowrap" },
+  { key: "createdAt", label: "创建时间" },
+  { key: "actions", label: "操作", cellClass: "text-right" },
+];
+const rowKey = (m: UploadMarkOverview): string => m.id;
 
 /** 上传标记弹窗（行内「管理」） */
 const markManager = ref<InstanceType<typeof UploadMarkManager> | null>(null);
 const markFilename = ref("");
 const markTaskId = ref<string | undefined>(undefined);
-
-const TEMPLATE_LABEL: Record<string, string> = {
-  scene_word: "情景背词",
-  word_card: "单词卡片",
-  quiz: "选择题",
-};
 
 const rows = computed(() => marks.value);
 
@@ -75,30 +86,32 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-6 py-10">
-    <h1 class="text-xl font-bold">上传标记</h1>
-    <p class="mt-1 text-sm text-gray-500">
-      已标记视频一览：发布链接、平台、备注、创建时间与关联视频信息
-    </p>
+  <div class="px-7 pt-[26px] pb-12">
+    <!-- Hero（原型 #marks） -->
+    <section class="mb-[22px]">
+      <h1 class="mb-1.5 text-[26px] font-bold">上传标记</h1>
+      <p class="text-subtle">记录视频是否已上传及上传平台。</p>
+    </section>
 
-    <p v-if="errorMsg" class="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
+    <p v-if="errorMsg" class="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
     <p v-else-if="loading && marks.length === 0" class="mt-6 text-center text-sm text-gray-400">
       加载中…
     </p>
     <p v-else-if="!loading && platforms.length === 0 && marks.length === 0" class="mt-6 text-center text-sm text-gray-400">
-      暂无上传标记（在生成记录 / 视频资产中点「🏷 标记」添加）
+      暂无上传标记（在生成记录 / 视频资产中点「标记」添加）
     </p>
 
     <template v-else>
-      <div class="mt-4 flex flex-wrap items-center gap-2">
+      <!-- 工具栏（原型 .toolbar：搜索 + 平台筛选） -->
+      <div class="mb-3.5 flex flex-wrap items-center gap-2">
         <input
           v-model="keyword"
-          class="min-w-[12rem] flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+          class="min-w-[260px] flex-1 rounded-[10px] border border-hairline bg-white px-3 py-[9px] text-sm focus:border-brand focus:outline-none"
           placeholder="搜索标题 / 链接 / 备注 / 文件名…"
         />
         <button
-          class="rounded-full border px-3 py-1 text-xs"
-          :class="platformFilter === 'all' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+          class="cursor-pointer rounded-[10px] border px-3 py-[7px] text-xs"
+          :class="platformFilter === 'all' ? 'border-brand bg-brand-soft text-brand' : 'border-hairline bg-white text-gray-600 hover:bg-gray-50'"
           @click="platformFilter = 'all'"
         >
           全部平台
@@ -106,85 +119,82 @@ onMounted(() => {
         <button
           v-for="p in platforms"
           :key="p"
-          class="rounded-full border px-3 py-1 text-xs"
-          :class="platformFilter === p ? 'border-blue-500 bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'"
+          class="cursor-pointer rounded-[10px] border px-3 py-[7px] text-xs"
+          :class="platformFilter === p ? 'border-brand bg-brand-soft text-brand' : 'border-hairline bg-white text-gray-600 hover:bg-gray-50'"
           @click="platformFilter = p"
         >
           {{ p }}
         </button>
       </div>
 
-      <p class="mt-2 text-xs text-gray-400">共 {{ rows.length }} 条标记</p>
+      <p class="mb-3 text-xs text-subtle">共 {{ rows.length }} 条标记</p>
 
-      <div v-if="rows.length === 0" class="mt-6 text-center text-sm text-gray-400">无匹配标记</div>
-
-      <div v-else class="mt-3 space-y-3">
-        <article v-for="m in rows" :key="m.id" class="rounded-lg border bg-white p-4">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div class="min-w-0 flex-1 space-y-2">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                  {{ m.platform }}
-                </span>
-                <span v-if="m.note" class="rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
-                  {{ m.note }}
-                </span>
-                <span v-else class="text-xs text-gray-400">无备注</span>
-                <span class="text-xs text-gray-400">
-                  创建 {{ new Date(m.createdAt).toLocaleString("zh-CN") }}
-                </span>
-              </div>
-
-              <div class="text-sm">
-                <span class="mr-1 text-xs text-gray-400">链接</span>
-                <a
-                  v-if="m.url"
-                  :href="m.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="break-all text-blue-600 hover:underline"
-                >
-                  {{ m.url }}
-                </a>
-                <span v-else class="text-gray-400">未填写</span>
-              </div>
-
-              <div class="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                <template v-if="m.video">
-                  <p class="font-medium text-gray-800">{{ m.video.title }}</p>
-                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                    <span>{{ TEMPLATE_LABEL[m.video.template] ?? m.video.template }}</span>
-                    <span>{{ m.video.level }}</span>
-                    <span v-if="m.video.duration != null">时长 {{ m.video.duration.toFixed(1) }}s</span>
-                    <span>词汇 {{ m.video.wordsCount }}</span>
-                    <span class="break-all text-gray-400">{{ m.videoFilename }}</span>
-                  </div>
-                </template>
-                <template v-else>
-                  <p class="text-gray-500">未关联任务（文件可能已删）</p>
-                  <p class="mt-0.5 break-all text-gray-400">{{ m.videoFilename }}</p>
-                </template>
-              </div>
-            </div>
-
-            <div class="flex shrink-0 flex-col gap-2 sm:flex-row">
-              <button
-                class="rounded-lg border px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
-                @click="openManage(m)"
-              >
-                管理
-              </button>
-              <button
-                v-if="m.taskId"
-                class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-                @click="goTask(m)"
-              >
-                看详情
-              </button>
-            </div>
+      <!-- 统一表格（客户端分页） -->
+      <DataTable
+        :columns="COLUMNS"
+        :rows="rows"
+        :row-key="rowKey"
+        v-model:page="page"
+        v-model:page-size="pageSize"
+        :loading="loading"
+        :empty-text="platforms.length === 0 && rows.length === 0 ? '暂无上传标记（在生成记录/视频资产中点「标记」添加）' : '无匹配标记'"
+      >
+        <template #cell-video="{ row }">
+          <template v-if="row.video">
+            <p class="font-medium">{{ row.video.title }}</p>
+            <p class="mt-0.5 text-xs text-gray-500">
+              {{ TEMPLATE_LABEL[row.video.template] ?? row.video.template }} ·
+              {{ row.video.level }} ·
+              <template v-if="row.video.duration != null">{{ row.video.duration.toFixed(1) }}s · </template>
+              词汇 {{ row.video.wordsCount }}
+            </p>
+          </template>
+          <p v-else class="text-gray-500">未关联任务（文件可能已删）</p>
+          <p class="break-all font-mono text-[11px] text-gray-400">{{ row.videoFilename }}</p>
+        </template>
+        <template #cell-platform="{ row }">
+          <span class="whitespace-nowrap rounded-full bg-brand-soft px-2 py-0.5 text-xs font-medium text-brand">{{
+            row.platform
+          }}</span>
+        </template>
+        <template #cell-url="{ row }">
+          <a
+            v-if="row.url"
+            :href="row.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="block max-w-[280px] truncate text-brand hover:underline"
+            :title="row.url"
+          >
+            {{ row.url }}
+          </a>
+          <span v-else class="text-gray-400">未填写</span>
+        </template>
+        <template #cell-note="{ row }">
+          <span v-if="row.note" class="rounded bg-[#fff8e8] px-2 py-0.5 text-xs text-amber-800">{{ row.note }}</span>
+          <span v-else class="text-xs text-gray-400">—</span>
+        </template>
+        <template #cell-createdAt="{ row }">
+          <span class="whitespace-nowrap text-gray-500">{{ new Date(row.createdAt).toLocaleString("zh-CN") }}</span>
+        </template>
+        <template #cell-actions="{ row }">
+          <div class="flex justify-end gap-2 whitespace-nowrap">
+            <button
+              class="cursor-pointer rounded-[10px] border border-hairline bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+              @click="openManage(row)"
+            >
+              管理
+            </button>
+            <button
+              v-if="row.taskId"
+              class="cursor-pointer rounded-[10px] border border-brand bg-brand px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+              @click="goTask(row)"
+            >
+              看详情
+            </button>
           </div>
-        </article>
-      </div>
+        </template>
+      </DataTable>
     </template>
 
     <UploadMarkManager

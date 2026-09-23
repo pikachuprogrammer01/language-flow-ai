@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { type VariantProps, cva } from "class-variance-authority";
 /** shadcn-vue Button（cva + tailwind-merge 变体） */
-import { Primitive, type PrimitiveProps } from "radix-vue";
+import { Primitive, type PrimitiveProps } from "reka-ui";
 import { type HTMLAttributes, computed } from "vue";
 import { cn } from "../../lib/utils";
 

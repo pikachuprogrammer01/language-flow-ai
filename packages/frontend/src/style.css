@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+/* 后台原型设计令牌（languageflow_ai_admin_prototype.html :root 变量 1:1 映射） */
+@theme {
+  --color-brand: #6d5dfc; /* 主品牌紫（按钮/高亮） */
+  --color-brand-2: #8b7cff; /* 品牌浅紫（激活态描边/渐变副色） */
+  --color-brand-soft: #f8f7ff; /* 品牌底色（选中卡片背景） */
+  --color-brand-line: #c8c1ff; /* 品牌选中边框 */
+  --color-shell: #f6f7fb; /* 页面背景 */
+  --color-panel: #ffffff; /* 卡片背景 */
+  --color-ink: #171923; /* 主文字 */
+  --color-subtle: #6b7280; /* 次级文字 */
+  --color-hairline: #e8eaf0; /* 分割线/卡片描边 */
+  --color-ok: #19a974; /* 成功绿 */
+  --color-warn: #f59e0b; /* 警告橙 */
+  --color-bad: #ef4444; /* 失败红 */
+  --color-run: #6d5dfc; /* 进行中紫 */
+  --color-idle: #9ca3af; /* 空闲灰点 */
+  --color-sidebar: #11131a; /* 侧边栏背景 */
+  --color-sidebar-item: #20232d; /* 侧边栏 hover/active 背景 */
+  --color-sidebar-text: #b8becc; /* 侧边栏文字 */
+  --color-sidebar-label: #666d7c; /* 侧边栏分组标题 */
+}
+
 /* shadcn-vue 主题变量（Tailwind 4 @theme 方式，docs: https://shadcn-vue.com/docs/tailwind-v4） */
 @theme inline {
   --color-background: var(--background);
@@ -29,25 +51,26 @@
 
 :root {
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: #171923;
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: #171923;
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --popover-foreground: #171923;
+  /* 主色对齐原型品牌紫 #6d5dfc，shadcn 组件（Button/Dialog 焦点环）随原型配色 */
+  --primary: #6d5dfc;
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --secondary: #f6f7fb;
+  --secondary-foreground: #171923;
+  --muted: #f6f7fb;
+  --muted-foreground: #6b7280;
+  --accent: #f8f7ff;
+  --accent-foreground: #171923;
+  --destructive: #ef4444;
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --radius: 0.5rem;
+  --border: #e8eaf0;
+  --input: #e8eaf0;
+  --ring: #8b7cff;
+  --radius: 0.625rem;
 }
 
 .dark {

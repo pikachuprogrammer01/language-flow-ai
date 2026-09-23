@@ -15,6 +15,16 @@ function apiError(error: { error?: unknown } | undefined, response: Response): s
   return `HTTP ${response.status}`;
 }
 
+/** 用户主动中断（AbortController.abort）产生的错误：不是失败，调用方应区别处理 */
+export function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
+/** 长耗时请求的可选控制项（停止按钮用 signal 中断在飞请求） */
+export interface RequestOpts {
+  signal?: AbortSignal;
+}
+
 export interface GenerateInput {
   topic: string;
   level: "CET4" | "CET6";
@@ -25,9 +35,10 @@ export interface GenerateInput {
 }
 
 /** 生成内容（ContentDTO） */
-export async function generateContent(input: GenerateInput) {
+export async function generateContent(input: GenerateInput, opts?: RequestOpts) {
   const { data, error, response } = await client.POST("/api/content/generate", {
     body: input,
+    signal: opts?.signal,
   });
   if (error || !response.ok) throw new Error(`生成失败（HTTP ${response.status}）`);
   if (!data) throw new Error("生成失败：空响应");
@@ -41,9 +52,11 @@ export async function synthesizeFromContent(
   title?: string,
   voice?: string,
   rate?: number,
+  opts?: RequestOpts,
 ) {
   const { data, error, response } = await client.POST("/api/tts/from-content", {
     body: { template, content, title, voice, rate },
+    signal: opts?.signal,
   });
   if (error || !response.ok) {
     // error 含 zod 校验详情（如字段缺失），拼进提示便于排查
@@ -73,13 +86,15 @@ export async function suggestTopics(body: { hint?: string }) {
   return data;
 }
 
-/** 音色试听：指定音色合成文本并返回音频 URL（PRD §10.1.1） */
+/** 音色试听：指定音色合成文本并返回音频 URL（PRD §10.1.1）；服务端失败原因原文透出 */
 export async function previewVoice(voice: string, text: string) {
   const { data, error, response } = await client.POST("/api/tts/generate", {
     body: { text, voice },
   });
-  if (error || !response.ok) throw new Error(`试听合成失败（HTTP ${response.status}）`);
-  if (!data) throw new Error("试听合成失败：空响应");
+  if (error || !response.ok || !data) {
+    const detail = (error as { error?: string } | null)?.error;
+    throw new Error(detail ?? `试听合成失败（HTTP ${response.status}）`);
+  }
   return data;
 }
 
@@ -99,10 +114,11 @@ export type RenderVideoInput = {
 } & Record<string, unknown>;
 
 /** 渲染视频（完整 ContentDTO → 视频 URL；详情页重新配音走宽松 Record，后端 zod 兜底） */
-export async function renderVideo(dto: RenderInput | RenderVideoInput) {
+export async function renderVideo(dto: RenderInput | RenderVideoInput, opts?: RequestOpts) {
   const { data, error, response } = await client.POST("/api/video/render", {
     // openapi-fetch body 类型为 schema 推断的完整 DTO；详情页记录为宽松 Record，运行时由后端 zod 校验兜底
     body: dto as never,
+    signal: opts?.signal,
   });
   if (error || !response.ok) throw new Error(`渲染失败（HTTP ${response.status}）`);
   if (!data) throw new Error("渲染失败：空响应");
@@ -292,11 +308,15 @@ export async function batchDeleteFiles(
 
 /**
  * 在 Finder 中显示视频（宿主机桥）
- * 后端把宿主机路径写入 .open-requests/ 标记文件，宿主机 launchd 脚本收到后 open -R 定位。
+ * 后端把宿主机路径写入 .open-requests/ 标记文件，宿主机 launchd 脚本收到后 open -R 定位；
+ * 后端同步等待消费确认，watcher 未运行时返回 503（错误原文透出，不假成功）。
  */
 export async function revealVideoInFinder(url: string) {
   const { data, error, response } = await client.POST("/api/files/reveal", { body: { url } });
-  if (error || !response.ok) throw new Error(`打开目录失败（HTTP ${response.status}）`);
+  if (!response.ok) {
+    const detail = (error as { error?: string } | null)?.error;
+    throw new Error(detail ?? `打开目录失败（HTTP ${response.status}）`);
+  }
   if (!data) throw new Error("打开目录失败：空响应");
   return data;
 }

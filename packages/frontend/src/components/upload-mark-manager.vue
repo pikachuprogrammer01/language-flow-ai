@@ -6,21 +6,23 @@ import {
   DialogPortal,
   DialogRoot,
   DialogTitle,
-} from "radix-vue";
+} from "reka-ui";
 /**
  * 上传标记管理器（弹窗）— 四个页面复用
  * 表示视频已上传到外部平台；一个视频可多条标记（多个平台）
  * 用法：<UploadMarkManager :filename="t.videoFilename" @change="reload" />
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { toast } from "vue-sonner";
 import {
   type UploadMark,
   addUploadMark,
   deleteUploadMark,
+  getVideoAnalytics,
   listUploadMarks,
   updateUploadMark,
+  updateVideoAnalytics,
 } from "../api/client";
+import { toast } from "../lib/toast";
 import ConfirmDialog from "./ui/confirm-dialog.vue";
 
 const props = defineProps<{
@@ -98,14 +100,58 @@ async function load(): Promise<void> {
   }
 }
 
+/* ── 保存策略（allowSave）：标记时同步提供可选项，数据落 video_analytics 与发布管理同源；默认不保存 ── */
+const allowSave = ref(false);
+const allowSaveBusy = ref(false);
+/** 仅关联了任务时可见（无 taskId 无法定位发布元数据） */
+const allowSaveVisible = computed(() => Boolean(props.taskId));
+
+async function loadAllowSave(): Promise<void> {
+  if (!props.taskId) return;
+  try {
+    allowSave.value = (await getVideoAnalytics(props.taskId)).allowSave;
+  } catch {
+    allowSave.value = false; // 无发布记录时按默认值展示（不保存；保存时 upsert）
+  }
+}
+
+async function onAllowSaveChange(checked: boolean): Promise<void> {
+  if (!props.taskId) return;
+  allowSaveBusy.value = true;
+  try {
+    await updateVideoAnalytics(props.taskId, { allowSave: checked });
+    toast.success(checked ? "已允许观众保存视频" : "已关闭观众保存");
+  } catch (err) {
+    allowSave.value = !checked; // 保存失败回滚勾选态
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    allowSaveBusy.value = false;
+  }
+}
+
+/** 打开即重置全部瞬时态：上一文件的预设选择/表单残留不得跨次复用（批注：预设选后二次打开未清空） */
+function resetTransientState(): void {
+  marks.value = [];
+  editingId.value = null;
+  pendingDeleteId.value = "";
+  notePresetSel.value = "__custom__";
+  editNotePresetSel.value = "__custom__";
+  addPlatform.value = "抖音";
+  addCustomPlatform.value = "";
+  addUrl.value = "";
+  addNote.value = "";
+  editPlatform.value = "";
+  editCustomPlatform.value = "";
+  editUrl.value = "";
+  editNote.value = "";
+}
+
 function onOpenChange(v: boolean): void {
   open.value = v;
   if (v) {
-    // 清空上一文件的瞬时状态：避免 load() 期间闪现旧标记/残留编辑态
-    marks.value = [];
-    editingId.value = null;
-    pendingDeleteId.value = "";
+    resetTransientState();
     void load();
+    void loadAllowSave();
   }
 }
 
@@ -206,6 +252,21 @@ const editIsCustom = computed(() => editPlatform.value === "其他");
       >
       <DialogTitle class="text-base font-semibold">上传标记</DialogTitle>
       <p class="mt-1 truncate text-xs text-gray-500">{{ activeFilename }}</p>
+
+      <!-- 保存策略可选项（与发布管理同源，标记时即可确认） -->
+      <label
+        v-if="allowSaveVisible"
+        class="mt-3 flex cursor-pointer items-center gap-2 rounded-[10px] border border-hairline bg-shell px-3 py-2 text-sm"
+      >
+        <input
+          type="checkbox"
+          :checked="allowSave"
+          :disabled="allowSaveBusy"
+          @change="onAllowSaveChange(($event.target as HTMLInputElement).checked)"
+        />
+        允许观众保存视频
+        <span v-if="allowSaveBusy" class="text-xs text-gray-400">保存中…</span>
+      </label>
 
       <!-- 标记列表 -->
       <div v-if="loading" class="py-6 text-center text-sm text-gray-400">加载中…</div>

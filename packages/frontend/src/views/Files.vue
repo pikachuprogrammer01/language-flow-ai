@@ -1,31 +1,64 @@
 <script setup lang="ts">
+import { Play, Tag } from "lucide-vue-next";
 /**
  * 文件管理页 — 分类管理（视频=成片 / 配音=生成的音频 / BGM=背景音乐素材）
  * 数据源：GET /api/files（分类 + inUse 标记）+ DELETE /api/files/:filename?type=
  */
+import {
+  DialogClose,
+  DialogContent,
+  DialogOverlay,
+  DialogPortal,
+  DialogRoot,
+  DialogTitle,
+} from "reka-ui";
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { toast } from "vue-sonner";
 import { type UploadMark, batchDeleteFiles, deleteFile, listFiles } from "../api/client";
-import FileRow from "../components/file-row.vue";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
+import DataTable from "../components/ui/data-table.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
 import { useUploadMarks } from "../composables/use-upload-marks";
+import type { DataTableColumn } from "../lib/data-table";
+import { toast } from "../lib/toast";
 
+/** 文件条目（GET /api/files 响应结构） */
+interface FileItem {
+  filename: string;
+  type: "audio" | "video" | "bgm";
+  size: number;
+  mtime: string;
+  inUse: boolean;
+  referencedBy: { id: string; title: string }[];
+}
+
+/** 列定义：主题列为分组列（同任务视频+配音 rowspan 合并居中） */
+const COLUMNS: DataTableColumn[] = [
+  { key: "filename", label: "文件名", cellClass: "min-w-[220px]" },
+  { key: "topic", label: "主题", group: true, cellClass: "min-w-[140px] text-center align-middle" },
+  { key: "type", label: "类型" },
+  { key: "size", label: "大小", cellClass: "whitespace-nowrap" },
+  { key: "mtime", label: "修改时间" },
+  { key: "refs", label: "引用", cellClass: "whitespace-nowrap" },
+  { key: "marks", label: "标记" },
+  { key: "actions", label: "操作", cellClass: "text-right" },
+];
+const rowKey = (f: FileItem): string => `${f.type}/${f.filename}`;
+/** 分组键：被同一生成记录引用的文件（成片+其配音）为一组；未引用文件各自成组 */
+const groupKeyOf = (f: FileItem): string => f.referencedBy[0]?.id ?? `solo:${f.type}/${f.filename}`;
+/** 分组主题名（所属生成记录标题） */
+const topicOf = (f: FileItem): string => f.referencedBy[0]?.title ?? "未引用";
 const router = useRouter();
+/** 播放器弹窗当前文件（替代展开行，避免与分组 rowspan 布局冲突） */
+const playerFile = ref<FileItem | null>(null);
+/** 客户端分页状态 */
+const page = ref(1);
+const pageSize = ref(10);
 
+/** 静态文件基址（播放器拼完整 URL） */
 const base = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080").replace(/\/$/, "");
-const files = ref<
-  {
-    filename: string;
-    type: "audio" | "video" | "bgm";
-    size: number;
-    mtime: string;
-    inUse: boolean;
-    referencedBy: { id: string; title: string }[];
-  }[]
->([]);
+const files = ref<FileItem[]>([]);
 const filter = ref<"all" | "video" | "audio" | "bgm">("all");
 const loading = ref(true);
 const errorMsg = ref("");
@@ -47,11 +80,41 @@ const TYPE_LABEL: Record<string, string> = {
   bgm: "BGM（背景音乐）",
 };
 
-const filtered = computed(() =>
-  filter.value === "all" ? files.value : files.value.filter((f) => f.type === filter.value),
-);
+const filtered = computed(() => {
+  const list =
+    filter.value === "all" ? files.value : files.value.filter((f) => f.type === filter.value);
+  // 按分组键聚合（保持首次出现顺序），组内成片在前、配音紧随，避免同源音频分散
+  const order: string[] = [];
+  const byGroup = new Map<string, FileItem[]>();
+  for (const f of list) {
+    const key = groupKeyOf(f);
+    const bucket = byGroup.get(key);
+    if (bucket) bucket.push(f);
+    else {
+      byGroup.set(key, [f]);
+      order.push(key);
+    }
+  }
+  const typeRank: Record<FileItem["type"], number> = { video: 0, audio: 1, bgm: 2 };
+  return order.flatMap((key) =>
+    [...(byGroup.get(key) ?? [])].sort((a, b) => typeRank[a.type] - typeRank[b.type]),
+  );
+});
 
 const totalSize = computed(() => files.value.reduce((n, f) => n + f.size, 0));
+
+/** 分类指标卡（原型 #files grid4）：数量 + 占用，可清理 = 未引用的视频/配音 */
+const typeStats = computed(() => {
+  const pick = (type: "video" | "audio" | "bgm") => files.value.filter((f) => f.type === type);
+  const orphans = files.value.filter((f) => f.type !== "bgm" && f.referencedBy.length === 0);
+  const sum = (list: { size: number }[]) => list.reduce((n, f) => n + f.size, 0);
+  return [
+    { label: "视频文件", count: pick("video").length, size: sum(pick("video")) },
+    { label: "音频文件", count: pick("audio").length, size: sum(pick("audio")) },
+    { label: "BGM", count: pick("bgm").length, size: sum(pick("bgm")) },
+    { label: "可清理", count: orphans.length, size: sum(orphans) },
+  ];
+});
 
 function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -176,31 +239,11 @@ function keyOf(f: { filename: string; type: string }): string {
   return `${f.type}/${f.filename}`;
 }
 
-const allFilteredSelected = computed<boolean>({
-  get: () => filtered.value.length > 0 && filtered.value.every((f) => selected.value.has(keyOf(f))),
-  set: (checked: boolean) => {
-    // 全选 = 当前 Tab 可见的全部；取消 = 仅移除当前 Tab 的（跨 Tab 残留选中保留）
-    const next = new Set(selected.value);
-    for (const f of filtered.value) {
-      if (checked) next.add(keyOf(f));
-      else next.delete(keyOf(f));
-    }
-    selected.value = next;
-  },
-});
-
 function switchFilter(next: "all" | "video" | "audio" | "bgm"): void {
-  // 切换分类时清空选中：全选语义 = 当前 Tab 可见文件，避免跨 Tab 残留导致误删
+  // 切换分类时清空选中与播放器：避免跨 Tab 残留导致误删
   filter.value = next;
   selected.value = new Set();
-}
-
-function toggle(f: { filename: string; type: "audio" | "video" | "bgm" }): void {
-  const k = keyOf(f);
-  const next = new Set(selected.value);
-  if (next.has(k)) next.delete(k);
-  else next.add(k);
-  selected.value = next;
+  playerFile.value = null;
 }
 
 async function batchRemove(): Promise<void> {
@@ -255,17 +298,44 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-4xl px-6 py-10">
-    <div class="mb-6 flex items-center justify-between">
-      <h1 class="text-2xl font-bold">文件管理</h1>
-      <button class="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-100" @click="load">刷新</button>
-    </div>
+  <div class="px-7 pt-[26px] pb-12">
+    <!-- Hero（原型 #files） -->
+    <section class="mb-[22px] flex items-end justify-between gap-5">
+      <div>
+        <h1 class="mb-1.5 text-[26px] font-bold">文件管理</h1>
+        <p class="text-subtle">管理 audio / video / bgm 本地资产。</p>
+      </div>
+      <div class="flex gap-2.5">
+        <button
+          class="cursor-pointer rounded-[10px] border border-hairline bg-white px-3.5 py-[9px] hover:bg-gray-50"
+          @click="load"
+        >
+          刷新
+        </button>
+        <button
+          class="cursor-pointer rounded-[10px] border border-warn/40 bg-[#fff8e8] px-3.5 py-[9px] text-warn hover:bg-[#fdefc8]"
+          title="删除未被任何生成记录引用的视频和配音文件"
+          @click="openCleanup"
+        >
+          清理无引用文件
+        </button>
+      </div>
+    </section>
 
-    <p v-if="errorMsg" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
-    <p v-if="loading" class="py-8 text-center text-gray-500">加载中…</p>
+    <p v-if="errorMsg" class="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-600">{{ errorMsg }}</p>
+    <p v-if="loading" class="py-8 text-center text-sm text-subtle">加载中…</p>
 
     <template v-else>
-      <p class="mb-4 text-sm text-gray-500">
+      <!-- 指标卡（原型 grid4 .metric） -->
+      <div class="mb-[22px] grid grid-cols-4 gap-3.5 max-lg:grid-cols-2">
+        <div v-for="s in typeStats" :key="s.label" class="rounded-2xl border border-hairline bg-panel p-[18px]">
+          <p class="text-[13px] text-subtle">{{ s.label }}</p>
+          <p class="mt-2 text-[30px] leading-none font-extrabold">{{ s.count }}</p>
+          <p class="mt-1.5 text-xs text-subtle">{{ fmtSize(s.size) }}</p>
+        </div>
+      </div>
+
+      <p class="mb-4 text-sm text-subtle">
         共 {{ files.length }} 个文件，合计 {{ fmtSize(totalSize) }}；「未引用」= 未被任何生成记录使用，可安全清理
       </p>
 
@@ -274,26 +344,16 @@ onMounted(() => {
         <button
           v-for="f in (['all', 'video', 'audio', 'bgm'] as const)"
           :key="f"
-          class="rounded-lg border px-3 py-1.5 text-sm"
-          :class="filter === f ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'"
+          class="cursor-pointer rounded-[10px] border px-3 py-[7px] text-sm"
+          :class="filter === f ? 'border-brand bg-brand text-white' : 'border-hairline bg-white hover:bg-gray-50'"
           @click="switchFilter(f)"
         >
           {{ f === "all" ? `全部（${files.length}）` : `${TYPE_LABEL[f]}（${files.filter((x) => x.type === f).length}）` }}
         </button>
         <span class="ml-auto flex items-center gap-2">
           <button
-            class="rounded-lg border px-3 py-1.5 text-sm text-orange-600 hover:bg-orange-50"
-            title="删除未被任何生成记录引用的视频和配音文件"
-            @click="openCleanup"
-          >
-            清理未引用
-          </button>
-          <label v-if="filtered.length > 0" class="flex items-center gap-1 text-sm text-gray-600">
-            <input type="checkbox" v-model="allFilteredSelected" />
-            全选本页
-          </label>
-          <button
-            class="rounded-lg border px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 disabled:opacity-40"
+            class="cursor-pointer rounded-[10px] border px-3.5 py-[9px] text-sm text-bad hover:bg-red-50 disabled:opacity-40"
+            :class="selected.size === 0 ? 'border-hairline bg-white' : 'border-red-200 bg-white'"
             :disabled="selected.size === 0"
             @click="batchRemove"
           >
@@ -302,21 +362,124 @@ onMounted(() => {
         </span>
       </div>
 
-      <ul class="space-y-3">
-        <FileRow
-          v-for="f in filtered"
-          :key="`${f.type}-${f.filename}`"
-          :f="f"
-          :marks="marksOfFile(f)"
-          :selected="selected.has(`${f.type}/${f.filename}`)"
-          @toggle-select="toggle(f)"
-          @open-marks="openMarkManager(f.filename)"
-          @remove="remove(f)"
-        />
-      </ul>
-      <p v-if="filtered.length === 0" class="py-10 text-center text-gray-400">没有匹配的文件</p>
+      <!-- 统一表格：勾选/分页/分组主题列（同任务成片+配音合并） -->
+      <DataTable
+        :columns="COLUMNS"
+        :rows="filtered"
+        :row-key="rowKey"
+        :group-key="groupKeyOf"
+        v-model:page="page"
+        v-model:page-size="pageSize"
+        v-model:selected="selected"
+        :loading="loading"
+        selectable
+        empty-text="没有匹配的文件"
+      >
+        <template #cell-filename="{ row }">
+          <button
+            class="flex cursor-pointer items-center gap-1.5 text-left font-mono text-xs text-ink hover:text-brand"
+            title="播放预览"
+            @click="playerFile = row"
+          >
+            <Play class="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden="true" />
+            {{ row.filename }}
+          </button>
+        </template>
+        <template #cell-topic="{ row }">
+          <span
+            class="text-xs"
+            :class="row.referencedBy.length > 0 ? 'font-medium text-ink' : 'text-gray-400'"
+            >{{ topicOf(row) }}</span
+          >
+        </template>
+        <template #cell-type="{ row }">
+          <span class="whitespace-nowrap rounded bg-[#f2f3f6] px-1.5 py-0.5 text-xs">{{ TYPE_LABEL[row.type] }}</span>
+          <span v-if="row.type === 'audio' && row.referencedBy.length > 0" class="ml-1.5 whitespace-nowrap text-[11px] text-brand">
+            🔗 与上方成片同源
+          </span>
+        </template>
+        <template #cell-size="{ row }">{{ fmtSize(row.size) }}</template>
+        <template #cell-mtime="{ row }">
+          <span class="whitespace-nowrap text-gray-500">{{ new Date(row.mtime).toLocaleString("zh-CN") }}</span>
+        </template>
+        <template #cell-refs="{ row }">
+          <span v-if="row.referencedBy.length > 0" class="flex flex-wrap items-center gap-1">
+            <button
+              v-for="r in row.referencedBy.slice(0, 2)"
+              :key="r.id"
+              class="max-w-[160px] cursor-pointer truncate rounded bg-brand-soft px-1.5 py-0.5 text-xs text-brand hover:bg-[#ece9ff]"
+              :title="r.title"
+              @click.stop="router.push(`/tasks/${r.id}`)"
+            >
+              {{ r.title }}
+            </button>
+            <span v-if="row.referencedBy.length > 2" class="text-xs text-gray-400">等 {{ row.referencedBy.length }} 条</span>
+          </span>
+          <span v-else class="text-xs text-warn">未引用</span>
+        </template>
+        <template #cell-marks="{ row }">
+          <span v-if="row.type === 'video' && marksOfFile(row).length > 0" class="flex flex-wrap items-center gap-1">
+            <span
+              v-for="m in marksOfFile(row).slice(0, 3)"
+              :key="m.id"
+              class="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700"
+              :title="m.note ?? undefined"
+            >
+              {{ m.platform }}
+            </span>
+            <span v-if="marksOfFile(row).length > 3" class="text-xs text-gray-400">等 {{ marksOfFile(row).length }} 个平台</span>
+          </span>
+          <span v-else class="text-xs text-gray-400">—</span>
+        </template>
+        <template #cell-actions="{ row }">
+          <div class="flex justify-end gap-2 whitespace-nowrap" @click.stop>
+            <button
+              v-if="row.type === 'video'"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-[10px] border border-hairline bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+              @click="openMarkManager(row.filename)"
+            >
+              <Tag class="h-3.5 w-3.5" aria-hidden="true" /> 标记
+            </button>
+            <button
+              class="cursor-pointer rounded-[10px] border border-hairline bg-white px-3 py-1.5 text-xs text-bad hover:bg-red-50"
+              @click="remove(row)"
+            >
+              删除
+            </button>
+          </div>
+        </template>
+      </DataTable>
     </template>
   </div>
+
+  <!-- 播放器弹窗（视频试看/音频试听，不挤占表格行布局） -->
+  <DialogRoot :open="Boolean(playerFile)" @update:open="(v: boolean) => (v ? null : (playerFile = null))">
+    <DialogPortal>
+      <DialogOverlay class="fixed inset-0 z-40 bg-black/50" />
+      <DialogContent
+        class="fixed left-1/2 top-1/2 z-50 w-[560px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-hairline bg-panel p-4 shadow-lg"
+      >
+        <DialogTitle class="text-sm font-semibold">{{ playerFile?.filename }}</DialogTitle>
+        <video
+          v-if="playerFile?.type === 'video'"
+          :src="`${base}/files/video/${playerFile.filename}`"
+          controls
+          autoplay
+          class="mt-3 max-h-[60vh] w-full rounded-xl bg-black"
+        />
+        <audio
+          v-else-if="playerFile"
+          :src="`${base}/files/${playerFile.type}/${playerFile.filename}`"
+          controls
+          autoplay
+          class="mt-3 w-full"
+        />
+        <div class="mt-3 flex justify-end">
+          <DialogClose class="cursor-pointer rounded-[10px] border border-hairline bg-white px-4 py-1.5 text-sm hover:bg-gray-50">关闭</DialogClose>
+        </div>
+      </DialogContent>
+    </DialogPortal>
+  </DialogRoot>
 
   <!-- 删除确认对话框（shadcn-vue AlertDialog，替代原生 confirm） -->
   <ConfirmDialog

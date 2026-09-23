@@ -1,16 +1,17 @@
 <script setup lang="ts">
+import { Check, Circle, CircleHelp, Pencil, Tag, TriangleAlert } from "lucide-vue-next";
 /**
  * 任务详情页 — 生成记录详情 + 视频播放（完整链路产物回溯）
  * 数据源：GET /api/tasks/:id（ContentDTO 全量）
  */
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { toast } from "vue-sonner";
 import {
   type RenderVideoInput,
   type UploadMark,
   deleteTask,
   getTask,
+  getVideoAnalytics,
   listFiles,
   listUploadMarks,
   listVoices,
@@ -28,6 +29,7 @@ import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 import Spinner from "../components/ui/spinner.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
+import { toast } from "../lib/toast";
 
 const route = useRoute();
 const router = useRouter();
@@ -260,23 +262,35 @@ const video = computed<VideoInfo | null>(() => {
   return isVideoInfo(v) ? v : null;
 });
 
-/** 片头状态徽章（DS4/D5：图标+文字非仅颜色，role=status） */
-const introStatusBadge = computed<{ label: string; icon: string; cls: string } | null>(() => {
+/** 片头状态徽章（DS4/D5：图标+文字非仅颜色，role=status；lucide SVG 图标） */
+const introStatusBadge = computed<{
+  label: string;
+  icon: typeof Check;
+  cls: string;
+} | null>(() => {
   if (task.value?.template !== "scene_word") return null;
   const s = video.value?.introStatus ?? "unknown";
   const map = {
     rendered: {
       label: "片头已生成",
-      icon: "✓",
+      icon: Check,
       cls: "border-emerald-200 bg-emerald-50 text-emerald-700",
     },
     failed: {
       label: "片头生成失败·已跳过",
-      icon: "⚠",
+      icon: TriangleAlert,
       cls: "border-amber-200 bg-amber-50 text-amber-700",
     },
-    disabled: { label: "片头已关闭", icon: "○", cls: "border-gray-200 bg-gray-50 text-gray-500" },
-    unknown: { label: "片头状态未知", icon: "?", cls: "border-gray-200 bg-gray-50 text-gray-400" },
+    disabled: {
+      label: "片头已关闭",
+      icon: Circle,
+      cls: "border-gray-200 bg-gray-50 text-gray-500",
+    },
+    unknown: {
+      label: "片头状态未知",
+      icon: CircleHelp,
+      cls: "border-gray-200 bg-gray-50 text-gray-400",
+    },
   } as const;
   return map[s];
 });
@@ -303,7 +317,37 @@ async function loadMarks(): Promise<void> {
 
 watch(videoFilename, () => {
   void loadMarks();
+  void hydrateSavePolicy();
 });
+
+/* ── 观众保存策略（allowSave）：成片后在详情页可见可改，与发布管理/标记同源；默认不保存 ── */
+const allowSave = ref(false);
+const savePolicyBusy = ref(false);
+/** 有成片时才拉取/展示保存策略 */
+async function hydrateSavePolicy(): Promise<void> {
+  if (!videoFilename.value) return;
+  try {
+    allowSave.value = (await getVideoAnalytics(String(route.params.id))).allowSave;
+  } catch {
+    allowSave.value = false; // 无发布记录时按默认值展示（不保存；保存时 upsert）
+  }
+}
+
+/** 切换保存策略：乐观更新，失败回滚 + 可见报错 */
+async function toggleSavePolicy(checked: boolean): Promise<void> {
+  savePolicyBusy.value = true;
+  const prev = allowSave.value;
+  allowSave.value = checked;
+  try {
+    await updateVideoAnalytics(String(route.params.id), { allowSave: checked });
+    toast.success(checked ? "已允许观众保存视频" : "已关闭观众保存");
+  } catch (err) {
+    allowSave.value = prev;
+    toast.error(err instanceof Error ? err.message : String(err));
+  } finally {
+    savePolicyBusy.value = false;
+  }
+}
 
 const words = computed<WordInfo[]>(() => {
   const w = task.value?.words;
@@ -596,10 +640,10 @@ listFiles({ type: "bgm" })
         />
         <button
           v-if="!editing"
-          class="shrink-0 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
+          class="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
           @click="startEdit"
         >
-          ✏️ 编辑
+          <Pencil class="h-3.5 w-3.5" aria-hidden="true" /> 编辑
         </button>
       </div>
       <div class="mt-2 flex items-center gap-3 text-sm text-gray-500">
@@ -637,11 +681,33 @@ listFiles({ type: "bgm" })
         </span>
         <span v-if="marks.length === 0" class="text-xs text-gray-400">未标记</span>
         <button
-          class="rounded-lg border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100"
+          class="inline-flex cursor-pointer items-center gap-1 rounded-lg border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100"
           @click="markManager?.open()"
         >
-          🏷 管理标记
+          <Tag class="h-3.5 w-3.5" aria-hidden="true" /> 管理标记
         </button>
+      </div>
+
+      <!-- 观众保存策略（allowSave）：成片后直接可见，就地可改，与发布管理/标记同源 -->
+      <div v-if="video" class="mt-3 flex flex-wrap items-center gap-2">
+        <span class="text-xs text-gray-500">保存策略：</span>
+        <button
+          type="button"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50"
+          :class="
+            allowSave
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-gray-200 bg-gray-50 text-gray-500'
+          "
+          :disabled="savePolicyBusy"
+          :title="allowSave ? '观众可保存到本地，点击关闭' : '当前禁止保存，点击开启'"
+          @click="toggleSavePolicy(!allowSave)"
+        >
+          <Spinner v-if="savePolicyBusy" size="sm" />
+          <Check v-else-if="allowSave" class="h-3.5 w-3.5" aria-hidden="true" />
+          {{ allowSave ? "允许观众保存" : "已禁止观众保存" }}
+        </button>
+        <span class="text-xs text-gray-400">与发布管理、上传标记同源，可随时修改</span>
       </div>
 
       <!-- 重新配音 + 组装（PRD §10.1.1 + 文件引用组装） -->
@@ -704,7 +770,7 @@ listFiles({ type: "bgm" })
           class="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs"
           :class="introStatusBadge.cls"
         >
-          <span aria-hidden="true">{{ introStatusBadge.icon }}</span>{{ introStatusBadge.label }}
+          <component :is="introStatusBadge.icon" class="h-3.5 w-3.5" aria-hidden="true" />{{ introStatusBadge.label }}
         </span>
       </div>
 

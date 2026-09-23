@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   type VideoAnalytics,
+  getTask,
   getVideoAnalytics,
   getVideoAnalyticsBatch,
   listFiles,
@@ -9,6 +10,7 @@ import {
   listVoices,
   updateVideoAnalytics,
 } from "../api/client";
+import { buildCopyLines } from "../lib/analytics-copy";
 import {
   type AnalyticsCustomField,
   type AnalyticsMeta,
@@ -59,7 +61,7 @@ function defaultMeta(task: Task): AnalyticsMeta {
     voice: "",
     bgm: "",
     publishAt: localDateTime(task.createdAt),
-    allowSave: true,
+    allowSave: false,
     customFields: [],
   };
 }
@@ -216,6 +218,28 @@ const selectedTask = computed(
   () => tasks.value.find((task) => task.id === selectedId.value) ?? tasks.value[0],
 );
 const selectedMeta = computed(() => (selectedTask.value ? metaFor(selectedTask.value) : null));
+
+/* ── 视频文案（选中行懒加载完整 DTO，缓存不重复拉） ── */
+const copies = ref<Record<string, string[]>>({});
+const copyLoading = ref(false);
+
+async function loadCopy(id: string): Promise<void> {
+  if (!id || copies.value[id]) return;
+  copyLoading.value = true;
+  try {
+    const dto = await getTask(id);
+    copies.value = { ...copies.value, [id]: buildCopyLines(String(dto.template), dto.content) };
+  } catch {
+    copies.value = { ...copies.value, [id]: [] }; // 失败可见：面板展示无文案占位
+  } finally {
+    copyLoading.value = false;
+  }
+}
+
+const selectedCopy = computed<string[] | null>(() => {
+  const id = selectedTask.value?.id;
+  return id ? (copies.value[id] ?? null) : null;
+});
 const totalDuration = computed(() => tasks.value.reduce((sum, task) => sum + durationOf(task), 0));
 const completedCount = computed(
   () => tasks.value.filter((task) => task.status === "completed").length,
@@ -280,38 +304,78 @@ onBeforeUnmount(flushAllPending);
 watch(selectedId, (nextId, previousId) => {
   if (previousId) void flushSave(previousId);
   const task = tasks.value.find((item) => item.id === nextId);
-  if (task) void loadServer(task);
+  if (task) {
+    void loadServer(task);
+    void loadCopy(nextId);
+  }
 });
 </script>
 
 <template>
-  <main class="mx-auto max-w-6xl px-6 py-8">
-    <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
-      <div><h1 class="text-2xl font-bold">视频发布管理</h1><p class="mt-1 text-sm text-gray-500">统一维护视频的发布元数据与保存策略。</p></div>
-      <button class="rounded-lg border px-3 py-2 text-sm hover:bg-gray-100" @click="load">刷新数据</button>
+  <main class="px-7 pt-[26px] pb-12">
+    <!-- Hero（原型 #publish） -->
+    <section class="mb-[22px] flex items-end justify-between gap-5">
+      <div>
+        <h1 class="mb-1.5 text-[26px] font-bold">发布管理</h1>
+        <p class="text-subtle">维护平台发布信息与运营标记，不执行自动发布。</p>
+      </div>
+      <button
+        class="cursor-pointer rounded-[10px] border border-hairline bg-white px-3.5 py-[9px] hover:bg-gray-50"
+        @click="load"
+      >
+        刷新数据
+      </button>
+    </section>
+
+    <!-- 版本提示条（原型 .notice） -->
+    <div class="mb-3.5 rounded-xl border border-[#f8df9c] bg-[#fff8e8] px-3.5 py-3 text-[13px]">
+      当前版本仅记录发布元数据，不回采抖音/快手/视频号播放数据。
     </div>
-    <div v-if="errorMsg" role="alert" class="mb-4 flex items-center justify-between gap-3 rounded-lg bg-red-50 p-3 text-sm text-red-600"><span>{{ errorMsg }}</span><button class="rounded border border-red-300 px-2 py-1 text-xs hover:bg-red-100" @click="load">重试</button></div>
-    <div class="mb-6 grid gap-3 sm:grid-cols-3">
-      <div class="rounded-xl border bg-white p-4"><p class="text-xs text-gray-500">视频总数</p><p class="mt-1 text-2xl font-semibold">{{ tasks.length }}</p></div>
-      <div class="rounded-xl border bg-white p-4"><p class="text-xs text-gray-500">总时长</p><p class="mt-1 text-2xl font-semibold">{{ totalDuration.toFixed(1) }}s</p></div>
-      <div class="rounded-xl border bg-white p-4"><p class="text-xs text-gray-500">已完成</p><p class="mt-1 text-2xl font-semibold">{{ completedCount }}</p></div>
+
+    <div v-if="errorMsg" role="alert" class="mb-4 flex items-center justify-between gap-3 rounded-xl bg-red-50 p-3 text-sm text-red-600"><span>{{ errorMsg }}</span><button class="cursor-pointer rounded border border-red-300 px-2 py-1 text-xs hover:bg-red-100" @click="load">重试</button></div>
+
+    <!-- KPI 指标卡（原型 .metric） -->
+    <div class="mb-[22px] grid grid-cols-3 gap-3.5">
+      <div class="rounded-2xl border border-hairline bg-panel p-[18px]">
+        <p class="text-[13px] text-subtle">视频总数</p>
+        <p class="mt-2 text-[30px] leading-none font-extrabold">{{ loading ? "—" : tasks.length }}</p>
+      </div>
+      <div class="rounded-2xl border border-hairline bg-panel p-[18px]">
+        <p class="text-[13px] text-subtle">总时长</p>
+        <p class="mt-2 text-[30px] leading-none font-extrabold">{{ totalDuration.toFixed(1) }}s</p>
+      </div>
+      <div class="rounded-2xl border border-hairline bg-panel p-[18px]">
+        <p class="text-[13px] text-subtle">已完成</p>
+        <p class="mt-2 text-[30px] leading-none font-extrabold">{{ completedCount }}</p>
+      </div>
     </div>
-    <div class="grid gap-6 lg:grid-cols-[1fr_340px]">
-      <section class="order-2 rounded-xl border bg-white lg:order-1">
-        <p v-if="loading" class="p-8 text-center text-sm text-gray-400">加载中...</p>
-        <p v-else-if="tasks.length === 0" class="p-8 text-center text-sm text-gray-400">暂无生成记录</p>
-        <div v-else class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500"><tr><th class="px-4 py-3">故事主题</th><th class="px-4 py-3">时长</th><th class="px-4 py-3">视频模板</th><th class="px-4 py-3">发布时间</th><th class="px-4 py-3">可保存</th></tr></thead><tbody><tr v-for="task in tasks" :key="task.id" class="border-t hover:bg-blue-50" :class="selectedTask?.id === task.id ? 'bg-blue-50' : ''" :aria-current="selectedTask?.id === task.id ? 'true' : undefined"><td class="max-w-[220px] px-4 py-3 font-medium"><button type="button" class="text-left hover:underline focus:outline-none focus:ring-2 focus:ring-blue-400 rounded" @click="selectedId = task.id">{{ hydratedIds.has(task.id) ? (metaFor(task).storyTopic || "未命名") : "—" }}</button></td><td class="px-4 py-3">{{ durationOf(task).toFixed(1) }}s</td><td class="px-4 py-3">{{ task.template }}</td><td class="px-4 py-3">{{ hydratedIds.has(task.id) ? (metaFor(task).publishAt || "—") : "—" }}</td><td class="px-4 py-3">{{ hydratedIds.has(task.id) ? (metaFor(task).allowSave ? "是" : "否") : "—" }}</td></tr></tbody></table></div>
+
+    <div class="grid grid-cols-[1fr_340px] gap-[18px] max-lg:grid-cols-1">
+      <!-- 发布列表（原型 .table-card） -->
+      <section class="order-2 overflow-hidden rounded-2xl border border-hairline bg-panel lg:order-1">
+        <p v-if="loading" class="p-8 text-center text-sm text-subtle">加载中...</p>
+        <p v-else-if="tasks.length === 0" class="p-8 text-center text-sm text-subtle">暂无生成记录</p>
+        <div v-else class="overflow-x-auto"><table class="w-full border-collapse text-left text-[13px]"><thead class="bg-[#fafbfc] text-subtle"><tr><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">故事主题</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">时长</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">视频模板</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">发布时间</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">可保存</th></tr></thead><tbody><tr v-for="task in tasks" :key="task.id" class="cursor-pointer border-b border-hairline last:border-b-0 hover:bg-brand-soft/60" :class="selectedTask?.id === task.id ? 'border-l-[3px] border-l-brand bg-brand-soft font-medium' : ''" :aria-current="selectedTask?.id === task.id ? 'true' : undefined" @click="selectedId = task.id"><td class="max-w-[220px] px-3.5 py-[13px] font-medium"><button type="button" class="cursor-pointer rounded text-left hover:underline focus:outline-none focus:ring-2 focus:ring-brand" @click.stop="selectedId = task.id">{{ hydratedIds.has(task.id) ? (metaFor(task).storyTopic || "未命名") : "—" }}</button></td><td class="px-3.5 py-[13px]">{{ durationOf(task).toFixed(1) }}s</td><td class="px-3.5 py-[13px]">{{ task.template }}</td><td class="px-3.5 py-[13px]">{{ hydratedIds.has(task.id) ? (metaFor(task).publishAt || "—") : "—" }}</td><td class="px-3.5 py-[13px]">{{ hydratedIds.has(task.id) ? (metaFor(task).allowSave ? "是" : "否") : "—" }}</td></tr></tbody></table></div>
       </section>
       <aside v-if="selectedTask && selectedMeta" class="order-1 space-y-4 lg:order-2">
-        <section class="rounded-xl border bg-white p-4"><h2 class="flex items-center justify-between gap-2 font-semibold">视频详情<span class="inline-flex items-center gap-2 text-xs font-normal"><span role="status" aria-live="polite" :class="saveStates[selectedTask!.id] === 'failed' ? 'text-red-600' : 'text-gray-500'">{{ SAVE_STATE_LABEL[saveStates[selectedTask!.id] ?? 'idle'] }}</span><button v-if="saveStates[selectedTask!.id] === 'failed'" class="rounded border border-red-300 px-2 py-0.5 text-red-600 hover:bg-red-50" @click="saveServer(selectedTask!)">重试保存</button></span></h2><div class="mt-3 space-y-3 text-sm">
-          <label class="block">故事主题<input :value="selectedMeta.storyTopic" :disabled="detailLoading" class="mt-1 w-full rounded border px-2 py-1.5" @input="updateMeta(selectedTask!, { storyTopic: ($event.target as HTMLInputElement).value })" /></label>
-          <label class="block">封面图 URL<input :value="selectedMeta.cover" :disabled="detailLoading" class="mt-1 w-full rounded border px-2 py-1.5" @input="updateMeta(selectedTask!, { cover: ($event.target as HTMLInputElement).value })" /></label>
-          <label class="block">音色<select :value="selectedMeta.voice" :disabled="detailLoading" class="mt-1 w-full rounded border px-2 py-1.5" @change="updateMeta(selectedTask!, { voice: ($event.target as HTMLSelectElement).value })"><option value="">未指定</option><option v-for="v in voiceOptions" :key="v.id" :value="v.id">{{ v.name }}</option><option v-if="selectedMeta!.voice && !voiceOptions.some((v) => v.id === selectedMeta!.voice)" :value="selectedMeta!.voice" disabled>{{ selectedMeta!.voice }}（当前值不可选）</option></select></label>
-          <label class="block">背景音乐<select :value="selectedMeta.bgm" :disabled="detailLoading" class="mt-1 w-full rounded border px-2 py-1.5" @change="updateMeta(selectedTask!, { bgm: ($event.target as HTMLSelectElement).value })"><option value="">无 BGM</option><option v-for="src in bgmOptions" :key="src" :value="src">{{ src.split('/').pop() }}</option><option v-if="selectedMeta!.bgm && !bgmOptions.includes(selectedMeta!.bgm)" :value="selectedMeta!.bgm" disabled>{{ selectedMeta!.bgm.split('/').pop() }}（当前值不可选）</option></select></label>
-          <label class="block">发布时间<input :value="selectedMeta.publishAt" :disabled="detailLoading" type="datetime-local" class="mt-1 w-full rounded border px-2 py-1.5" @input="updateMeta(selectedTask!, { publishAt: ($event.target as HTMLInputElement).value })" /></label>
+        <section class="rounded-2xl border border-hairline bg-panel p-4"><h2 class="flex items-center justify-between gap-2 font-semibold">视频详情<span class="truncate text-xs font-normal text-subtle">{{ selectedMeta?.storyTopic || selectedTask?.title }}</span><span class="inline-flex items-center gap-2 text-xs font-normal"><span role="status" aria-live="polite" :class="saveStates[selectedTask!.id] === 'failed' ? 'text-red-600' : 'text-gray-500'">{{ SAVE_STATE_LABEL[saveStates[selectedTask!.id] ?? 'idle'] }}</span><button v-if="saveStates[selectedTask!.id] === 'failed'" class="rounded border border-red-300 px-2 py-0.5 text-red-600 hover:bg-red-50" @click="saveServer(selectedTask!)">重试保存</button></span></h2><div class="mt-3 space-y-3 text-sm">
+          <label class="block">故事主题<input :value="selectedMeta.storyTopic" :disabled="detailLoading" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @input="updateMeta(selectedTask!, { storyTopic: ($event.target as HTMLInputElement).value })" /></label>
+          <label class="block">封面图 URL<input :value="selectedMeta.cover" :disabled="detailLoading" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @input="updateMeta(selectedTask!, { cover: ($event.target as HTMLInputElement).value })" /></label>
+          <label class="block">音色<select :value="selectedMeta.voice" :disabled="detailLoading" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @change="updateMeta(selectedTask!, { voice: ($event.target as HTMLSelectElement).value })"><option value="">未指定</option><option v-for="v in voiceOptions" :key="v.id" :value="v.id">{{ v.name }}</option><option v-if="selectedMeta!.voice && !voiceOptions.some((v) => v.id === selectedMeta!.voice)" :value="selectedMeta!.voice" disabled>{{ selectedMeta!.voice }}（当前值不可选）</option></select></label>
+          <label class="block">背景音乐<select :value="selectedMeta.bgm" :disabled="detailLoading" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @change="updateMeta(selectedTask!, { bgm: ($event.target as HTMLSelectElement).value })"><option value="">无 BGM</option><option v-for="src in bgmOptions" :key="src" :value="src">{{ src.split('/').pop() }}</option><option v-if="selectedMeta!.bgm && !bgmOptions.includes(selectedMeta!.bgm)" :value="selectedMeta!.bgm" disabled>{{ selectedMeta!.bgm.split('/').pop() }}（当前值不可选）</option></select></label>
+          <label class="block">发布时间<input :value="selectedMeta.publishAt" :disabled="detailLoading" type="datetime-local" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @input="updateMeta(selectedTask!, { publishAt: ($event.target as HTMLInputElement).value })" /></label>
           <label class="flex items-center gap-2"><input :checked="selectedMeta.allowSave" :disabled="detailLoading" type="checkbox" @change="updateMeta(selectedTask!, { allowSave: ($event.target as HTMLInputElement).checked })" />允许观众保存视频</label>
         </div></section>
-        <section class="rounded-xl border bg-white p-4"><h2 class="font-semibold">自定义参数</h2><div class="mt-3 space-y-2"><input v-model="draftField.label" :disabled="detailLoading" class="w-full rounded border px-2 py-1.5 text-sm" placeholder="参数名称，如发布文案" /><div class="flex gap-2"><select v-model="draftField.type" :disabled="detailLoading" class="rounded border px-2 py-1.5 text-sm"><option value="text">文本</option><option value="image">图像 URL</option></select><input v-model="draftField.value" :disabled="detailLoading" class="min-w-0 flex-1 rounded border px-2 py-1.5 text-sm" placeholder="参数值" /><button :disabled="detailLoading" class="rounded bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50" @click="addField">添加</button></div></div><div v-for="field in selectedMeta.customFields" :key="field.key" class="mt-3 rounded-lg bg-gray-50 p-2 text-sm"><div class="flex items-center justify-between"><span class="font-medium">{{ field.label }} <span class="text-xs text-gray-400">({{ field.type === 'image' ? '图像' : '文本' }})</span></span><button :disabled="detailLoading" class="text-xs text-red-500" @click="removeField(field.key)">删除</button></div><img v-if="field.type === 'image' && field.value" :src="field.value" class="mt-2 max-h-24 rounded object-cover" alt="自定义图像" /><p v-else class="mt-1 break-all text-gray-600">{{ field.value || "—" }}</p></div></section>
+        <!-- 视频文案（选中行实时切换；懒加载完整内容） -->
+        <section class="rounded-2xl border border-hairline bg-panel p-4">
+          <h2 class="font-semibold">视频文案</h2>
+          <p v-if="copyLoading && selectedCopy === null" class="mt-2 text-xs text-gray-400">文案加载中…</p>
+          <div v-else-if="selectedCopy && selectedCopy.length > 0" class="mt-2 max-h-72 space-y-2 overflow-y-auto text-xs leading-relaxed text-gray-600">
+            <p v-for="(line, i) in selectedCopy" :key="i" class="rounded-[10px] bg-shell px-3 py-2">{{ line }}</p>
+          </div>
+          <p v-else class="mt-2 text-xs text-gray-400">暂无文案（记录加载失败或内容为空）</p>
+        </section>
+        <section class="rounded-2xl border border-hairline bg-panel p-4"><h2 class="font-semibold">自定义参数</h2><div class="mt-3 space-y-2"><input v-model="draftField.label" :disabled="detailLoading" class="w-full rounded border px-2 py-1.5 text-sm" placeholder="参数名称，如发布文案" /><div class="flex gap-2"><select v-model="draftField.type" :disabled="detailLoading" class="rounded border px-2 py-1.5 text-sm"><option value="text">文本</option><option value="image">图像 URL</option></select><input v-model="draftField.value" :disabled="detailLoading" class="min-w-0 flex-1 rounded border px-2 py-1.5 text-sm" placeholder="参数值" /><button :disabled="detailLoading" class="cursor-pointer rounded-[10px] border border-brand bg-brand px-3 py-1.5 text-sm text-white disabled:opacity-50" @click="addField">添加</button></div></div><div v-for="field in selectedMeta.customFields" :key="field.key" class="mt-3 rounded-lg bg-gray-50 p-2 text-sm"><div class="flex items-center justify-between"><span class="font-medium">{{ field.label }} <span class="text-xs text-gray-400">({{ field.type === 'image' ? '图像' : '文本' }})</span></span><button :disabled="detailLoading" class="text-xs text-red-500" @click="removeField(field.key)">删除</button></div><img v-if="field.type === 'image' && field.value" :src="field.value" class="mt-2 max-h-24 rounded object-cover" alt="自定义图像" /><p v-else class="mt-1 break-all text-gray-600">{{ field.value || "—" }}</p></div></section>
       </aside>
     </div>
   </main>
