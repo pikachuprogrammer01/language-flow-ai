@@ -4,6 +4,7 @@
  * 输入 hint 可选（用户意图/关键词）；输出 5-8 个 {title, description} 候选，用户确认后再生成内容
  */
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { API_TAGS } from "../lib/api-convention";
 import { logger } from "../lib/logger";
 import { LlmNotConfiguredError, chatCompletion, extractJson } from "../services/llm.service";
 
@@ -20,6 +21,8 @@ export const topics = new OpenAPIHono();
 const suggestRoute = createRoute({
   method: "post",
   path: "/suggest",
+  tags: [API_TAGS.topics],
+  operationId: "suggestTopics",
   summary: "本地模型生成故事主题候选",
   request: { body: { content: { "application/json": { schema: suggestSchema } } } },
   responses: {
@@ -30,7 +33,6 @@ const suggestRoute = createRoute({
     503: { description: "LLM 未配置" },
     500: { description: "生成失败" },
   },
-  tags: ["topics"],
 });
 
 topics.openapi(suggestRoute, async (c): Promise<Response> => {

@@ -5,7 +5,12 @@
  * 底部展示全视频词汇汇总；字号按文本总量自适应，保证内容完整可读
  * 可选片头：Three.js 约 1 秒主题化动效（style.introEffect !== false，默认开）
  */
-import type { ContentDTO, IntroStatus, SceneWordSegment } from "@ai-english/shared";
+import {
+  type ContentDTO,
+  type IntroStatus,
+  type SceneWordSegment,
+  fitSceneWordFontSize,
+} from "@ai-english/shared";
 import { allocateDurations } from "./allocate-durations";
 import { isSceneWord } from "./guards";
 import { escapeHtml, escapeRegExp, fillTemplate, loadTemplate } from "./html";
@@ -21,14 +26,6 @@ export function highlightWords(text: string, words: SceneWordSegment["words"]): 
     html = html.replace(pattern, (match) => `<mark>${match}</mark>`);
   }
   return html;
-}
-
-/** 按文本总量自适应正文字号（短文本大字号，长文本缩小保证放得下） */
-export function fitFontSize(textLength: number): number {
-  if (textLength < 90) return 42;
-  if (textLength < 160) return 36;
-  if (textLength < 240) return 32;
-  return 28;
 }
 
 export class SceneWordRenderer implements TemplateRenderer {
@@ -72,7 +69,7 @@ export class SceneWordRenderer implements TemplateRenderer {
       // 标题中的英文词同样高亮（与正文一致）
       TITLE: highlightWords(dto.title, allWords),
       TEXT: fullText,
-      FONT_SIZE: String(fitFontSize(fullText.length)),
+      FONT_SIZE: String(fitSceneWordFontSize(fullText.length)),
       SUMMARY_WORDS: allWords
         .map(
           (w) =>

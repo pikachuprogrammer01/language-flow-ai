@@ -5,6 +5,7 @@
  */
 import type { ContentDTO } from "@ai-english/shared";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { API_TAGS } from "../lib/api-convention";
 import { INTRO_STATUS_VALUES } from "../lib/intro-status";
 import { logger } from "../lib/logger";
 import { renderVideo } from "../services/video.service";
@@ -109,6 +110,8 @@ const renderResponseSchema = z.object({ video: videoResultSchema });
 const renderRoute = createRoute({
   method: "post",
   path: "/render",
+  tags: [API_TAGS.video],
+  operationId: "renderVideo",
   summary: "渲染 9:16 短视频（按 template 判别结构）",
   request: {
     body: { content: { "application/json": { schema: renderRequestSchema } } },

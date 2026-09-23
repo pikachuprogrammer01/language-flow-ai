@@ -6,6 +6,7 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { db } from "../db";
 import { contents } from "../db/schema";
+import { API_TAGS } from "../lib/api-convention";
 import { logger } from "../lib/logger";
 import { generateSceneWordContent } from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
@@ -93,6 +94,8 @@ const generateResponseSchema = z.object({
 const generateRoute = createRoute({
   method: "post",
   path: "/generate",
+  tags: [API_TAGS.content],
+  operationId: "generateContent",
   summary: "AI 生成情景故事内容（ContentDTO）",
   request: {
     body: { content: { "application/json": { schema: generateSchema } } },

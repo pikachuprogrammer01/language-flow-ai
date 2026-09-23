@@ -11,6 +11,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { cetWords, contents } from "../db/schema";
+import { API_TAGS } from "../lib/api-convention";
 import { apiError, internalError } from "../lib/api-error";
 import { INTRO_STATUS_VALUES } from "../lib/intro-status";
 import { logger } from "../lib/logger";
@@ -164,6 +165,9 @@ export const tasks = new OpenAPIHono();
 const listRoute = createRoute({
   method: "get",
   path: "/",
+  tags: [API_TAGS.tasks],
+  operationId: "listTasks",
+  summary: "任务列表（分页/状态/关键字/有无成片过滤）",
   request: { query: listQuerySchema },
   responses: {
     200: {
@@ -179,7 +183,6 @@ const listRoute = createRoute({
     },
     500: { description: "查询任务列表失败" },
   },
-  tags: ["tasks"],
 });
 
 tasks.openapi(listRoute, async (c) => {
@@ -241,6 +244,9 @@ tasks.openapi(listRoute, async (c) => {
 const detailRoute = createRoute({
   method: "get",
   path: "/{id}",
+  tags: [API_TAGS.tasks],
+  operationId: "getTask",
+  summary: "任务详情（ContentDTO 全量字段）",
   request: { params: idParamSchema },
   responses: {
     200: {
@@ -249,7 +255,6 @@ const detailRoute = createRoute({
     },
     404: { description: "任务不存在" },
   },
-  tags: ["tasks"],
 });
 
 tasks.openapi(detailRoute, async (c) => {
@@ -267,6 +272,9 @@ tasks.openapi(detailRoute, async (c) => {
 const renderSettingsRoute = createRoute({
   method: "patch",
   path: "/{id}/render-settings",
+  tags: [API_TAGS.tasks],
+  operationId: "updateRenderSettings",
+  summary: "更新渲染设置（音色/语速/BGM/片头）",
   request: {
     params: idParamSchema,
     body: { content: { "application/json": { schema: renderSettingsBodySchema } } },
@@ -278,7 +286,6 @@ const renderSettingsRoute = createRoute({
     },
     404: { description: "任务不存在" },
   },
-  tags: ["tasks"],
 });
 
 tasks.openapi(renderSettingsRoute, async (c) => {
@@ -311,6 +318,9 @@ tasks.openapi(renderSettingsRoute, async (c) => {
 const patchRoute = createRoute({
   method: "patch",
   path: "/{id}",
+  tags: [API_TAGS.tasks],
+  operationId: "updateTask",
+  summary: "局部更新任务（标题/内容/状态）",
   request: {
     params: idParamSchema,
     body: { content: { "application/json": { schema: patchBodySchema } } },
@@ -322,7 +332,6 @@ const patchRoute = createRoute({
     },
     404: { description: "任务不存在" },
   },
-  tags: ["tasks"],
 });
 
 tasks.openapi(patchRoute, async (c) => {
@@ -358,6 +367,9 @@ tasks.openapi(patchRoute, async (c) => {
 const deleteRoute = createRoute({
   method: "delete",
   path: "/{id}",
+  tags: [API_TAGS.tasks],
+  operationId: "deleteTask",
+  summary: "删除任务记录（不删成片文件）",
   request: { params: idParamSchema },
   responses: {
     200: {
@@ -366,7 +378,6 @@ const deleteRoute = createRoute({
     },
     404: { description: "任务不存在" },
   },
-  tags: ["tasks"],
 });
 
 // ── 批量删除（审计管理批量处理） ──
@@ -374,6 +385,9 @@ const deleteRoute = createRoute({
 const batchDeleteRoute = createRoute({
   method: "post",
   path: "/batch-delete",
+  tags: [API_TAGS.tasks],
+  operationId: "batchDeleteTasks",
+  summary: "批量删除任务记录",
   request: {
     body: {
       content: {
@@ -396,7 +410,6 @@ const batchDeleteRoute = createRoute({
       },
     },
   },
-  tags: ["tasks"],
 });
 
 tasks.openapi(batchDeleteRoute, async (c) => {

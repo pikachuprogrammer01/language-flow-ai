@@ -2,6 +2,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { contents, videoAnalytics } from "../db/schema";
+import { API_TAGS } from "../lib/api-convention";
 import { apiError, internalError } from "../lib/api-error";
 import { logger } from "../lib/logger";
 import { allVoiceIds, isBgmAllowed, isVoiceAllowed } from "../lib/tts-catalog";
@@ -110,6 +111,9 @@ export const videoAnalyticsRoute = new OpenAPIHono();
 const batchGetRoute = createRoute({
   method: "get",
   path: "/",
+  tags: [API_TAGS.videoAnalytics],
+  operationId: "batchGetVideoAnalytics",
+  summary: "批量获取视频发布元数据",
   request: { query: batchQuerySchema },
   responses: {
     200: {
@@ -118,7 +122,6 @@ const batchGetRoute = createRoute({
     },
     400: { description: "内容 ID 数量或格式不合法" },
   },
-  tags: ["video-analytics"],
 });
 
 videoAnalyticsRoute.openapi(batchGetRoute, async (c) => {
@@ -146,6 +149,9 @@ videoAnalyticsRoute.openapi(batchGetRoute, async (c) => {
 const getRoute = createRoute({
   method: "get",
   path: "/{contentId}",
+  tags: [API_TAGS.videoAnalytics],
+  operationId: "getVideoAnalytics",
+  summary: "获取单个视频发布元数据",
   request: { params: idSchema },
   responses: {
     200: {
@@ -154,7 +160,6 @@ const getRoute = createRoute({
     },
     404: { description: "内容不存在" },
   },
-  tags: ["video-analytics"],
 });
 
 videoAnalyticsRoute.openapi(getRoute, async (c) => {
@@ -176,6 +181,9 @@ videoAnalyticsRoute.openapi(getRoute, async (c) => {
 const patchRoute = createRoute({
   method: "patch",
   path: "/{contentId}",
+  tags: [API_TAGS.videoAnalytics],
+  operationId: "updateVideoAnalytics",
+  summary: "更新发布元数据（白名单字段原子 upsert）",
   request: {
     params: idSchema,
     body: { content: { "application/json": { schema: bodySchema } } },
@@ -184,7 +192,6 @@ const patchRoute = createRoute({
     200: { description: "保存成功", content: { "application/json": { schema: responseSchema } } },
     404: { description: "内容不存在" },
   },
-  tags: ["video-analytics"],
 });
 
 /**
@@ -253,7 +260,7 @@ async function writeAnalyticsAndCanonical(
           : (existing?.publishAt ?? null),
       coverUrl: body.coverUrl !== undefined ? body.coverUrl : (existing?.coverUrl ?? null),
       allowSave:
-        body.allowSave !== undefined ? (body.allowSave ? 1 : 0) : (existing?.allowSave ?? 1),
+        body.allowSave !== undefined ? (body.allowSave ? 1 : 0) : (existing?.allowSave ?? 0),
       customParams:
         body.customParams !== undefined ? body.customParams : (existing?.customParams ?? null),
       createdAt: existing?.createdAt ?? now,

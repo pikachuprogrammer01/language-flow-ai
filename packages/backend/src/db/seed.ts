@@ -1,12 +1,13 @@
 /**
  * 词库 seed 脚本（docs/09 §五）
- * 运行：DATABASE_URL="mysql://dev:dev@localhost:3306/language_flow" pnpm --filter backend db:seed
+ * 运行：pnpm --filter backend db:seed（默认目标 = 测试库 :3307，见 backend/package.json db:* 脚本）
  * 行为：读 seed-data/cet_words.csv → 校验 → 全量重灌 cet_words（幂等，可重复执行）
+ * 生产库：需显式 DATABASE_URL=:3306 + DB_ALLOW_PROD=1（通常由发布流程在容器内完成）
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { logger } from "../lib/logger";
-import { db } from "./index";
+import { db, requireSafeWriteTarget } from "./index";
 import { cetWords } from "./schema";
 
 type SeedLevel = "CET4" | "CET6";
@@ -50,6 +51,7 @@ function parseCsvLine(line: string): string[] {
 }
 
 async function main(): Promise<void> {
+  requireSafeWriteTarget("db:seed");
   const csvPath = join(import.meta.dirname, "../../seed-data/cet_words.csv");
   // 去除 CRLF 行尾（python csv.writer 默认 \r\n）
   const lines = (await readFile(csvPath, "utf-8"))

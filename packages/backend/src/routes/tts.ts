@@ -8,8 +8,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { API_TAGS, apiErrorSchema } from "../lib/api-convention";
 import { logger } from "../lib/logger";
-import { MAC_VOICES, TTS_VOICES } from "../lib/tts-catalog";
+import { availableVoices } from "../lib/tts-catalog";
+import { UPLOADS_DIR } from "../lib/uploads-path";
 import { buildTtsText, getAudioDuration, synthesizeSpeech } from "../services/tts.service";
 
 // ── Zod schema ──
@@ -51,6 +53,8 @@ const audioResponseSchema = z.object({ audio: audioSchema });
 const generateRoute = createRoute({
   method: "post",
   path: "/generate",
+  tags: [API_TAGS.tts],
+  operationId: "generateTts",
   summary: "TTS 底层接口（纯文本合成，已发布契约）",
   request: {
     body: { content: { "application/json": { schema: ttsSchema } } },
@@ -61,13 +65,18 @@ const generateRoute = createRoute({
       description: "合成成功，返回音频文件信息",
     },
     400: { description: "参数不合法" },
-    500: { description: "TTS 引擎错误" },
+    500: {
+      description: "TTS 引擎错误（error 携真实原因）",
+      content: { "application/json": { schema: apiErrorSchema } },
+    },
   },
 });
 
 const fromContentRoute = createRoute({
   method: "post",
   path: "/from-content",
+  tags: [API_TAGS.tts],
+  operationId: "ttsFromContent",
   summary: "按模板拼接朗读文本并合成（返回音频元数据）",
   request: {
     body: { content: { "application/json": { schema: fromContentSchema } } },
@@ -78,7 +87,10 @@ const fromContentRoute = createRoute({
       description: "合成成功（url/duration/format）",
     },
     400: { description: "content 无法拼出文本 / 超 2000 字符" },
-    500: { description: "TTS 引擎错误" },
+    500: {
+      description: "TTS 引擎错误（error 携真实原因）",
+      content: { "application/json": { schema: apiErrorSchema } },
+    },
   },
 });
 
@@ -89,7 +101,7 @@ async function saveAudio(
   buffer: Buffer,
 ): Promise<{ filename: string; url: string; duration: number; format: string }> {
   const filename = `${randomUUID()}.mp3`;
-  const dir = join(import.meta.dirname, "../../uploads/audio");
+  const dir = join(UPLOADS_DIR, "audio");
   await mkdir(dir, { recursive: true });
   const filePath = join(dir, filename);
   await writeFile(filePath, buffer);
@@ -116,7 +128,11 @@ export const tts = new OpenAPIHono({
       return c.json({ success: true, filename, url });
     } catch (err) {
       logger.error({ err }, "tts generate failed");
-      return c.json({ error: "TTS synthesis failed" }, 500);
+      // 真实原因透给前端（如 say 不可用/Edge 网络异常），不再只回笼统文案
+      return c.json(
+        { error: `TTS 合成失败：${err instanceof Error ? err.message : String(err)}` },
+        500,
+      );
     }
   })
   .openapi(fromContentRoute, async (c): Promise<Response> => {
@@ -136,13 +152,18 @@ export const tts = new OpenAPIHono({
       return c.json({ audio: { url, duration, format } });
     } catch (err) {
       logger.error({ err }, "tts from-content failed");
-      return c.json({ error: "TTS synthesis failed" }, 500);
+      return c.json(
+        { error: `TTS 合成失败：${err instanceof Error ? err.message : String(err)}` },
+        500,
+      );
     }
   })
   .openapi(
     createRoute({
       method: "get",
       path: "/voices",
+      tags: [API_TAGS.tts],
+      operationId: "listVoices",
       summary: "可用配音列表（音色/性别）",
       responses: {
         200: {
@@ -157,12 +178,11 @@ export const tts = new OpenAPIHono({
           },
         },
       },
-      tags: ["tts"],
     }),
     async (c) =>
       c.json({
-        // Edge 8 音色 + Mac 本地 3 音色统一列表（按 voice id 自动分发引擎）
-        voices: [...TTS_VOICES, ...MAC_VOICES],
+        // Edge 8 音色 + Mac 本地 3 音色统一列表（按 voice id 自动分发引擎）；非 darwin 环境无 say，本地音色不出列表
+        voices: availableVoices(),
         default: "zh-CN-XiaoxiaoNeural",
       }),
   );

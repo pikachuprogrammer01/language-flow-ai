@@ -19,7 +19,7 @@ import { buildQuizItemText, getAudioDuration, synthesizeSpeech } from "./tts.ser
 const execFileAsync = promisify(execFile);
 
 const RENDER_TEMP_DIR = process.env.RENDER_TEMP_DIR ?? "/tmp/language-flow-render";
-const UPLOADS_DIR = join(import.meta.dirname, "../../uploads");
+import { UPLOADS_DIR } from "../lib/uploads-path";
 
 export interface RenderVideoResult {
   url: string;

@@ -1,0 +1,1 @@
+ALTER TABLE `video_analytics` MODIFY COLUMN `allow_save` int NOT NULL DEFAULT 0;

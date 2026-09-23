@@ -6,7 +6,7 @@
 import { join } from "node:path";
 import { eq, isNull } from "drizzle-orm";
 import { migrate } from "drizzle-orm/mysql2/migrator";
-import { db } from "./index";
+import { db, requireSafeWriteTarget } from "./index";
 import { uploadMarks } from "./schema";
 import { resolveTaskIdByVideoFilename } from "./upload-marks-helper";
 
@@ -25,6 +25,7 @@ async function backfillUploadMarkTaskIds(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  requireSafeWriteTarget("db:migrate");
   await migrate(db, { migrationsFolder: join(import.meta.dirname, "../../drizzle") });
   await backfillUploadMarkTaskIds();
   process.exit(0);

@@ -13,8 +13,9 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { contents, uploadMarks } from "../db/schema";
 import { resolveTaskIdByVideoFilename } from "../db/upload-marks-helper";
+import { API_TAGS } from "../lib/api-convention";
 
-const UPLOADS_DIR = join(import.meta.dirname, "../../uploads");
+import { UPLOADS_DIR } from "../lib/uploads-path";
 
 const markSchema = z.object({
   videoFilename: z.string().min(1).max(100),
@@ -155,6 +156,9 @@ export const uploadMarksRoute = new OpenAPIHono();
 const listRoute = createRoute({
   method: "get",
   path: "/",
+  tags: [API_TAGS.uploadMarks],
+  operationId: "listUploadMarks",
+  summary: "上传标记列表（按视频文件名）",
   request: {
     query: z.object({
       videoFilename: z.string().max(100).optional(),
@@ -183,7 +187,6 @@ const listRoute = createRoute({
       },
     },
   },
-  tags: ["upload-marks"],
 });
 
 uploadMarksRoute.openapi(listRoute, async (c) => {
@@ -213,6 +216,9 @@ uploadMarksRoute.openapi(listRoute, async (c) => {
 const overviewRoute = createRoute({
   method: "get",
   path: "/overview",
+  tags: [API_TAGS.uploadMarks],
+  operationId: "getUploadMarksOverview",
+  summary: "上传标记一览（关联任务元数据）",
   request: {
     query: z.object({
       platform: z.string().max(50).optional(),
@@ -232,7 +238,6 @@ const overviewRoute = createRoute({
       },
     },
   },
-  tags: ["upload-marks"],
 });
 
 uploadMarksRoute.openapi(overviewRoute, async (c) => {
@@ -257,6 +262,9 @@ uploadMarksRoute.openapi(overviewRoute, async (c) => {
 const createRouteDef = createRoute({
   method: "post",
   path: "/",
+  tags: [API_TAGS.uploadMarks],
+  operationId: "createUploadMark",
+  summary: "新增上传标记",
   request: {
     body: {
       content: { "application/json": { schema: markSchema } },
@@ -289,7 +297,6 @@ const createRouteDef = createRoute({
       content: { "application/json": { schema: z.object({ error: z.string() }) } },
     },
   },
-  tags: ["upload-marks"],
 });
 
 uploadMarksRoute.openapi(createRouteDef, async (c) => {
@@ -341,6 +348,9 @@ uploadMarksRoute.openapi(createRouteDef, async (c) => {
 const patchRouteDef = createRoute({
   method: "patch",
   path: "/{id}",
+  tags: [API_TAGS.uploadMarks],
+  operationId: "updateUploadMark",
+  summary: "更新上传标记备注",
   request: {
     params: z.object({ id: z.string().min(1).max(32) }),
     body: {
@@ -367,7 +377,6 @@ const patchRouteDef = createRoute({
       content: { "application/json": { schema: z.object({ error: z.string() }) } },
     },
   },
-  tags: ["upload-marks"],
 });
 
 uploadMarksRoute.openapi(patchRouteDef, async (c) => {
@@ -388,6 +397,9 @@ uploadMarksRoute.openapi(patchRouteDef, async (c) => {
 const deleteRouteDef = createRoute({
   method: "delete",
   path: "/{id}",
+  tags: [API_TAGS.uploadMarks],
+  operationId: "deleteUploadMark",
+  summary: "删除上传标记",
   request: {
     params: z.object({ id: z.string().min(1).max(32) }),
   },
@@ -401,7 +413,6 @@ const deleteRouteDef = createRoute({
       content: { "application/json": { schema: z.object({ error: z.string() }) } },
     },
   },
-  tags: ["upload-marks"],
 });
 
 uploadMarksRoute.openapi(deleteRouteDef, async (c) => {

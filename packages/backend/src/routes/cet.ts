@@ -4,6 +4,7 @@
  */
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { db } from "../db";
+import { API_TAGS } from "../lib/api-convention";
 import { logger } from "../lib/logger";
 import { randomWords, validateWords } from "../services/cet.service";
 
@@ -40,6 +41,8 @@ const randomWordsResponseSchema = z.object({
 const validateWordsRoute = createRoute({
   method: "post",
   path: "/validate-words",
+  tags: [API_TAGS.cet],
+  operationId: "validateWords",
   summary: "词库精确校验",
   request: {
     body: { content: { "application/json": { schema: validateWordsSchema } } },
@@ -57,6 +60,8 @@ const validateWordsRoute = createRoute({
 const randomWordsRoute = createRoute({
   method: "post",
   path: "/random-words",
+  tags: [API_TAGS.cet],
+  operationId: "randomWords",
   summary: "随机抽取高频词",
   request: {
     body: { content: { "application/json": { schema: randomWordsSchema } } },

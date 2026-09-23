@@ -1,17 +1,19 @@
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { rateLimiter } from "hono-rate-limiter";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { OPENAPI_DOC_BASE } from "./lib/api-convention";
+import { registerApiDocs } from "./lib/api-docs";
 import { logger } from "./lib/logger";
 import { cet } from "./routes/cet";
 import { content } from "./routes/content";
+import { dashboard } from "./routes/dashboard";
 import { fileManager } from "./routes/file-manager";
 import { files } from "./routes/files";
 import { health } from "./routes/health";
+import { llm } from "./routes/llm";
 import { tasks } from "./routes/tasks";
 import { topics } from "./routes/topics";
 import { tts } from "./routes/tts";
@@ -49,15 +51,18 @@ app.use("*", async (c, next) => {
 // 请求体大小限制 — 10MB
 app.use("*", bodyLimit({ maxSize: 10 * 1024 * 1024 }));
 
-// 错误处理中间件
+// 错误处理中间件 — 统一错误信封 { error, message?, code? }（docs/16）
 app.onError((err, c) => {
   logger.error({ err, path: c.req.path, method: c.req.method }, "unhandled error");
-  return c.json({ error: "Internal Server Error", message: err.message }, 500);
+  return c.json({ error: "Internal Server Error", message: err.message, code: "INTERNAL" }, 500);
 });
 
 // 404 处理
 app.notFound((c) => {
-  return c.json({ error: "Not Found", path: c.req.path }, 404);
+  return c.json(
+    { error: "Not Found", message: `路由不存在：${c.req.method} ${c.req.path}`, code: "NOT_FOUND" },
+    404,
+  );
 });
 
 // CORS — 允许前端开发服务器跨域访问
@@ -79,6 +84,9 @@ if (process.env.NODE_ENV === "production") {
       limit: 100,
       standardHeaders: true,
       keyGenerator,
+      // 工作台只读聚合端点豁免：前端 500ms 生命周期轮询（120 次/分）会击穿常规限额，
+      // 该端点无写入、查询成本固定，不依赖限流防护
+      skip: (c) => c.req.path === "/api/dashboard/summary",
     }),
   );
 }
@@ -93,35 +101,17 @@ app.route("/api/tasks", tasks);
 app.route("/api/topics", topics);
 app.route("/api/files", fileManager);
 app.route("/api/upload-marks", uploadMarksRoute);
+app.route("/api/llm", llm);
+app.route("/api/dashboard", dashboard);
 app.route("/api/video-analytics", videoAnalyticsRoute);
 app.route("/files", files);
 
-// ── OpenAPI 文档（#19）：/doc Scalar UI 实时服务；openapi.json 由显式 `pnpm openapi:gen` 生成 ──
-app.doc("/doc", {
-  openapi: "3.1.0",
-  info: {
-    title: "Language Flow AI API",
-    version: "0.1.0",
-    description: "四级词汇情景记忆短视频平台 API",
-  },
-});
+// ── OpenAPI 文档体系（docs/16）──
+// GET /doc → OpenAPI 3.1 JSON；GET /doc/ → 自托管 Swagger UI（本地资源，离线可用）+ 返回管理界面导航
+app.doc("/doc", OPENAPI_DOC_BASE);
+registerApiDocs(app);
 
-// 仅在显式生成模式写文件后退出（修复 DX-3：常规启动/类型检查不再重写受追踪的 openapi.json）
-if (process.env.GEN_OPENAPI === "1") {
-  writeFileSync(
-    join(import.meta.dirname, "openapi.json"),
-    JSON.stringify(
-      app.getOpenAPIDocument({
-        openapi: "3.1.0",
-        info: { title: "Language Flow AI API", version: "0.1.0" },
-      }),
-      null,
-      2,
-    ),
-  );
-  logger.info({}, "openapi.json generated");
-  process.exit(0);
-}
+// openapi.json 落盘由显式脚本生成：pnpm openapi:gen（lefthook pre-commit backend 变更时自动重生成）
 
 // ── 启动服务器 ──
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
@@ -146,4 +136,6 @@ const shutdown = (signal: string) => {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
+// 命名导出供测试/脚本收尾 listen 句柄（覆盖度测试 afterAll close）
+export { app, server };
 export default app;

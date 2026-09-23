@@ -83,7 +83,7 @@ export const videoAnalytics = mysqlTable("video_analytics", {
   // mode:"date" 保 JS Date 语义（与既有 toISOString/insert 代码一致）；datetime 免 timestamp 2038 上限与会话时区隐式转换
   publishAt: datetime("publish_at", { mode: "date" }),
   coverUrl: varchar("cover_url", { length: 500 }),
-  allowSave: int("allow_save").notNull().default(1),
+  allowSave: int("allow_save").notNull().default(0),
   customParams: json("custom_params"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),

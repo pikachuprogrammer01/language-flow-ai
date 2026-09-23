@@ -31,11 +31,20 @@ export const TTS_VOICES: VoiceCatalogItem[] = [
   { id: "zh-CN-XiaomengNeural", name: "晓梦（女·少年感）", gender: "女" },
 ];
 
-const UPLOADS_DIR = join(import.meta.dirname, "../../uploads");
+import { UPLOADS_DIR } from "./uploads-path";
 
 /** 全部合法音色 id（edge-tts + Mac 本地），供 select 列表与后端白名单校验共用 */
 export function allVoiceIds(): string[] {
   return [...TTS_VOICES, ...MAC_VOICES].map((v) => v.id);
+}
+
+/**
+ * 当前运行环境可用音色列表：Mac 本地音色依赖宿主机 say 命令，
+ * 非 darwin（Linux/容器）无 say——不出列表，避免“选了无法合成且报错难懂”；
+ * 白名单（allVoiceIds）不变：存量数据遗留的本地音色仍可回显/重配。
+ */
+export function availableVoices(platform: NodeJS.Platform = process.platform): VoiceCatalogItem[] {
+  return platform === "darwin" ? [...TTS_VOICES, ...MAC_VOICES] : [...TTS_VOICES];
 }
 
 export function isVoiceAllowed(voiceId: string): boolean {

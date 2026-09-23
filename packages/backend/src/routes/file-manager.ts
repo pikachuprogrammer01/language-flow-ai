@@ -12,9 +12,10 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { contents, uploadMarks } from "../db/schema";
+import { API_TAGS, apiErrorSchema } from "../lib/api-convention";
 import { logger } from "../lib/logger";
 
-const UPLOADS_DIR = join(import.meta.dirname, "../../uploads");
+import { UPLOADS_DIR } from "../lib/uploads-path";
 
 /** 文件分类 = uploads 子目录（audio=配音 / video=成片 / bgm=素材） */
 export const FILE_TYPES = ["audio", "video", "bgm"] as const;
@@ -51,6 +52,9 @@ export const fileManager = new OpenAPIHono();
 const listRoute = createRoute({
   method: "get",
   path: "/",
+  tags: [API_TAGS.fileManager],
+  operationId: "listFiles",
+  summary: "文件列表（按类型/关键字过滤，含被任务引用标记）",
   request: { query: z.object({ type: z.enum(FILE_TYPES).optional() }) },
   responses: {
     200: {
@@ -74,7 +78,6 @@ const listRoute = createRoute({
     },
     500: { description: "查询失败" },
   },
-  tags: ["files"],
 });
 
 fileManager.openapi(listRoute, async (c) => {
@@ -121,6 +124,9 @@ fileManager.openapi(listRoute, async (c) => {
 const deleteRoute = createRoute({
   method: "delete",
   path: "/{filename}",
+  tags: [API_TAGS.fileManager],
+  operationId: "deleteFile",
+  summary: "删除上传目录中的文件",
   request: {
     params: z.object({ filename: z.string().min(1).max(100) }),
     query: z.object({ type: z.enum(FILE_TYPES) }),
@@ -133,7 +139,6 @@ const deleteRoute = createRoute({
     400: { description: "非法文件名" },
     404: { description: "文件不存在" },
   },
-  tags: ["files"],
 });
 
 fileManager.openapi(deleteRoute, async (c) => {
@@ -166,6 +171,9 @@ fileManager.openapi(deleteRoute, async (c) => {
 const batchDeleteRoute = createRoute({
   method: "post",
   path: "/batch-delete",
+  tags: [API_TAGS.fileManager],
+  operationId: "batchDeleteFiles",
+  summary: "批量删除文件",
   request: {
     body: {
       content: {
@@ -197,7 +205,6 @@ const batchDeleteRoute = createRoute({
       },
     },
   },
-  tags: ["files"],
 });
 
 fileManager.openapi(batchDeleteRoute, async (c) => {
@@ -246,6 +253,9 @@ fileManager.openapi(batchDeleteRoute, async (c) => {
 const revealRoute = createRoute({
   method: "post",
   path: "/reveal",
+  tags: [API_TAGS.fileManager],
+  operationId: "revealFile",
+  summary: "在宿主机 Finder 中定位视频文件",
   request: {
     body: {
       content: {
@@ -260,14 +270,21 @@ const revealRoute = createRoute({
   },
   responses: {
     200: {
-      description: "已请求在 Finder 中打开",
-      content: { "application/json": { schema: z.object({ ok: z.boolean() }) } },
+      description: "已在 Finder 中定位（容器桥：宿主机 watcher 已确认消费）",
+      content: {
+        "application/json": {
+          schema: z.object({ ok: z.literal(true), revealed: z.literal(true) }),
+        },
+      },
     },
     400: { description: "非法 URL" },
     404: { description: "文件不存在" },
     501: { description: "非 macOS 且未配置 HOST_UPLOADS_DIR" },
+    503: {
+      description: "定位服务未响应（reveal-watcher 未运行，请求已回退删除）",
+      content: { "application/json": { schema: apiErrorSchema } },
+    },
   },
-  tags: ["files"],
 });
 
 /** 在 Finder 中显示文件（仅 darwin；promise 化便于 await / 单测 mock） */
@@ -275,6 +292,26 @@ function openInFinder(absPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile("open", ["-R", absPath], (err) => (err ? reject(err) : resolve()));
   });
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 等待宿主机 watcher 消费 req（消费 = 删文件）：250ms 间隔轮询到超时。
+ * 超时可由 REVEAL_CONFIRM_MS 环境变量调整（单测注入短窗口）；默认 3s 覆盖 watcher 1s 扫描周期 + open 启动延时。
+ */
+async function waitReqConsumed(reqPath: string): Promise<boolean> {
+  const timeoutMs = Number(process.env.REVEAL_CONFIRM_MS ?? 3000) || 0;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    try {
+      await stat(reqPath);
+    } catch {
+      return true; // 文件已被 watcher 删除 = 定位已执行
+    }
+  }
+  return false;
 }
 
 fileManager.openapi(revealRoute, async (c) => {
@@ -295,21 +332,29 @@ fileManager.openapi(revealRoute, async (c) => {
     return c.json({ error: "文件不存在" }, 404);
   }
   const hostUploadsDir = process.env.HOST_UPLOADS_DIR?.trim();
-  // 容器部署：写 .open-requests，由宿主机 launchd 脚本 open -R
+  // 容器部署：写 .open-requests，由宿主机 launchd 脚本 open -R；同步等待消费确认，无人消费则如实失败（不假成功）
   if (hostUploadsDir) {
     const reqDir = join(UPLOADS_DIR, ".open-requests");
     await mkdir(reqDir, { recursive: true });
-    await writeFile(
-      join(reqDir, `${Date.now()}-${filename}.req`),
-      join(hostUploadsDir, "video", filename),
-    );
-    return c.json({ ok: true });
+    const reqPath = join(reqDir, `${Date.now()}-${filename}.req`);
+    await writeFile(reqPath, join(hostUploadsDir, "video", filename));
+    if (!(await waitReqConsumed(reqPath))) {
+      await rm(reqPath, { force: true }).catch(() => {});
+      return c.json(
+        {
+          error:
+            "Finder 定位服务未响应：请确认宿主机已加载 reveal-watcher（launchctl load ~/Library/LaunchAgents/com.languageflow.reveal-videos.plist）",
+        },
+        503,
+      );
+    }
+    return c.json({ ok: true, revealed: true });
   }
   // 本地 pnpm dev（macOS）：后端在宿主机，直接 open -R，无需 HOST_UPLOADS_DIR
   if (process.platform === "darwin") {
     try {
       await openInFinder(localPath);
-      return c.json({ ok: true });
+      return c.json({ ok: true, revealed: true });
     } catch (err) {
       logger.error({ err, localPath }, "open -R 失败");
       return c.json({ error: "打开 Finder 失败" }, 500);

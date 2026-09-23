@@ -2,15 +2,105 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Language Flow AI API",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "description": "四级词汇情景记忆短视频平台 API。\n\n**统一规范**（详见 docs/16_API接口规范与文档管理.md）：\n- 路径：/api 下 kebab-case，资源用复数名词\n- 错误格式：非 2xx 统一 `{ error, message?, code? }` 信封\n- 状态码：200/201/204 成功族 · 400/404/409 客户端错 · 500 服务端错\n- 所有端点由 @hono/zod-openapi 定义自动收录，覆盖度校验见 `pnpm openapi:check`"
   },
+  "servers": [
+    {
+      "url": "/",
+      "description": "同源部署（开发直连后端 / 生产经 nginx 反代）"
+    }
+  ],
+  "tags": [
+    {
+      "name": "健康检查"
+    },
+    {
+      "name": "文件资产"
+    },
+    {
+      "name": "词库"
+    },
+    {
+      "name": "内容生成"
+    },
+    {
+      "name": "配音"
+    },
+    {
+      "name": "视频渲染"
+    },
+    {
+      "name": "任务记录"
+    },
+    {
+      "name": "故事主题"
+    },
+    {
+      "name": "文件管理"
+    },
+    {
+      "name": "上传标记"
+    },
+    {
+      "name": "LLM 引擎"
+    },
+    {
+      "name": "工作台"
+    },
+    {
+      "name": "视频发布"
+    }
+  ],
   "components": {
     "schemas": {},
     "parameters": {}
   },
   "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "健康检查"
+        ],
+        "operationId": "getHealth",
+        "summary": "服务健康检查",
+        "description": "存活探针，供负载均衡 / 监控 / 运维脚本使用，无鉴权",
+        "responses": {
+          "200": {
+            "description": "服务正常",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "timestamp"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cet/validate-words": {
       "post": {
+        "tags": [
+          "词库"
+        ],
+        "operationId": "validateWords",
         "summary": "词库精确校验",
         "requestBody": {
           "content": {
@@ -107,6 +197,10 @@
     },
     "/api/cet/random-words": {
       "post": {
+        "tags": [
+          "词库"
+        ],
+        "operationId": "randomWords",
         "summary": "随机抽取高频词",
         "requestBody": {
           "content": {
@@ -191,6 +285,10 @@
     },
     "/api/content/generate": {
       "post": {
+        "tags": [
+          "内容生成"
+        ],
+        "operationId": "generateContent",
         "summary": "AI 生成情景故事内容（ContentDTO）",
         "requestBody": {
           "content": {
@@ -472,6 +570,10 @@
     },
     "/api/tts/generate": {
       "post": {
+        "tags": [
+          "配音"
+        ],
+        "operationId": "generateTts",
         "summary": "TTS 底层接口（纯文本合成，已发布契约）",
         "requestBody": {
           "content": {
@@ -532,13 +634,38 @@
             "description": "参数不合法"
           },
           "500": {
-            "description": "TTS 引擎错误"
+            "description": "TTS 引擎错误（error 携真实原因）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/tts/from-content": {
       "post": {
+        "tags": [
+          "配音"
+        ],
+        "operationId": "ttsFromContent",
         "summary": "按模板拼接朗读文本并合成（返回音频元数据）",
         "requestBody": {
           "content": {
@@ -626,17 +753,39 @@
             "description": "content 无法拼出文本 / 超 2000 字符"
           },
           "500": {
-            "description": "TTS 引擎错误"
+            "description": "TTS 引擎错误（error 携真实原因）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/tts/voices": {
       "get": {
-        "summary": "可用配音列表（音色/性别）",
         "tags": [
-          "tts"
+          "配音"
         ],
+        "operationId": "listVoices",
+        "summary": "可用配音列表（音色/性别）",
         "responses": {
           "200": {
             "description": "配音列表",
@@ -684,6 +833,10 @@
     },
     "/api/video/render": {
       "post": {
+        "tags": [
+          "视频渲染"
+        ],
+        "operationId": "renderVideo",
         "summary": "渲染 9:16 短视频（按 template 判别结构）",
         "requestBody": {
           "content": {
@@ -1404,8 +1557,10 @@
     "/api/tasks": {
       "get": {
         "tags": [
-          "tasks"
+          "任务记录"
         ],
+        "operationId": "listTasks",
+        "summary": "任务列表（分页/状态/关键字/有无成片过滤）",
         "parameters": [
           {
             "schema": {
@@ -1582,8 +1737,10 @@
     "/api/tasks/{id}": {
       "get": {
         "tags": [
-          "tasks"
+          "任务记录"
         ],
+        "operationId": "getTask",
+        "summary": "任务详情（ContentDTO 全量字段）",
         "parameters": [
           {
             "schema": {
@@ -1617,8 +1774,10 @@
       },
       "patch": {
         "tags": [
-          "tasks"
+          "任务记录"
         ],
+        "operationId": "updateTask",
+        "summary": "局部更新任务（标题/内容/状态）",
         "parameters": [
           {
             "schema": {
@@ -1738,8 +1897,10 @@
       },
       "delete": {
         "tags": [
-          "tasks"
+          "任务记录"
         ],
+        "operationId": "deleteTask",
+        "summary": "删除任务记录（不删成片文件）",
         "parameters": [
           {
             "schema": {
@@ -1780,8 +1941,10 @@
     "/api/tasks/{id}/render-settings": {
       "patch": {
         "tags": [
-          "tasks"
+          "任务记录"
         ],
+        "operationId": "updateRenderSettings",
+        "summary": "更新渲染设置（音色/语速/BGM/片头）",
         "parameters": [
           {
             "schema": {
@@ -1839,8 +2002,10 @@
     "/api/tasks/batch-delete": {
       "post": {
         "tags": [
-          "tasks"
+          "任务记录"
         ],
+        "operationId": "batchDeleteTasks",
+        "summary": "批量删除任务记录",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1896,10 +2061,11 @@
     },
     "/api/topics/suggest": {
       "post": {
-        "summary": "本地模型生成故事主题候选",
         "tags": [
-          "topics"
+          "故事主题"
         ],
+        "operationId": "suggestTopics",
+        "summary": "本地模型生成故事主题候选",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1962,8 +2128,10 @@
     "/api/files": {
       "get": {
         "tags": [
-          "files"
+          "文件管理"
         ],
+        "operationId": "listFiles",
+        "summary": "文件列表（按类型/关键字过滤，含被任务引用标记）",
         "parameters": [
           {
             "schema": {
@@ -2058,8 +2226,10 @@
     "/api/files/{filename}": {
       "delete": {
         "tags": [
-          "files"
+          "文件管理"
         ],
+        "operationId": "deleteFile",
+        "summary": "删除上传目录中的文件",
         "parameters": [
           {
             "schema": {
@@ -2116,8 +2286,10 @@
     "/api/files/batch-delete": {
       "post": {
         "tags": [
-          "files"
+          "文件管理"
         ],
+        "operationId": "batchDeleteFiles",
+        "summary": "批量删除文件",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2232,8 +2404,10 @@
     "/api/files/reveal": {
       "post": {
         "tags": [
-          "files"
+          "文件管理"
         ],
+        "operationId": "revealFile",
+        "summary": "在宿主机 Finder 中定位视频文件",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2255,18 +2429,28 @@
         },
         "responses": {
           "200": {
-            "description": "已请求在 Finder 中打开",
+            "description": "已在 Finder 中定位（容器桥：宿主机 watcher 已确认消费）",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "ok": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "revealed": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
                     }
                   },
                   "required": [
-                    "ok"
+                    "ok",
+                    "revealed"
                   ]
                 }
               }
@@ -2280,6 +2464,30 @@
           },
           "501": {
             "description": "非 macOS 且未配置 HOST_UPLOADS_DIR"
+          },
+          "503": {
+            "description": "定位服务未响应（reveal-watcher 未运行，请求已回退删除）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         }
       }
@@ -2287,8 +2495,10 @@
     "/api/upload-marks": {
       "get": {
         "tags": [
-          "upload-marks"
+          "上传标记"
         ],
+        "operationId": "listUploadMarks",
+        "summary": "上传标记列表（按视频文件名）",
         "parameters": [
           {
             "schema": {
@@ -2365,8 +2575,10 @@
       },
       "post": {
         "tags": [
-          "upload-marks"
+          "上传标记"
         ],
+        "operationId": "createUploadMark",
+        "summary": "新增上传标记",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2497,8 +2709,10 @@
     "/api/upload-marks/overview": {
       "get": {
         "tags": [
-          "upload-marks"
+          "上传标记"
         ],
+        "operationId": "getUploadMarksOverview",
+        "summary": "上传标记一览（关联任务元数据）",
         "parameters": [
           {
             "schema": {
@@ -2632,8 +2846,10 @@
     "/api/upload-marks/{id}": {
       "patch": {
         "tags": [
-          "upload-marks"
+          "上传标记"
         ],
+        "operationId": "updateUploadMark",
+        "summary": "更新上传标记备注",
         "parameters": [
           {
             "schema": {
@@ -2731,8 +2947,10 @@
       },
       "delete": {
         "tags": [
-          "upload-marks"
+          "上传标记"
         ],
+        "operationId": "deleteUploadMark",
+        "summary": "删除上传标记",
         "parameters": [
           {
             "schema": {
@@ -2785,11 +3003,347 @@
         }
       }
     },
+    "/api/llm/status": {
+      "get": {
+        "tags": [
+          "LLM 引擎"
+        ],
+        "operationId": "getLlmStatus",
+        "summary": "LLM 引擎就绪状态（服务可达/模型已安装/模型已加载三级探测）",
+        "responses": {
+          "200": {
+            "description": "LLM 连接状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "installed": {
+                      "type": "boolean"
+                    },
+                    "loaded": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "connected",
+                    "model"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/wake": {
+      "post": {
+        "tags": [
+          "LLM 引擎"
+        ],
+        "operationId": "wakeLlm",
+        "summary": "一键启动 Ollama 并把配置模型加载进内存（仅本机开发环境；加载异步，前端轮询 status 感知就绪）",
+        "responses": {
+          "200": {
+            "description": "唤醒后的最新状态（模型加载可能仍在进行中，loaded 以轮询为准）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "installed": {
+                      "type": "boolean"
+                    },
+                    "loaded": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "connected",
+                    "model"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/sleep": {
+      "post": {
+        "tags": [
+          "LLM 引擎"
+        ],
+        "operationId": "sleepLlm",
+        "summary": "一键关闭：卸载配置模型并停止本机 Ollama 服务（wake 的镜像操作；云端端点仅回探，停完回探呈现真实状态）",
+        "responses": {
+          "200": {
+            "description": "关闭后的最新状态（典型为红灯未连接或黄灯待机）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "installed": {
+                      "type": "boolean"
+                    },
+                    "loaded": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "connected",
+                    "model"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/llm/stream": {
+      "get": {
+        "tags": [
+          "LLM 引擎"
+        ],
+        "operationId": "streamLlmEvents",
+        "summary": "LLM 引擎状态 SSE 事件流（连接即推当前快照，变化才推；服务端仅在有订阅者时 30s 低频对账）",
+        "responses": {
+          "200": {
+            "description": "text/event-stream：event=status 携 EngineSnapshot JSON，event=ping 心跳保活",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "phase": {
+                      "type": "string",
+                      "enum": [
+                        "idle",
+                        "starting",
+                        "stopping"
+                      ]
+                    },
+                    "progress": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "object",
+                      "properties": {
+                        "connected": {
+                          "type": "boolean"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "installed": {
+                          "type": "boolean"
+                        },
+                        "loaded": {
+                          "type": "boolean"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "connected",
+                        "model"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "notice": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "phase",
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard/summary": {
+      "get": {
+        "tags": [
+          "工作台"
+        ],
+        "operationId": "getDashboardSummary",
+        "summary": "工作台实时聚合（状态存量/今日昨日/可发布/失败原因/最近任务）",
+        "responses": {
+          "200": {
+            "description": "工作台聚合数据",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "today": {
+                      "type": "number"
+                    },
+                    "yesterday": {
+                      "type": "number"
+                    },
+                    "pendingRender": {
+                      "type": "number"
+                    },
+                    "ttsActive": {
+                      "type": "number"
+                    },
+                    "completedVideos": {
+                      "type": "number"
+                    },
+                    "topTemplate": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "share": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "share"
+                      ]
+                    },
+                    "failed": {
+                      "type": "number"
+                    },
+                    "failureReasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "pipeline": {
+                      "type": "object",
+                      "properties": {
+                        "generating": {
+                          "type": "number"
+                        },
+                        "validating": {
+                          "type": "number"
+                        },
+                        "tts": {
+                          "type": "number"
+                        },
+                        "rendering": {
+                          "type": "number"
+                        },
+                        "publishable": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "generating",
+                        "validating",
+                        "tts",
+                        "rendering",
+                        "publishable"
+                      ]
+                    },
+                    "recent": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "template": {
+                            "type": "string"
+                          },
+                          "level": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "intro": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "title",
+                          "template",
+                          "level",
+                          "status",
+                          "intro",
+                          "updatedAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "today",
+                    "yesterday",
+                    "pendingRender",
+                    "ttsActive",
+                    "completedVideos",
+                    "topTemplate",
+                    "failed",
+                    "failureReasons",
+                    "pipeline",
+                    "recent"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/video-analytics": {
       "get": {
         "tags": [
-          "video-analytics"
+          "视频发布"
         ],
+        "operationId": "batchGetVideoAnalytics",
+        "summary": "批量获取视频发布元数据",
         "parameters": [
           {
             "schema": {
@@ -2916,8 +3470,10 @@
     "/api/video-analytics/{contentId}": {
       "get": {
         "tags": [
-          "video-analytics"
+          "视频发布"
         ],
+        "operationId": "getVideoAnalytics",
+        "summary": "获取单个视频发布元数据",
         "parameters": [
           {
             "schema": {
@@ -3039,8 +3595,10 @@
       },
       "patch": {
         "tags": [
-          "video-analytics"
+          "视频发布"
         ],
+        "operationId": "updateVideoAnalytics",
+        "summary": "更新发布元数据（白名单字段原子 upsert）",
         "parameters": [
           {
             "schema": {
@@ -3233,6 +3791,249 @@
           },
           "404": {
             "description": "内容不存在"
+          }
+        }
+      }
+    },
+    "/files/bgm/{filename}": {
+      "get": {
+        "tags": [
+          "文件资产"
+        ],
+        "operationId": "getFileBgm",
+        "summary": "获取 BGM 音乐文件",
+        "description": "流式返回 uploads/bgm/ 下的文件，强缓存 1 年",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "filename",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "文件二进制流（audio/mpeg）",
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "文件名不合法（含路径穿越字符）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "文件不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/audio/{filename}": {
+      "get": {
+        "tags": [
+          "文件资产"
+        ],
+        "operationId": "getFileAudio",
+        "summary": "获取配音音频文件",
+        "description": "流式返回 uploads/audio/ 下的文件，强缓存 1 年",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "filename",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "文件二进制流（audio/mpeg）",
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "文件名不合法（含路径穿越字符）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "文件不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/video/{filename}": {
+      "get": {
+        "tags": [
+          "文件资产"
+        ],
+        "operationId": "getFileVideo",
+        "summary": "获取成片视频文件",
+        "description": "流式返回 uploads/video/ 下的文件，强缓存 1 年",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "filename",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "文件二进制流（video/mp4）",
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "文件名不合法（含路径穿越字符）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "文件不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
           }
         }
       }
