@@ -42,3 +42,10 @@ dify/**/*.env
 
 # Drizzle（迁移文件需要入库，保证其他环境可迁移）
 # packages/backend/drizzle/
+
+# 测试覆盖率产物
+coverage/
+
+# Playwright E2E 产物
+test-results/
+playwright-report/

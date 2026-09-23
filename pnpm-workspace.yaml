@@ -2,6 +2,7 @@ packages:
   - "packages/*"
 allowBuilds:
   '@biomejs/biome': false
+  '@scarf/scarf': false
   esbuild: false
   lefthook: false
   vue-demi: false

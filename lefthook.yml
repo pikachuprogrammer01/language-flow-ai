@@ -11,6 +11,14 @@ pre-commit:
       skip:
         - merge
         - rebase
+    # API 文档随提交自动更新（docs/16）：backend 源码有变更时重生成 openapi.json 并补 stage，
+    # 同时跑覆盖度/规范门禁（裸 Hono 端点、缺 summary/tags/operationId、路径命名违规均拒绝提交）
+    openapi:
+      glob: "packages/backend/src/**"
+      run: pnpm --filter @ai-english/backend openapi:gen && git add packages/backend/src/openapi.json && pnpm --filter @ai-english/backend exec vitest run src/routes/openapi-coverage.test.ts
+      skip:
+        - merge
+        - rebase
 
 commit-msg:
   commands:
