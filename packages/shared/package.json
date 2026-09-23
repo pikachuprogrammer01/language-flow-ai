@@ -2,7 +2,8 @@
   "name": "@ai-english/shared",
   "version": "0.0.0",
   "private": true,
-  "description": "共享类型定义 — ContentDTO / Request / Response / Enums",
+  "type": "module",
+  "description": "共享类型定义与跨端纯函数 — ContentDTO / Request / Response / Enums / 渲染呈现逻辑",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -10,9 +11,11 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "coverage": "vitest run --coverage"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "3.2.7",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
