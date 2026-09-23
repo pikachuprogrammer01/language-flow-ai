@@ -1,3 +1,8 @@
+# ── 生产栈（老版本常驻）──
+# 版本锁定模型（2026-09-21）：本文件没有 build 段 —— 生产永远跑 deploy/prod.env 里
+# APP_VERSION 指向的固定 tag 镜像，工作树改动 / pnpm docker:test 重新构建都影响不到它。
+# 升级只能经 scripts/stack.sh release（构建 → 打 tag → 写 APP_VERSION → up -d），回滚改版本号。
+# 所有子命令必须带 --env-file deploy/prod.env（stack.sh 已内置），不要裸跑 docker compose。
 services:
   mysql:
     image: mysql:8.4
@@ -23,18 +28,17 @@ services:
       retries: 20
 
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
+    image: language-flow-ai-backend:${APP_VERSION}
     container_name: language-flow-backend
     restart: unless-stopped
     environment:
       PORT: 8080
-      NODE_ENV: production
+      # 不设 NODE_ENV=production：该版本镜像的限流是「全端点共享 100/min」且无只读端点豁免
+      # （豁免只在后续版本里），单用户本地平台按配置层关闭限流；升级后仍应显式保持关闭
       DATABASE_URL: mysql://dev:dev@mysql:3306/language_flow
       DB_HOST: mysql
       DB_PORT: 3306
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:15173}
       # LLM（Ollama）：默认连宿主机 11434，可用环境变量覆盖
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
@@ -50,19 +54,17 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+    # 不映射宿主 8080：宿主 8080/5173 归本地 pnpm dev 独占，避免浏览器 localhost 双解析
+    # 把新 UI 的请求打到老后端（404 + 限流击穿）；生产 API 只经 frontend nginx 同源反代
 
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
+    image: language-flow-ai-frontend:${APP_VERSION}
     container_name: language-flow-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "5173:80"
+      - "127.0.0.1:${PROD_UI_PORT}:80"
 
 volumes:
   mysql_data:

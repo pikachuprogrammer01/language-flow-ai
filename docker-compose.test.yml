@@ -1,0 +1,84 @@
+# ── 独立 Docker 测试栈（新界面 + 预置测试数据，与正式版本彻底隔离）──
+# 与 docker-compose.yml 的差异：独立项目名/网络/卷、测试端口（5174/3307 内部）、
+# 独立 uploads 目录、预置 fixture 数据（profiles: seed）、关闭限流（工作台 500ms 轮询）
+# 用法：pnpm docker:test（启动）· pnpm docker:test:seed（灌测试数据）· pnpm docker:test:stop
+name: language-flow-test
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: language-flow-test-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: language_flow
+      MYSQL_USER: dev
+      MYSQL_PASSWORD: dev
+    # 映射到 3307（仅本机回环）：栈内 backend 走 mysql:3306 服务名，本地 pnpm dev 后端/工具走 3307；
+    # 与生产库 3306 不冲突——开发/测试数据永远落本容器，生产容器只在 docker:up 时参与
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - mysql_test_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-udev", "-pdev"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: language-flow-test-backend
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      # 不设 production：工作台 500ms 轮询会触发 100/min 限流（429）
+      DATABASE_URL: mysql://dev:dev@mysql:3306/language_flow
+      DB_HOST: mysql
+      DB_PORT: 3306
+      CORS_ORIGIN: http://localhost:5174
+      # LLM 引擎（Ollama）与本机共享：唯一不做隔离的组件（模型资产不宜复制）
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
+      RENDER_TEMP_DIR: /tmp/language-flow-render
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Finder 定位桥指向测试资产目录（与下方绑定挂载同一路径）
+      HOST_UPLOADS_DIR: ${HOME}/language-flow-uploads-test
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${HOME}/language-flow-uploads-test:/app/packages/backend/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: language-flow-test-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5174:80"
+
+  # 一次性灌入预置测试数据（pnpm docker:test:seed 触发；INSERT IGNORE 幂等可重跑）
+  # 等 backend entrypoint 完成 migrate 建表后再导入
+  seeder:
+    image: mysql:8.4
+    profiles: ["seed"]
+    volumes:
+      - ./docker/test-fixtures:/fixtures:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    entrypoint: >
+      sh -c 'until mysql -h mysql -udev -pdev language_flow -e "select 1 from contents limit 1" >/dev/null 2>&1; do echo waiting-for-schema; sleep 3; done;
+      mysql -h mysql -udev -pdev --default-character-set=utf8mb4 language_flow < /fixtures/test-data.sql && echo seeded'
+
+volumes:
+  mysql_test_data:

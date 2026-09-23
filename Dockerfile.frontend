@@ -10,8 +10,10 @@ COPY packages/frontend/package.json packages/frontend/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
+# 构建前重生成 openapi.json（lefthook 已保证提交同步，此处为构建产物的再校验兜底），再编译前端
 # 同源部署：API 走 nginx 反向代理，VITE_API_BASE_URL 置空
-RUN pnpm --filter @ai-english/frontend gen-api \
+RUN pnpm --filter @ai-english/backend openapi:gen \
+  && pnpm --filter @ai-english/frontend gen-api \
   && VITE_API_BASE_URL="" pnpm --filter @ai-english/frontend build
 
 # ── 运行时阶段：nginx 托管静态文件 + 反向代理 /api /files ──
