@@ -261,4 +261,28 @@ describe("POST /api/tts", () => {
 
     expect(res.status).toBe(400);
   });
+
+  it("generate 200：合成成功回 filename/url", async () => {
+    vi.mocked(ttsService.synthesizeSpeech).mockResolvedValue(Buffer.from("mp3"));
+    const res = await postJson("/generate", { text: "你好" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success: boolean; url: string };
+    expect(body.success).toBe(true);
+    expect(body.url).toMatch(/^\/files\/audio\/.+\.mp3$/);
+  });
+
+  it("generate 500：合成失败透真实原因（不再笼统文案）", async () => {
+    vi.mocked(ttsService.synthesizeSpeech).mockRejectedValue(new Error("edge down"));
+    const res = await postJson("/generate", { text: "你好" });
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toContain("edge down");
+  });
+
+  it("voices 200：回音色列表与默认值", async () => {
+    const res = await tts.request("/voices");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { voices: unknown[]; default: string };
+    expect(body.voices.length).toBeGreaterThan(0);
+    expect(body.default).toBe("zh-CN-XiaoxiaoNeural");
+  });
 });

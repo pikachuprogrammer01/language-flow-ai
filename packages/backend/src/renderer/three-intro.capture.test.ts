@@ -8,9 +8,13 @@ vi.mock("../services/llm.service", async (importOriginal) => {
   };
 });
 
+const { seekMock } = vi.hoisted(() => ({ seekMock: vi.fn() }));
+vi.mock("./playwright", () => ({ screenshotSeekAnimation: seekMock }));
+
 import { chatCompletion } from "../services/llm.service";
 import {
   buildThemeFromMotif,
+  captureThreeIntro,
   clearIntroThemeCache,
   fallbackIntroTheme,
   isIntroMotif,
@@ -64,5 +68,37 @@ describe("intro theme LLM 归类", () => {
 
   it("buildThemeFromMotif 带上母题调色板", () => {
     expect(buildThemeFromMotif("coffee", "美食").primary).toBe("#fbbf24");
+  });
+});
+
+describe("captureThreeIntro", () => {
+  afterEach(() => {
+    clearIntroThemeCache();
+    chatMock.mockReset();
+    seekMock.mockReset();
+  });
+
+  it("截帧成功：按帧数均分时长产出 RenderFrame[]", async () => {
+    chatMock.mockResolvedValue('{"motif":"forest","label":"森林"}');
+    seekMock.mockResolvedValue(["a.png", "b.png", "c.png", "d.png"]);
+    const frames = await captureThreeIntro({
+      topic: "森林探险",
+      title: "森林探险",
+      highlightWord: "forest",
+      workDir: "/tmp/x",
+    });
+    expect(frames).toHaveLength(4);
+    expect(frames?.[0]?.duration).toBeCloseTo(1 / 4, 5); // INTRO_DURATION_SEC 1 / 4 帧
+  });
+
+  it("截帧抛错：返回 null（上层据此标 introStatus=failed）", async () => {
+    chatMock.mockResolvedValue('{"motif":"default","label":"通用"}');
+    seekMock.mockRejectedValue(new Error("webgl lost"));
+    const frames = await captureThreeIntro({
+      topic: "t",
+      title: "t",
+      workDir: "/tmp/x",
+    });
+    expect(frames).toBeNull();
   });
 });

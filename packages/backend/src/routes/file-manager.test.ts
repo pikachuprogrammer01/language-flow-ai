@@ -223,21 +223,41 @@ describe("POST /api/files/reveal", () => {
     vi.unstubAllEnvs();
   });
 
-  it("写入标记文件（内容为宿主机路径）并返回 ok", async () => {
+  it("宿主机桥：watcher 消费 req（删文件）后返回 revealed，内容为宿主机路径", async () => {
+    vi.stubEnv("REVEAL_CONFIRM_MS", "2000");
+    // 假 watcher：100ms 后读取并删除 req（等价于真实 watcher 执行 open -R + rm）
+    let reqContent = "";
+    const fakeWatcher = setTimeout(async () => {
+      const entries = await readdir(tmpReq).catch(() => []);
+      for (const e of entries) {
+        reqContent = await readFile(join(tmpReq, e), "utf8");
+        await rm(join(tmpReq, e), { force: true });
+      }
+    }, 100);
     const res = await app.request("/reveal", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: "/files/video/__reveal_tmp.mp4" }),
     });
+    clearTimeout(fakeWatcher);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean };
-    expect(body.ok).toBe(true);
-    const entries = await readdir(tmpReq);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toContain("__reveal_tmp.mp4");
-    const content = await readFile(join(tmpReq, entries[0]), "utf8");
-    expect(content).toBe("/Users/tester/language-flow-uploads/video/__reveal_tmp.mp4");
+    expect(await res.json()).toEqual({ ok: true, revealed: true });
+    expect(reqContent).toBe("/Users/tester/language-flow-uploads/video/__reveal_tmp.mp4");
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it("超时无 watcher 消费：返回 503 并回退删除 req（不假成功、不留待后续重放）", async () => {
+    vi.stubEnv("REVEAL_CONFIRM_MS", "300");
+    const res = await app.request("/reveal", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: "/files/video/__reveal_tmp.mp4" }),
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("Finder 定位服务未响应");
+    const entries = await readdir(tmpReq).catch(() => []);
+    expect(entries).toHaveLength(0);
   });
 
   it("非视频 URL 返回 400", async () => {
