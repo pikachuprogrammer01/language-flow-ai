@@ -1,7 +1,7 @@
 # 项目进度
 
 > 最后更新：2026-09-23
-> 当前阶段：测试补齐与覆盖率门禁闭环完成（未提交）；下一项：提交固化 → 生产库测试数据清理 → docker:release 发布
+> 当前阶段：测试补齐与覆盖率门禁闭环完成，工作树已分 7 笔 commit 固化；生产库演示数据已清空（备份见 ~/language-flow-backup-20260923）；下一项：用户验收功能可用后 pnpm docker:release 发布
 
 ---
 
@@ -21,6 +21,7 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 
 ## 二、当前在做
 
+→ ✅ 2026-09-23 提交固化与生产数据清空：工作树分 7 笔 commit 落库（chore×2 工程配置/测试栈编排、feat shared/backend/frontend、test 三包单测+E2E、docs）；生产库只读审计确认 contents/upload_marks/video_analytics 共 37+37+1 均为开发期演示数据（每日一条批量生成，无真实业务行）→ mysqldump 备份至 ~/language-flow-backup-20260923 后三表 DELETE 归零，回读验证 0/0/0 且词库 5999 未动；宿主演示产物 audio 51+video 32 文件删除（约 41M，bgm 13 个素材保留，测试栈 uploads 目录独立经事先确认），审计用的生产 mysql 容器已恢复停止；发布按用户决策暂缓（待功能可用性确认后 docker:release）
 → ✅ 2026-09-23 遗留批注收口：顶栏 LLM 就绪状态文案改双要素明示（服务在线 + 模型已加载分开判定）；发布/标记页 allowSave 默认值改为「不保存」（防误勾写盘，用户批注）
 → ✅ 2026-09-23 测试补齐（三包）：后端新增 llm.service 对话链路/chat、api-convention 信封、files 路由、db-guard 生产库护栏、tts-catalog（含 bgm 分流）、llm-engine 状态机、renderer/renderers、dashboard/quiz/word-card/tts/video 服务、logger、openapi-coverage 等单测（292 用例含 2 skip）；前端新增 status 中文化、toast、task-advance 决策+编排、create-session 导航、use-upload-marks、utils、data-table、analytics-copy（58 用例）；shared 新增 content.dto 类型守卫 + render 字号档位（3 用例）；三包均配 coverage 脚本（诚实排除面：入口装配/纯声明/SDK 胶水层显式声明而非默默绕过）
 → ✅ 2026-09-23 门禁修复与 E2E 稳定性（重建测试栈后全门禁）：① .gitignore 补 coverage/（lint 误扫覆盖率产物 197 错→0）并删除临时 fixture 脚本 tmp-seed-test.sql；② api-convention MediaContent 改分发式条件类型（修复 Union 上 non-distributive 推导成 undefined 导致的 typecheck 失败）；③ 新测试类型错误清零（QuizItem 补 word、WordInfo 补 level、联合类型用 isQuiz/isWordCard 守卫收窄，不靠断言）；④ E2E 两处稳定性修复：生成记录用例 fixture 行被存量数据挤出首页→切每页 100 条消除分页漂移；向导用例补面板挂载前置断言防首帧竞态；⑤ 全门禁实跑：lint 零告警 + typecheck 3/3 + 单测 351 全绿 + openapi:check 8 项 + E2E 连跑多轮 9 passed/1 skipped（@full 按约定手动）；测试栈镜像重建后 5174/3307 live 验证（统一错误信封/路由/工作台全正常）
