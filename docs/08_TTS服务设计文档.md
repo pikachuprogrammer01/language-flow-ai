@@ -109,7 +109,9 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 | 400 | text 为空 / 超 500 字符 / 非字符串 |
 | 500 | Edge TTS 连接失败或合成异常 |
 
-> 注：后端不校验 voice 是否为合法 Edge 音色名（仅校验类型），非法音色名由 Edge TTS 服务端拒绝时返回 500。
+> 注：`/api/tts/generate` / `from-content` 自身仅校验 voice 类型（非法音色名由 Edge TTS 服务端拒绝时返回 500）；
+> 发布配置的 canonical 音色 / BGM 已在 `PATCH /api/video-analytics/:contentId` 层经 `lib/tts-catalog` 白名单校验，
+> 未知值以 `VOICE_NOT_ALLOWED` / `BGM_NOT_ALLOWED` 结构化 400 拒绝（见 SPEC §5.4）。
 
 ---
 
@@ -143,6 +145,10 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 
 ## 五、音色映射表
 
+> **现状（2026-09-20）**：权威音色目录已收敛到 `backend/src/lib/tts-catalog.ts`（Edge 8 + Mac 本地 3），
+> `GET /api/tts/voices` 与发布设置白名单校验共用同一份；voice 直接传目录 id（即 Edge 音色名 / Mac 音色名）。
+> 下表为早期抽象 ID 方案的历史背景，新链路不再经过该映射。
+
 业务层 `VoiceConfig.id`（ContentDTO 字段，稳定契约）→ Edge TTS 音色名（调用 tts 接口前转换）：
 
 | VoiceConfig.id | Edge TTS 音色 | 性别 | 说明 |
@@ -154,8 +160,11 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 
 **转换位置**：前端在选择音色时展示业务 ID（如「晓晓（女）」），
 提交 `VoiceConfig.id`；调用方在调用 tts 前按上表转换。
-MVP 阶段由后端 service 硬编码映射（`female_01 → zh-CN-XiaoxiaoNeural`），
-后续可在后端增加 `/api/tts/voices` 查询接口统一管理。
+~~MVP 阶段由后端 service 硬编码映射，后续可在后端增加 `/api/tts/voices` 查询接口统一管理~~
+（已实现：`/api/tts/voices` 基于 `lib/tts-catalog` 返回混合音色目录）。
+
+**BGM 校验同源**：合法 BGM 引用集 = `uploads/bgm/` 目录实际文件（与 `/api/files?type=bgm`、前端选择器同源）；
+引用形如 `/files/bgm/<filename>`，空/null 表示无 BGM，防路径穿越（`isBgmAllowed`）。
 
 ---
 
@@ -209,8 +218,11 @@ MVP 阶段由后端 service 硬编码映射（`female_01 → zh-CN-XiaoxiaoNeura
 
 ---
 
-## 更新记录（2026-08-18）
+## 更新记录
 
+**2026-09-20**：音色/BGM 权威目录收敛至 `lib/tts-catalog.ts`；发布设置接口增加白名单校验（未变更的遗留值放行，避免无关字段编辑被锁死）；§五映射表降为历史背景。
+
+**2026-08-18**：
 - **混合音色**：`GET /api/tts/voices` 返回 Edge 8 音色 + Mac 本地 3 音色（婷婷 Tingting/阿欣 Sinji/美佳 Meijia），按 voice id 自动分发引擎（`isMacVoice`）；默认 zh-CN-XiaoxiaoNeural
 - **语速**：`rate` 参数（0.5~2，默认 1）——Edge 走 SSML prosody rate，Mac 走 `say -r`（基准 175 wpm × rate）
 - **词性不朗读**：释义开头的词性前缀（n./vt./adj./adv. 等）在朗读前剥离（word_card 与 quiz 选项）

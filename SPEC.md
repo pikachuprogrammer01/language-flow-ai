@@ -1,8 +1,8 @@
 # AI 英语短视频内容生产平台 — 技术规格说明书（SPEC）
 
-> 版本：V1.0
+> 版本：V1.1
 > 对应 PRD：V1.0
-> 更新日期：2026-07-28
+> 更新日期：2026-09-21（新增 §5.5 工作台聚合与 LLM 引擎状态端点）
 
 ---
 
@@ -67,7 +67,7 @@
 | 数据库 ORM | Drizzle ORM | TS 结构映射 DDL，零代码生成，类型自动推导 |
 | 数据库 | MySQL 8.4 | 词库表 + contents 表，JSON 列支持 |
 | 前端框架 | Vue 3.5 + Composition API | `<script setup lang="ts">` 语法，与后端共享 TS 类型 |
-| UI 组件库 | shadcn-vue | Vue 版 shadcn/ui，Radix Vue 底座，源码归己 |
+| UI 组件库 | shadcn-vue（reka-ui 底座） | Vue 版 shadcn/ui，reka-ui（Radix Vue 官方后继）无头底座，源码归己；提示类（toast/确认框）统一基于 reka-ui + lucide 封装 |
 | 前端样式 | Tailwind CSS 4 | 原子化 CSS，与 shadcn-vue 原生配合 |
 | 前端路由 | Vue Router 4 | CSR 多页面路由：新建视频 / 生成记录 / 文件管理 / 视频资产 / 审计管理 |
 | 前端请求 | openapi-fetch | 从 OpenAPI 生成类型安全客户端（Vue Query 已装未全面使用） |
@@ -76,7 +76,7 @@
 | API 客户端 | openapi-typescript + openapi-fetch | 从 OpenAPI spec 自动生成类型安全的前端请求客户端 |
 | 共享类型 | pnpm workspace shared 包 | ContentDTO 类型一次定义，前后端复用 |
 | AI 模型 | Ollama qwen2.5:7b（本地） | 纯本地推理（用户决策 2026-08-17）；三模板生成均走 LLM，词汇准确性由词库决定 |
-| 视频渲染 | HTML + Playwright + FFmpeg | 模板渲染 → 截图 → 合成；scene_word 可选 Three.js 2s 片头；可选 BGM 混音 |
+| 视频渲染 | HTML + Playwright + FFmpeg | 模板渲染 → 截图 → 合成；scene_word 可选 Three.js 主题片头（约 1s，npm `three` + 构建期拷贝 vendor）；可选 BGM 混音 |
 | 文件存储 | 本地 uploads/（开发与默认部署） | `uploads/{audio,video,bgm}`；生产可换 S3 兼容存储（非当前默认） |
 | 测试框架 | Vitest 3 | backend 用 node 环境，frontend 用 jsdom |
 | 日志 | pino + pino-pretty | 结构化日志，开发环境彩色输出 |
@@ -100,9 +100,10 @@
 具体步骤：
 
 1. **后端**：用 `@hono/zod-openapi` 定义路由，Zod schema 自动映射为 OpenAPI schema
-2. **生成规范**：Hono 应用导出 OpenAPI 3.1 JSON 文件（`openapi.json`）
-3. **生成客户端类型**：`npx openapi-typescript openapi.json -o src/api/schema.d.ts`
+2. **生成规范**：`pnpm openapi:gen` 导出 OpenAPI 3.1 JSON（`packages/backend/src/openapi.json`，受版本控制）
+3. **生成客户端类型**：`npx openapi-typescript openapi.json -o src/api/schema.d.ts`（`pnpm --filter frontend gen-api`）
 4. **前端调用**：用 `openapi-fetch` 创建类型安全的请求客户端，所有 API 调用的请求体和响应体自动获得 TS 类型
+5. **覆盖度门禁**：`pnpm openapi:check`（`routes/openapi-coverage.test.ts`）校验代码端点与文档双向一致、命名/状态码/错误格式合规
 
 示例——前端调词库抽取接口，编译期就校验参数：
 
@@ -123,15 +124,20 @@ const { data, error } = await client.POST("/api/cet/random-words", {
 这套方案的好处：
 - 后端改一个接口参数 → 重新生成 `schema.d.ts` → 前端编译报错，零时差发现不一致
 - 不需要手动在前后端之间复制粘贴类型定义
-- OpenAPI 规范文件可直接导入 Scalar/Swagger UI 做可视化的 API 文档浏览和调试（见下方 2.3.1）
+- OpenAPI 规范文件可直接导入 Swagger UI 做可视化的 API 文档浏览和调试（见下方 2.3.1）
 
 ### 2.3.1 API 文档可视化
 
-Scalar 是一个现代化的 API 文档 UI（替代 Swagger UI），支持直接从 OpenAPI 规范文件渲染交互式文档。开发时启动一个独立页面即可浏览和测试所有 API 端点，不需要额外维护文档。
+采用 **Swagger UI（自托管，离线可用）** 作为文档前端展示层（完整规范见 docs/16）：
 
-```
-npx scalar-reference openapi.json --port 3001
-```
+| 路由 | 内容 |
+|------|------|
+| `GET /doc` | OpenAPI 3.1 JSON（`app.doc`，与代码实时同步） |
+| `GET /doc/` | Swagger UI 浏览/调试页（右上角「返回管理界面」导航） |
+| `GET /swagger-ui/*` | 本地 `swagger-ui-dist` 静态资源 |
+
+本地预览：`pnpm docs`（= backend dev）→ http://localhost:8080/doc/。生产经 nginx `/doc` 反代同源。
+> 为何自托管而非 CDN：项目本地/离线优先，Docker 运行时无外网保证。`openapi.json` 由 lefthook pre-commit 在 backend 源码变更时自动重生成并补 stage，无需手动维护。
 
 ### 2.4 完整技术栈
 
@@ -181,6 +187,16 @@ video_rendering → completed | failed
 ```typescript
 type CefrLevel = "CET4" | "CET6";
 ```
+
+### 3.4 片头渲染结果状态（IntroStatus，scene_word 专属）
+
+```typescript
+// rendered: 片头已生成 · failed: 生成失败已跳过 · disabled: 用户关闭 · unknown: 旧记录缺省
+type IntroStatus = "rendered" | "failed" | "disabled" | "unknown";
+```
+
+> 输出事实（由渲染器产出，随 `contents.video` JSON 落库），与输入意图 `style.introEffect` 区分。
+> shared 包为纯源码类型包不导出运行时值；运行时校验元组见 `backend/src/lib/intro-status.ts`。
 
 ---
 
@@ -233,6 +249,7 @@ interface VideoInfo {
   resolution: string;      // 分辨率，"1080x1920"
   format: string;          // "mp4"
   size?: number;           // 文件大小（bytes）
+  introStatus?: IntroStatus; // scene_word 片头渲染结果（§3.4；旧记录缺省视为 unknown）
 }
 ```
 
@@ -556,6 +573,26 @@ PATCH /api/tasks/:id/render-settings
 
 **片头渲染结果**：`contents.video.introStatus` ∈ `rendered | failed | disabled | unknown`（`unknown` 为旧记录缺省），由渲染器产出、经任务 PATCH 的 `video` 对象回写，是输出事实（与 `style.introEffect` 输入意图区分）。对应前端页由“视频数据分析”更名为“视频发布管理”（API 路径 `/api/video-analytics` 与表名 `video_analytics` 保持契约不变）。
 
+### 5.5 工作台聚合与 LLM 引擎状态（2026-09-21 新增）
+
+```text
+GET  /api/dashboard/summary
+GET  /api/llm/status
+GET  /api/llm/stream
+POST /api/llm/wake
+POST /api/llm/sleep
+```
+
+**`GET /api/dashboard/summary`** — 工作台实时聚合（前端 500ms 轮询，仅 Dashboard 组件存活期间）。响应：`today`/`yesterday`（按 `date(created_at)` 分组）、`pendingRender`（content_ready+audio_ready）、`ttsActive`（tts_processing）、`completedVideos`、`topTemplate {name,share}`、`failed`、`failureReasons[]`（从最近 20 条失败记录的 `contents.audit.process.attempts` 最后拒绝原因与 `video.introStatus=failed` 聚合，形如「片头生成失败 ×2」）、`pipeline {generating,validating,tts,rendering,publishable}`（可发布 = completed 且有成片且无任何 `upload_marks` 关联）、`recent[]`（最5条，含 `intro` 片头列）。实现在 `services/dashboard.service.ts`，六个子查询 `Promise.all` 并行。
+
+**`GET /api/llm/status`** — LLM 引擎三级就绪探测（失败不抛异常，恒 200，状态是数据不是错误）：响应 `{ connected, model, installed?, loaded?, reason? }`。① 服务可达：OpenAI 兼容 `GET {LLM_BASE_URL}/models`（3s 超时）；② 模型已安装：列表内含 `LLM_MODEL`（`matchModelName` 精确或补 `:latest`）；③ 已加载进内存：Ollama 原生 `GET {host}/api/ps`（非 Ollama 端点 404 时 `loaded` 省略）。
+
+**`GET /api/llm/stream`** — LLM 引擎状态 SSE 事件流（`text/event-stream`，替代前端定时轮询）。实现在 `services/llm-engine.ts`（状态机 + 事件发布单例）：连接即推当前 `EngineSnapshot` 快照，此后仅状态变化才推（`event: status`），25s 心跳 `event: ping` 防代理空闲断连；服务端仅在 ≥ 1 个订阅者时跑 30s 低频对账探测，无订阅者不起定时器。`EngineSnapshot = { phase, progress?, status, error?, notice? }`：`phase` ∈ `idle | starting | stopping`（过渡态，`progress` 为人话进度文案），`error` 为操作失败原因（红 toast）、`notice` 为非致命降级提示（黄 toast，如容器内无 brew 只能卸载模型）。客户端为 `EventSource`（自带断线退避重连），响应体携 `X-Accel-Buffering: no` 且 nginx 为 `/api/llm/stream` 单独关缓冲/长读超时。前端不支持 EventSource 时才回退 30s 低频探测。
+
+**`POST /api/llm/wake`** — 一键启动引擎并加载模型（仅本机开发环境，顶栏「▶ 启动 {模型名}」按钮触发，`wakeEngine()` 接管）：即时返回当前 `LlmStatus`，后续全生命周期走 SSE——`phase=starting` → `brew services start ollama`（幂等、失败不阻断）→ 轮询 `/api/version` 等服务就绪（最多 10s）→ fire-and-forget `POST /api/generate {model, keep_alive:"1h"}` 触发冷加载 → 看门狗 4s 探测直至 `loaded` 或 5 分钟超时（成功转绿/超时或失联都回 `idle` 并广播 error）。过渡态重复调用幂等（不二次拉起）。云端 `LLM_BASE_URL`（非 localhost）直接回退探测不执行本地拉起。
+
+**`POST /api/llm/sleep`** — 一键关闭（wake 的镜像操作，`sleepEngine()`）：即时返回后走 SSE `phase=stopping` → 本机端点（localhost / 127.0.0.1 / host.docker.internal）先 `POST {host}/api/generate {model, keep_alive:0}` 卸载模型，再 `brew services stop ollama`（幂等；容器内无 brew/非 brew 安装失败仅记 warn 不阻断）→ 回探一次。回探红灯=完全停止（成功终态），仍连但 `loaded=false`=只卸载未停服务（`notice` 降级提示），`loaded=true`=关闭失败（`error`）。前端仅在就绪/待机态露出关闭按钮，首次点击武装（确认关闭？，3s 无操作自动取消）防误触。
+
 ---
 
 ## 六、AI 内容生成服务（替代原 Dify Workflow A）
@@ -756,6 +793,35 @@ interface PaginatedResponse<T> {
 > **词库规模（2026-08-18）**：5999 词（CET4 4686 含高中基础词补齐 + CET6 1313 增量）；抽词池过滤功能词（art./prep./conj. 等词性前缀）且 frequency 全 0 时全表洗牌（不固定前 200）。
 （实现以 `db/schema.ts` 为准，与 docs/09 一致）
 
+### 10.3 上传标记表：upload_marks
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | VARCHAR(32) PK | 标记 ID |
+| task_id | VARCHAR(32) NULL | 关联任务 id（按任务归属，重渲染不丢失；建索引） |
+| video_filename | VARCHAR(100) NOT NULL | uploads/video/ 下的文件名（建索引） |
+| platform | VARCHAR(50) NOT NULL | 上传平台（抖音/小红书/视频号/B站/快手/其他；varchar 不锁死枚举） |
+| url | VARCHAR(500) NULL | 作品链接 |
+| note | VARCHAR(500) NULL | 备注（预设文案 + 自定义） |
+| created_at / updated_at | TIMESTAMP | 自动维护 |
+
+### 10.4 视频发布元数据表：video_analytics
+
+一条内容最多一份配置（migration 0004 建表，0005 补 FK 级联与 publish_at 改型）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| content_id | VARCHAR(32) PK | FK → contents.id，`ON DELETE CASCADE`（migration 0005） |
+| story_topic | VARCHAR(255) NULL | 发布故事主题 |
+| publish_at | DATETIME NULL | 计划发布时间（mode:"date"，免 timestamp 2038 上限与时区隐式转换） |
+| cover_url | VARCHAR(500) NULL | 封面地址 |
+| allow_save | INT NOT NULL DEFAULT 1 | 是否允许保存（API 层对外为布尔） |
+| custom_params | JSON NULL | 自定义参数数组 `Array<{ key, label, type: "text"\|"image", value }>` |
+| created_at / updated_at | TIMESTAMP | 自动维护 |
+
+> API 响应中的 `voice` / `bgm` 不落本表：由本表单一写者在同一事务内回写 `contents.voice.id` / `contents.style.bgm`（白名单校验见 §5.4）。
+> 表名 `video_analytics` 与 API 路径为冻结契约，页面已更名「视频发布管理」（§5.4）。
+
 ---
 
 ## 十一、文件组织
@@ -781,6 +847,7 @@ project-root/
 │   ├── 10_视频渲染设计文档.md │
 │   ├── 11_前端页面设计文档.md │
 │   ├── 12_部署与运行指南.md │
+│   ├── 13_背景音乐素材清单.md │
 │   ├── 14_模型层设计方案.md │
 │   ├── 15_AI内容生成服务设计.md │
 │   ├── 情景词汇阅读视频模板设计规范 V1.0.txt
@@ -797,18 +864,21 @@ project-root/
 │   ├── backend/                   ← Hono + Drizzle + Zod
 │   │   └── src/
 │   │       ├── routes/            # cet / content / tts / video / tasks /
-│   │       │                      # topics / files / upload-marks / health ✅
+│   │       │                      # topics / files / upload-marks /
+│   │       │                      # video-analytics / health ✅
 │   │       ├── services/          # cet / llm / content / tts / video ✅
-│   │       ├── renderer/          # 三模板 Playwright 渲染器 ✅
+│   │       ├── lib/               # logger / api-error / tts-catalog / intro-status ✅
+│   │       ├── renderer/          # 三模板 Playwright 渲染器 + Three.js 片头截帧 ✅
 │   │       ├── db/                # schema + migrate + seed ✅
-│   │       └── openapi.json       # 启动时生成 ✅
+│   │       └── openapi.json       # 经 pnpm openapi:gen 生成（非启动时写文件）✅
 │   │
 │   └── frontend/                  ← Vue 3.5 + shadcn-vue + Vite
 │       └── src/
 │           ├── api/               # openapi-fetch 客户端 ✅
 │           ├── views/             # CreateTask / TaskList / TaskDetail /
-│           │                      # Files / VideoList / MarksList / AuditList ✅
-│           └── router.ts          # / /tasks /files /videos /marks /audit
+│           │                      # Files / VideoList / MarksList / AuditList /
+│           │                      # Analytics（视频发布管理）✅
+│           └── router.ts          # / /tasks /files /videos /marks /audit /analytics
 │
 ```
 
@@ -833,7 +903,8 @@ project-root/
 - [x] `GET|PATCH|DELETE /api/tasks`（及搜索、批量删除）
 - [x] `GET|POST|PATCH|DELETE /api/upload-marks`；`GET /api/upload-marks/overview`
 - [x] `POST /api/topics/suggest`；文件管理 `/api/files*`
-- [x] OpenAPI 3.1 自动生成 + `/doc` Scalar
+- [x] `GET /api/video-analytics`（批量）· `GET|PATCH /api/video-analytics/:contentId` · `PATCH /api/tasks/:id/render-settings`（§5.4）
+- [x] OpenAPI 3.1 自动生成（`pnpm openapi:gen` 命令生成，不随启动写文件）+ `/doc` Scalar
 
 ### 12.3 AI 内容生成（去 Dify）
 
@@ -848,12 +919,13 @@ project-root/
 ### 12.5 模板渲染器
 
 - [x] TemplateRenderer + SceneWord / WordCard / Quiz
+- [x] Three.js 片头截帧（three-intro.capture，截帧超时 + 黑屏 fail-closed，产出 introStatus）
 
 ### 12.6 Vue 前端
 
 - [x] Vite + Vue 3.5 + Tailwind 4 + shadcn-vue
 - [x] openapi-typescript + openapi-fetch
-- [x] 新建 / 记录 / 详情 / 文件 / 视频资产 / 上传标记 / 审计
+- [x] 新建 / 记录 / 详情 / 文件 / 视频资产 / 上传标记 / 审计 / 发布管理
 
 ---
 

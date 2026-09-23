@@ -1,5 +1,9 @@
-Content DTO 统一数据结构设计 V2
+Content DTO 统一数据结构设计 V2.1
 ==================================
+
+> V2.1（2026-09-20）：新增 scene_word 片头相关可选子字段（不影响 14 个核心字段契约）：
+>   StyleConfig.introEffect / introTopic（输入意图）、VideoInfo.introStatus（输出事实）、枚举 IntroStatus。
+>   后端契约与渲染行为见 SPEC §3.4/§5.3/§5.4，实现见 docs/10。
 
 一、设计目标
 
@@ -61,6 +65,13 @@ type ContentStatus =
 
 type CefrLevel = "CET4" | "CET6";
 
+// ==================== 片头渲染结果（scene_word 专属） ====================
+
+// rendered: 片头已生成 · failed: 生成失败已跳过 · disabled: 用户关闭 · unknown: 旧记录缺省
+// 注：输出事实（由渲染器产出随 contents.video 落库），与输入意图 style.introEffect 区分；
+//     shared 包为纯源码类型包不导出运行时值，运行时校验元组见 backend/src/lib/intro-status.ts。
+type IntroStatus = "rendered" | "failed" | "disabled" | "unknown";
+
 
 四、子结构定义
 
@@ -110,6 +121,8 @@ interface VideoInfo {
   format: string;
   /** 文件大小（bytes） */
   size?: number;
+  /** scene_word 片头渲染结果（输出事实；旧记录缺省视为 unknown） */
+  introStatus?: IntroStatus;
 }
 
 // ==================== 视觉样式 ====================
@@ -126,6 +139,13 @@ interface StyleConfig {
   colorScheme?: string;
   /** 背景音乐曲目 ID，如 "bgm_calm_01"；MVP 不设默认值（静音合成，见 docs/03 模块 9） */
   bgm?: string;
+  /**
+   * scene_word 片头 Three.js 动效（默认 true）。
+   * 为 false 时跳过片头；片头时段音频垫静音（约 1 秒），暂无口播。
+   */
+  introEffect?: boolean;
+  /** 片头配色用主题文案（生成时的 topic；缺省则用 title 匹配色表） */
+  introTopic?: string;
 }
 
 
@@ -535,7 +555,7 @@ src/
 │   ├── content.dto.ts        // ContentDTO, ContentArray, 所有子结构
 │   ├── request.dto.ts        // CreateContentRequest, EditContentRequest
 │   ├── response.dto.ts       // ContentListItem, ContentDetail, PaginatedResponse
-│   └── enums.ts              // TemplateType, ContentStatus, CefrLevel
+│   └── enums.ts              // TemplateType, ContentStatus, CefrLevel, IntroStatus
 ├── guards/
 │   └── content.guard.ts      // isSceneWord, isWordCard, isQuiz
 ├── renderer/

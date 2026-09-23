@@ -1,7 +1,7 @@
 # 项目进度
 
-> 最后更新：2026-09-01
-> 当前阶段：scene_word Three.js 片头（约 5s）已接入；下一项：生产部署（域名/反代） / 片头特效观感迭代与片头音频决策
+> 最后更新：2026-09-23
+> 当前阶段：测试补齐与覆盖率门禁闭环完成（未提交）；下一项：提交固化 → 生产库测试数据清理 → docker:release 发布
 
 ---
 
@@ -9,11 +9,11 @@
 
 ```
 设计阶段      [████████████] 100%  14 份设计文档 + PRD + SPEC + README
-工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / pino（无 CI）
+工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / pino（无 CI）· API 文档覆盖度门禁（openapi:check，pre-commit 自动 openapi:gen）
 shared 包     [████████████] 100%  enums + ContentDTO + Request/Response DTO + 类型守卫
-后端 API      [████████████] 100%  三模板生成（scene_word/word_card/quiz）+ 审计档案 + TTS（混合音色+语速）/ 渲染（quiz 音画对齐+提示音）/ 任务 CRUD+搜索+批量 / 文件管理 / 词库 5999
-前端          [███████████░]  96%  生成页（三模板+主题选择+音色试听+语速/BGM）/ 记录列表（模板分类+全选+批量删除）/ 详情（生成档案+三模板编辑）/ 文件管理 / 视频资产 / 审计管理
-测试          [██████████░░]  92%  Vitest 110 用例（cet/tts/video/content/tasks/files/topics/quiz renderer）
+后端 API      [████████████] 100%  三模板生成（scene_word/word_card/quiz）+ 审计档案 + TTS（混合音色+语速）/ 渲染（quiz 音画对齐+提示音，scene_word 片头截帧）/ 任务 CRUD+搜索+批量+render-settings / 发布元数据 video-analytics（白名单）/ 文件管理 / 词库 5999
+前端          [████████████]  98%  后台原型 1:1 还原（侧边栏+顶栏+工作台+步进器/手机预览）/ 全站 DataTable 统一表格 / LLM 三级就绪探测+SSE 实时推送+启停按钮全 loading 反馈 / 工作台 500ms 实时轮询+待推进卡点拆解 / 发布元数据回显（保存策略创建/详情/标记/发布四处同源）/ 手机预览等比复刻渲染帧（与成片所见即所得）（待提交）
+测试          [████████████]  98%  Vitest 351 用例（实测：shared 3 + backend 290 含 2 skip + frontend 58）· 行覆盖 shared 100% / backend 97.1% / frontend 100%（诚实排除面已声明）· Playwright E2E 真实测试栈 9 passed/1 skipped（@full 需 Ollama 手动触发）
 部署          [█████████░░░]  90%  Docker 容器化完成（mysql+backend+frontend，一条 compose 命令）；生产部署（域名/反代）待做
 ```
 
@@ -21,6 +21,23 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 
 ## 二、当前在做
 
+→ ✅ 2026-09-23 遗留批注收口：顶栏 LLM 就绪状态文案改双要素明示（服务在线 + 模型已加载分开判定）；发布/标记页 allowSave 默认值改为「不保存」（防误勾写盘，用户批注）
+→ ✅ 2026-09-23 测试补齐（三包）：后端新增 llm.service 对话链路/chat、api-convention 信封、files 路由、db-guard 生产库护栏、tts-catalog（含 bgm 分流）、llm-engine 状态机、renderer/renderers、dashboard/quiz/word-card/tts/video 服务、logger、openapi-coverage 等单测（292 用例含 2 skip）；前端新增 status 中文化、toast、task-advance 决策+编排、create-session 导航、use-upload-marks、utils、data-table、analytics-copy（58 用例）；shared 新增 content.dto 类型守卫 + render 字号档位（3 用例）；三包均配 coverage 脚本（诚实排除面：入口装配/纯声明/SDK 胶水层显式声明而非默默绕过）
+→ ✅ 2026-09-23 门禁修复与 E2E 稳定性（重建测试栈后全门禁）：① .gitignore 补 coverage/（lint 误扫覆盖率产物 197 错→0）并删除临时 fixture 脚本 tmp-seed-test.sql；② api-convention MediaContent 改分发式条件类型（修复 Union 上 non-distributive 推导成 undefined 导致的 typecheck 失败）；③ 新测试类型错误清零（QuizItem 补 word、WordInfo 补 level、联合类型用 isQuiz/isWordCard 守卫收窄，不靠断言）；④ E2E 两处稳定性修复：生成记录用例 fixture 行被存量数据挤出首页→切每页 100 条消除分页漂移；向导用例补面板挂载前置断言防首帧竞态；⑤ 全门禁实跑：lint 零告警 + typecheck 3/3 + 单测 351 全绿 + openapi:check 8 项 + E2E 连跑多轮 9 passed/1 skipped（@full 按约定手动）；测试栈镜像重建后 5174/3307 live 验证（统一错误信封/路由/工作台全正常）
+→ ✅ 2026-09-22 新建视频入口状态分流（批注：点击新建视频若创建中需确认放弃，完成则视为重新创建）：新增 `lib/create-session.ts` 创建会话单例（phase idle/busy/done + abort/reset 处理器注册 + 纯决策函数 decideCreate）；四处入口（顶栏按钮/侧边栏链接/Dashboard 开始创建/记录页新建任务）统一 goCreate()：busy→全局放弃二次确认（App.vue 单实例弹窗，确认→中断在飞请求+重置+进页，取消→继续创建）；done 且在创建页→原地重置（清产物保留表单设置）；idle→直接进页；CreateTask 按 step watch 同步 phase、onMounted 注册/onUnmounted 注销；新增单测 6（decideCreate 真值表 + 确认/取消行为）+ E2E 1（生成中点新建视频→取消继续→再点确认中断重置）；实跑 E2E 9 passed/1 skipped（4.7s）、单测 frontend 36/backend 211 全绿、lint 零告警、typecheck 3/3；测试栈已重建 live 验证
+→ ✅ 2026-09-22 工程：新增 E2E 测试套件（用户问“单元+e2e 都写了吗”——坦白此前只有单测，live 验证不沉淀不可回放；补齐真实栈 E2E）——选型 @playwright/test 1.62.1（对齐现有渲染 playwright）；`packages/frontend/e2e/`：app.spec.ts 默认套件 8 用例（真实测试栈 5174、非破坏性：向导拦截/停止二次确认/继续生产入口/删除确认取消/保存策略回显/文件管理页可达+nginx 301 回归/index.html no-cache 头）+ full.spec.ts @full 全链路（生成→配音→渲染，需 Ollama，RUN_FULL=1 才跑）；命令 `pnpm e2e` / `pnpm e2e:full`（仅手动触发，不进 git hooks，用户决策）；workers=1 串行共享测试库；首跑两处断言修正（流水线 strict-mode 限定 section + 卡点行改正则）；实跑 8 passed/1 skipped（3.2s）；新增 .gitignore 忽略 test-results/playwright-report；门禁全绿（typecheck 3/3 + lint 零告警 + 单测 backend 211/frontend 30/shared 1）
+→ ✅ 2026-09-22 磁盘可控闭环（用户追问“停止后产物需可删”）：盘点确认文件管理已有完整删除体系（分类存储统计/可清理卡/「清理无引用文件」一键回收含联动清标记/BGM 保护/单删批删），补齐两处断点——① 停止确认弹窗与停止 toast 均带回收引导（文案对齐实际按钮名），生成记录单删/批删确认同步提示“文件将变未引用可去清理”；② 顺手发现并修复隐藏 bug：nginx `location /files/` 把前端路由 /files（文件管理页）当目录 301 补斜杠且丢宿主端口 → 5174 上文件管理页实际不可达，改 `location ~ ^/files/(video|audio|bgm)/` 锚定后端静态资源三类前缀；live 验证：/files 页 200 且清理按钮/可清理卡在位、停止弹窗与 toast 引导文案完整、媒体代理与 API 分流正常；门禁全绿（typecheck/lint 零告警/frontend 30）
+→ ✅ 2026-09-22 批注 FDD 第七轮（2 条，未提交）：① 每步停止按钮 + 二次确认——client 三长请求（generate/tts/render）支持 AbortSignal（新增 RequestOpts/isAbortError），CreateTask 四流程（生成/配音/渲染/保存重渲）接 AbortController，生成中面板内红色「■ 停止」→ reka-ui ConfirmDialog 二次确认 → abort 后按 AbortError 分支回退可重试态 + info toast（不当失败报错）；② “选女声出男声”根治——合成链路参数本无 bug，真因是配音产物与音色/语速选择脱钩：改选后未重配音时渲染仍用旧音频——新增 audioSettings（产物所用设置快照）+ audioStale 判定，stale 时配音按钮变「重新配音（设置已改）」+ 琥珀警示明示新旧归属、渲染按钮禁用 + renderStep/stepBlocked 双重拦截（跳步也拦），配音完成文案带实际音色名；顺带修 saveEdit 重合成后漏更新 audioMeta 的隐患；③ 重建测试栈 live E2E：生成中停止按钮出现→二次确认弹窗→中断→toast「已停止生成」无错误残留；门禁：typecheck 3/3 + lint 零告警 + 测试全绿（backend 211 + frontend 30 + shared 1），零 console 报错
+→ ✅ 2026-09-22 批注 FDD 第六轮（3 条，未提交）：① 错误显性化（“失败了不提示”根因：错误框 v-if 绑 step==='error'，而配音/渲染/试听失败把 step 回退中间态→errorMsg 写了永不可见）——错误框改绑 errorMsg 常驻回显，generate/tts/render/saveEdit/previewVoice/suggest 六处失败路径补 toast.error 即时播报；② “换音色没法听”根治：音色列表按运行平台分流（tts-catalog 新增纯函数 availableVoices，非 darwin 无 say 不出本地音色；白名单不变，存量遗留音色可回显不锁死）+ TTS 两端点 500 声明 apiErrorSchema 并透出真实原因（实测容器内返回 “TTS 合成失败：spawn say ENOENT”，client 原文抛给 toast）；③ Three.js 片头开关从配音设置面板归位到渲染确认面板（渲染类选项随渲染生效）；新增 tts-catalog 环境分流单测（backend 211）；重建测试栈镜像 live 验证：容器音色列表 8 个 Edge 无本地音色、片头开关在面板④、nginx no-cache 后新 bundle 自动生效无需强刷
+→ ✅ 2026-09-22 修复两个“看起来没做”的真因（用户反馈 5174 看不到第五轮改动）：① nginx 未给 index.html 设 no-cache → 重建发版后浏览器仍用缓存的旧 index.html 引用旧 hash JS，新版本不生效——补 静态缓存策略（/assets/ immutable 1年 + index.html no-cache）；② wakeLlm 本机端点判定用窄正则（localhost/127.0.0.1）不认 host.docker.internal → 容器栈下只回探不触发 /api/generate 加载，用户手动开了 Ollama 服务但模型未加载时状态机“正在加载”空等到 5 分钟超时——改用 LOCAL_LLM_HOST_RE（含 host.docker.internal）走完整唤醒（仅回环跑 brew，两种本机端点都触发加载），补 wakeLlm 三端分流回归单测（backend 208）；重建测试栈镜像 live 验证 5174：零 emoji/4 步可点向导/17 lucide 图标/Toast 固定浮层不影响布局
+→ ✅ 2026-09-22 批注 FDD 第五轮（10 条，未提交）：① 提示体系整体换成熟底座——删 vue-sonner + 自研样式，改装 reka-ui（radix-vue 官方后继，shadcn-vue 底座，不违反技术栈约束）：`lib/toast.ts` 全局 API + `app-toaster.vue`（Toast 宿主 + lucide 图标 + 色条/动画），ConfirmDialog 重建为 reka-ui AlertDialog（图标化精修样式，公共 API 不变零改动传导 6 使用点）；业务弹窗（标记/播放器）与 button Primitive 底座 radix-vue→reka-ui，radix-vue 一并移除；② 全站 emoji 图标→lucide SVG（~25 处：模板缩略/试听/打开/标记/复制/编辑/保存策略/步进器/片头徽章/LLM 启停）；③ 列表「继续生产」：content_ready/audio_ready/failed 行一键推进（决策纯函数 planAdvance + 编排 advanceTask 入 lib/task-advance，与详情 revoice 同口径）；④ reveal 真实化：后端同步等 watcher 消费 req（250ms 轮询/3s 超时 REVEAL_CONFIRM_MS 可注入），未消费回退删除并 503 报引导文案，前端透出原文不再假成功；⑤ 新建页真向导：四面板按步切换，步进器点击跳转+前置校验（stepBlocked 纯函数，缺失 toast 播报），生成中预设主题区自然隐藏，AI 推荐按钮入主题框与预设同区；⑥ LLM 启动两段式显式化（1/2 起服务→2/2 加载模型含 7B 冷启动耗时预期）；⑦ 标记弹窗打开全量重置预设选择/表单；⑧ 复制按钮文案改「复制视频名称」；新增 shared 字号单测+task-advance 纯函数单测+reveal 消费/超时双用例；文档同步 SPEC §2.2 + docs/11（reka-ui 底座 + 单一事实源说明）；验收：typecheck/lint（历史 suppression 警告一并清零）/测试全绿（shared 1 + backend 205 含 2 skip + frontend 30），内置浏览器 live 验证：向导拦截/前进、reka Toast 播报、AlertDialog 带图标弹出、继续生产按钮可见、reveal 如实报 503，零 console 报错
+→ ✅ 2026-09-21 批注 FDD 第四轮（7 条，未提交）：顶栏 LLM 重试/停止双按钮各自 loading（本地乐观态补 SSE 空窗）+ 成功态「✓ 启动成功」/失败长 toast；工作台「待渲染」改「待推进任务」并前端拆解「待配音 X · 待渲染 Y」直接回答卡点，模板分布过 TEMPLATE_LABEL 中文化（情景背词 占 100%（共 N 条成片）），流水线阶段改存量语义；新建页步进器向导式三态（✓已完成/●进行中/待办，error 按已有产物定位），AI 推荐候选紧贴按钮渲染不再沉底，保存策略在生成结果卡/任务详情页回显可改（与发布管理/标记同源，成片后切换即时回写）；手机预览重构为真实渲染帧 1080×1920 等比缩放画布，逐值复刻三份 renderer 模板（scene_word 全量段落+字号自适应同源、word_card 首卡、quiz 首题含解析），所见即所得不再裁切；字号档位函数 fitFontSize 上提 shared（fitSceneWordFontSize）做渲染器↔预览单一事实源，连带修复 shared 缺 "type":"module" 导致运行时值导入失败的存量问题（此前仅 type-only 消费未暴露），新增 shared 单测；验收：typecheck/lint/测试全绿（shared 1 + backend 204 + frontend 27），内置浏览器 live 验证工作台/新建页/详情页零 console 报错
+→ ✅ 2026-09-21 批注 FDD 第三轮（4 条，未提交）：顶栏「⏻ 关闭」一键卸载模型并停本机 Ollama（POST /api/llm/sleep，keep_alive=0 卸载 + brew stop，失败不阻断回探为准；两段式确认防误触）；LLM 状态位重构——前端轮询（15s+2s 加速）全部去除，改 SSE 事件流 GET /api/llm/stream + llm-engine 状态机（starting/stopping 过渡态 + progress 文案，失败 error 红 toast/降级 notice 黄 toast/成功绿 toast；服务端仅在有订阅者时 30s 低频对账；nginx 对 stream 关缓冲）；测试栈预置数据矛盾修正（fixture 不再预置 video_rendering——渲染链路同步完成、运行时从不落此状态，改 audio_ready 与事实一致）
+→ ✅ 2026-09-21 工程：API 接口规范化与文档管理框架（docs/16）——① 统一规范：`lib/api-convention.ts`（kebab-case 路径/方法/状态码白名单 + 错误信封 `apiErrorSchema` `{error,message?,code?}` + 中文 `API_TAGS`），全局 onError/notFound 按信封输出；② 全端点文档化：health/files 转 OpenAPIHono，11 个存量路由补齐 tags/operationId/summary（共 28 路径 34 端点零遗漏）；③ 可视化：自托管 Swagger UI（`lib/api-docs.ts` + swagger-ui-dist 本地资源，离线可用）+「返回管理界面」导航（/doc JSON · /doc/ UI · /swagger-ui/*）；④ 完整性：`routes/openapi-coverage.test.ts` 8 项门禁（双向覆盖/字段齐全/命名/实时一致）；⑤ 工作流：lefthook pre-commit 自动 openapi:gen+补 stage+跑门禁，prebuild/Dockerfile.frontend 重生成，nginx /openapi.json 反代，新命 `pnpm openapi:gen|openapi:check|docs`（db 改懒建连池使文档生成无需 MySQL）
+→ ✅ 2026-09-21 批注 FDD 第二轮（8 条批注 6 特性，未提交）：DataTable 分页器上/下一页；发布管理整行点击选中+高亮+视频文案卡片（lib/analytics-copy 纯函数）；侧边栏响应式抽屉（汉堡+遮罩+路由跳转自动收起）；文件管理分组表格（groupKey+rowspan 合并主题列、配音同源标记、播放器弹窗化）；uploads 经 UPLOADS_DIR 环境变量与生产文件资产隔离（lib/uploads-path 收敛 6 处硬编码）；顶栏「▶ 启动 {模型名}」一键唤醒（POST /api/llm/wake：brew 拉起+异步加载+加速轮询转绿）
+→ ✅ 2026-09-21 批注 FDD 第一轮（11 条批注，未提交）：工作台真实时（GET /api/dashboard/summary 聚合+500ms 生命周期轮询+异常卡红色标记与失败原因）；LLM 三级就绪探测（GET /api/llm/status，四态灯）；全站列表收敛到 DataTable 通用组件（生成记录/审计/文件/标记，退役 task-row/file-row/audit-row/pagination）；视频第一帧预览+词数；allowSave 生成/标记/发布三处贯穿。环境：独立测试库容器 language-flow-mysql-test(:3307) + 独立 uploads 目录，生产库/文件零接触（曾发现遗留 pnpm dev 父进程抢 8080 连生产库，只读核查确认零污染后清理）
+→ ✅ 2026-09-20~21 后台原型高保真还原（languageflow_ai_admin_prototype.html → Vue，未提交）：深色侧边栏+毛吸顶栏布局壳、设计令牌入 Tailwind @theme、新增工作台 Dashboard、新建页步进器+9:16 手机预览、全站页面原型风格；功能零删减（AI 推荐/试听/原地编辑/Finder 定位/标记/批量删除全保留）
+→ ✅ 2026-09-20 收口批次后续修复与文档对齐：introStatus 运行时元组移出纯源码 shared 包（修启动崩溃）+ 真实 MySQL 集成测试验 migration 0005；白名单放行未变更的遗留音色/BGM 防无关字段锁死编辑；详情页下拉补兜底项；片头自动保存水合守卫时序修正；README / SPEC §2.2·§3.4·§4.1·§10·§11·§12 / docs/04 V2.1 / docs/08 白名单注记 / docs/11 发布管理页全量对齐（片头时长以代码 INTRO_DURATION_SEC=1s 为准，修正本文档旧述 5s）
 → ✅ 2026-09-20 提交就绪收口（/autoplan 评审驱动，分支 feature/intro-analytics-closeout）：vendor 改 npm three+构建期拷贝（不入库）；`introStatus`（rendered/failed/disabled/unknown）落库与页内徒留痕；视频分析页更名“视频发布管理”+持久化状态机+音色/BGM 改 select+白名单；TaskDetail 音色/BGM 水合修复；style JSON 双写者行锁；video_analytics FK 级联 + publish_at→datetime（migration 0005）；渲染器拆分+截帧超时+黑屏 fail-closed+模板 DOM 构造除注入；openapi 生成移出启动
 → ✅ 2026-09-19 功能：视频数据分析页；分析元数据持久化、OpenAPI 契约、音色/BGM 同步、自定义文本/图像参数隔离与防抖保存
 → ✅ 2026-09-19 修复：分析列表批量 hydration、失效选中 ID、片头动效持久化、视频分析跨表事务与原子 upsert
@@ -133,6 +150,20 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 | 37 | 实测：health / 前端页面 / 音频视频文件 / 容器内渲染 1080×1920 MP4 全部通过 | ✅ 完成（2026-08-18） |
 | 38 | 环境处理：OrbStack registry-mirrors（Docker Hub 不通）+ 旧库 34 条记录迁移 + uploads 拷贝 | ✅ 完成（2026-08-18） |
 
+### 阶段 7a：生产版本双轨与三轨端口解耦（2026-09-21）
+
+| # | 任务 | 状态 |
+|---|------|------|
+| 39 | docker-compose.yml 去 `build:` 改 `image: ${APP_VERSION}`；版本与端口入 `deploy/prod.env`（tag + PROD_UI_PORT） | ✅ 完成 |
+| 40 | 发布/回滚/版本命令：`docker:release`（工作树→打 `v<git SHA>`→切版本）/ `docker:rollback` / `docker:version`；`docker:up` 不再构建 | ✅ 完成 |
+| 41 | 生产 UI 改到 `127.0.0.1:15173` 且后端不映射宿主 8080；`pnpm dev` 不再停生产容器（三轨可并行） | ✅ 完成 |
+| 42 | `stack.sh free_ports` 改为只杀本仓进程（不再误 `kill` OrbStack 主进程） | ✅ 完成 |
+| 43 | 生产栈去掉 `NODE_ENV=production`（该 tag 无只读端点限流豁免，开着必 429） | ✅ 完成 |
+| 44 | 防误连生产库：`dev`/`db:*`/`openapi:gen` 默认值指 :3307；`requireSafeWriteTarget()` 护栏（回环 :3306 需 `DB_ALLOW_PROD=1`） | ✅ 完成 |
+| 45 | 文档同步：docs/12 §二/§三/§六 + 更新记录、AGENTS.md §零、README 快速开始 | ✅ 完成 |
+| 46 | 切换动作（镜像打 tag + 生产栈 recreate）：属基础设施操作，交用户执行 | ⏳ 待用户执行 |
+| 47 | Finder 定位桥：`reveal-watcher.sh` 改扫 `~/language-flow-uploads*/.open-requests`（原本只覆盖生产目录，测试栈/本地 dev 的定位请求无人消费）+ 目标缺失 60s 宽限丢弃 | ✅ 完成（2026-09-21，沙箱内三场景用例验证） |
+
 ---
 
 ## 四、已完成
@@ -200,6 +231,12 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 | 2026-07-28 | 限流方案：hono-rate-limiter | 轻量，按 IP 限流，无需 Redis |
 | 2026-07-28 | ~~CI/CD：GitHub Actions~~ | 2026-08-29 决策去除；质量检查改 lefthook + 手动命令 |
 | 2026-08-29 | 去除 GitHub Actions CI | 本仓库不跑远程 CI；文档与 README/SPEC 已同步 |
+| 2026-09-21 | 生产与开发代码版本双轨：生产跑 `deploy/prod.env` 锁定的镜像 tag，测试栈/dev 跑工作树 | 共用工作树构建时，任何一次 `docker:up`/`docker:test` 都会覆盖生产镜像；实测还因 dev/生产同占 5173+8080 导致新 UI 打到老后端（404/429）与成片误写生产库 |
+| 2026-09-21 | 生产 UI 换到 15173、后端不映射宿主端口，而非把本地 dev 换端口 | 5173/8080 已写进 AGENTS.md/README/docs 与用户习惯；改动面限制在生产侧，compose + docs/12 即可 |
+| 2026-09-21 | 生产栈限流改用配置层关闭（不设 NODE_ENV）而非改代码 | 用户要求“老版本不更新”；限流豁免只存在于未提交工作树，改代码等于提前发布 |
+| 2026-09-21 | `db:*`/`dev` 脚本默认值指 :3307 + 写库护栏，`.env` 仍保留生产连接串 | Node 的 `--env-file` 不覆盖已导出 env，默认值可安全兼底；容器内主机名是服务名 `mysql`，不误伤发布迁移链路 |
+| 2026-09-21 | API 文档可视化选 Swagger UI（自托管）而非 Scalar/CDN | 项目本地/离线优先，Docker 运行时无外网保证；swagger-ui-dist 本地静态资源 + 覆盖度门禁 + lefthook 自动生成 |
+| 2026-09-21 | db 由单连接改为 createPool（懒建连） | 文档生成 openapi:gen / 覆盖度测试导入路由时不要求 MySQL 在线；MySQL 重启旧连接失效由池自愈 |
 | 2026-07-28 | 测试框架：Vitest 3 | 与 Vite 共享配置，backend=node / frontend=jsdom |
 | 2026-08-17 | 去 Dify：后端直连 LLM（/api/content/generate） | 简化架构，少一个部署依赖，env 切换模型 |
 | 2026-08-17 | 模型：纯本地 Ollama qwen2.5:7b（不用 Agnes） | 完全免费离线；质量不足可换 14b 或接免费云 API |

@@ -11,15 +11,21 @@
 ```
 项目        四级词汇情景记忆短视频平台（language-flow-ai）
 运行环境    macOS arm64 + OrbStack（Docker）/ Node v24（支持 --env-file）/ pnpm workspace
-服务端口    backend 8080 · MySQL 3306 · Ollama 11434
-数据库      mysql://dev:dev@localhost:3306/language_flow（表：cet_words / contents / __drizzle_migrations）
+服务端口    本地 dev：backend 8080 / UI 5173（= 工作树代码）
+            Docker 测试栈：UI 5174 / 测试库 3307（= 工作树代码，每次 --build）
+            Docker 生产栈：UI 15173（= deploy/prod.env 的 APP_VERSION 固定 tag，不随工作树变）
+            MySQL 生产库 3306 · Ollama 11434（三轨共用一个 Ollama 实例）
+数据库      开发/测试用 mysql://dev:dev@localhost:3307/language_flow（表：cet_words / contents / __drizzle_migrations）
+            .env 保留生产连接串 :3306 仅供容器与发布参数；dev / db:* 脚本已内置 :3307 默认值，
+            对回环 :3306 写库（migrate/seed）需显式 DB_ALLOW_PROD=1——MUST：不得为了图便利去写生产库
 技术栈      Hono 4 · Drizzle ORM · MySQL 8.4 · Vue 3.5 + Tailwind CSS 4 · Playwright + FFmpeg 8 · Biome · Vitest 3 · zod
 LLM 配置    Ollama 本地（qwen2.5:7b，纯本地离线方案 2026-08-17 用户决策），配置在 packages/backend/.env
             （LLM_BASE_URL/LLM_API_KEY/LLM_MODEL；.env 已被 gitignore，密钥不入库）
 文档版本    SPEC V2.0 · docs/ 01-15（05 已废弃由 15 取代）· PROGRESS 持续更新
-常用命令    pnpm dev（自动校准 MySQL + 本地前后端）· pnpm docker:up / docker:stop
-            pnpm test / pnpm lint / pnpm typecheck
-            pnpm db:generate / pnpm db:migrate / pnpm db:seed（词库 seed-data/cet_words.csv）
+常用命令    pnpm dev（本地前后端）· pnpm docker:test（测试栈）· pnpm docker:up（生产，不构建）
+            pnpm docker:release / docker:rollback <tag> / docker:version（MUST：生产版本只有用户明确要求时才能 release）
+            pnpm test / pnpm lint / pnpm typecheck · pnpm e2e（真实测试栈 E2E，需先 docker:test）/ pnpm e2e:full（全链路含 Ollama 生成，手动触发不进 hooks）
+            pnpm --filter backend db:generate / db:migrate / db:seed（词库 seed-data/cet_words.csv）
 ```
 
 ---
