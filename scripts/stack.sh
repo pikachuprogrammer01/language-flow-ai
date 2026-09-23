@@ -190,8 +190,8 @@ cmd_release() {
   fi
   ensure_uploads_link
   log "构建生产镜像 ${ver}（backend + frontend，取当前工作树）"
-  docker build "${nocache[@]}" -f Dockerfile.backend -t "${PROD_BACKEND_IMAGE}:${ver}" .
-  docker build "${nocache[@]}" -f Dockerfile.frontend -t "${PROD_FRONTEND_IMAGE}:${ver}" .
+  docker build ${nocache[@]+"${nocache[@]}"} -f Dockerfile.backend -t "${PROD_BACKEND_IMAGE}:${ver}" .
+  docker build ${nocache[@]+"${nocache[@]}"} -f Dockerfile.frontend -t "${PROD_FRONTEND_IMAGE}:${ver}" .
   prod_env_set APP_VERSION "${ver}"
   ensure_mysql
   log "滚动启动生产栈到 ${ver}（数据层：mysql_data 卷 + ${HOME}/language-flow-uploads 不动）"
