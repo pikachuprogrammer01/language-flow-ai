@@ -225,7 +225,7 @@ export async function sleepEngine(): Promise<LlmStatus> {
     status,
     progress: undefined,
     notice:
-      "模型已卸载；当前环境无法代停 Ollama 服务（容器内无 brew 或桌面端启动），如需完全退出请手动操作",
+      "模型已卸载；Ollama 服务跑在宿主机（容器无法代停），如需彻底退出请在宿主机菜单栏 Quit Ollama",
   });
   return status;
 }

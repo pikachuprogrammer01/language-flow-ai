@@ -78,7 +78,8 @@ describe("probeLlm", () => {
     const status = await probeLlm();
     expect(status.installed).toBe(true);
     expect(status.loaded).toBe(false);
-    expect(status.reason).toContain("未加载");
+    expect(status.reason).toContain("未常驻内存");
+    expect(status.reason).toContain("不影响可用性");
   });
 
   it("/api/ps 不可用（云端兼容端点）时省略 loaded，不阻断就绪判定", async () => {

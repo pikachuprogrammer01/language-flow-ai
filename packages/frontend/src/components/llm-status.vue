@@ -80,24 +80,26 @@ const level = computed<LlmLevel>(() => {
 });
 const dotClass = computed(() => {
   if (busy.value) return "bg-run animate-pulse";
-  return { ready: "bg-ok", standby: "bg-warn", down: "bg-bad", unknown: "bg-idle" }[level.value];
+  return { ready: "bg-ok", standby: "bg-idle", down: "bg-bad", unknown: "bg-idle" }[level.value];
 });
-/** 主按钮配色只看就绪度（过渡态由小点脉冲 + 文字表达，关闭中不把成功态染紫） */
+/** 主按钮配色：就绪绿/不可达红；待命是**正常可用态**（调用自动冷加载），用中性色不告警 */
 const buttonClass = computed(() => {
   return level.value === "ready"
     ? "border-ok/40 bg-white text-emerald-700 hover:bg-emerald-50"
     : level.value === "down"
       ? "border-bad/40 bg-white text-bad hover:bg-red-50"
-      : "border-warn/40 bg-[#fff8e8] text-amber-700 hover:bg-[#fdefc8]";
+      : level.value === "standby"
+        ? "border-hairline bg-white text-gray-600 hover:bg-gray-50"
+        : "border-warn/40 bg-[#fff8e8] text-amber-700 hover:bg-[#fdefc8]";
 });
 const label = computed(() => {
   const name = status.value?.model || "模型";
   if (waking.value) return `启动 ${name} 中…`;
   if (level.value === "unknown") return "检测中…";
   if (level.value === "down" && snap.value?.error) return "启动失败 · 点击重试";
-  // 双要素明示：Ollama 服务层 + 模型内存层，一眼分清哪层没起
+  // 双要素明示：Ollama 服务层 + 模型内存层；待命≠不可用（调用会自动冷加载）
   if (level.value === "ready") return "Ollama ✓ · 模型已加载";
-  if (level.value === "standby") return "Ollama ✓ · 模型未加载";
+  if (level.value === "standby") return "Ollama ✓ · 待命中（可正常生成）";
   return "Ollama 未启动 · 点击启动";
 });
 const tip = computed(() => {
@@ -107,9 +109,9 @@ const tip = computed(() => {
   const name = s.model || "未配置";
   if (snap.value?.error) return `${snap.value.error}｜当前：${name} ${s.reason ?? ""}`.trim();
   if (level.value === "ready")
-    return `Ollama 服务运行中，模型 ${name} 已加载进内存（就绪）；点击可刷新状态，如需关闭用右侧停止按钮`;
+    return `Ollama 服务运行中，模型 ${name} 已加载进内存（就绪）；点击可刷新状态，如需释放内存用右侧卸载按钮`;
   if (level.value === "standby")
-    return `Ollama 服务已运行，但模型 ${name} 尚未加载进内存（首次调用需冷加载）；点击加载模型`;
+    return `服务在线，模型 ${name} 未常驻内存——生成请求会自动冷加载（首次稍慢）；点击可预加载（保活 1h）`;
   return `Ollama 服务未运行：${s.reason ?? "不可达"}，点击启动服务并加载 ${name}`;
 });
 
@@ -143,22 +145,29 @@ async function onActivate(): Promise<void> {
   }
 }
 
-/* ── 操作结果实时播报：error 红 / notice 黄 / 成功绿（按事件转换去重，重试同文案也能再报） ── */
+/* ── 操作结果实时播报：转换事件（过渡态→idle）必定播报一次，不受文案去重吞掉；
+   非转换事件（reconnect 回放/对账）才按文案去重防重复弹 ── */
 let lastEvent = { phase: "", error: "", notice: "" };
 watch(snap, (s) => {
   if (!s) return;
-  if (s.error && s.error !== lastEvent.error) toast.error(s.error, { duration: 8000 });
-  else if (s.notice && s.notice !== lastEvent.notice) toast.warning(s.notice, { duration: 6000 });
-  else if (lastEvent.phase === "starting" && s.phase === "idle" && s.status.loaded === true)
-    toast.success(`模型 ${s.status.model} 已就绪`);
-  else if (
-    lastEvent.phase === "stopping" &&
-    s.phase === "idle" &&
-    !s.status.connected &&
-    !s.error &&
-    !s.notice
-  )
-    toast.success("Ollama 已停止");
+  const leaving = lastEvent.phase === "starting" || lastEvent.phase === "stopping";
+  if (lastEvent.phase === "starting" && s.phase === "idle") {
+    if (s.error) toast.error(s.error, { duration: 8000 });
+    else if (s.status.loaded === true) toast.success(`模型 ${s.status.model} 已就绪`);
+  } else if (lastEvent.phase === "stopping" && s.phase === "idle") {
+    if (s.error) toast.error(s.error, { duration: 8000 });
+    else if (!s.status.connected)
+      // 服务真停了（宿主机回环环境 brew 生效）
+      toast.success("Ollama 已停止");
+    // 容器环境能力边界：卸载模型即本按钮全部职责，成功播报 + 宿主退出指引
+    else
+      toast.success(`模型 ${s.status.model} 已卸载`, {
+        description: "Ollama 服务由宿主机运行，容器无法代停；彻底退出请在宿主机 Quit Ollama",
+        duration: 6000,
+      });
+  } else if (s.error && s.error !== lastEvent.error) toast.error(s.error, { duration: 8000 });
+  else if (s.notice && (leaving || s.notice !== lastEvent.notice))
+    toast.warning(s.notice, { duration: 6000 });
   lastEvent = { phase: s.phase, error: s.error ?? "", notice: s.notice ?? "" };
 });
 
@@ -169,21 +178,19 @@ onUnmounted(() => {
   clearTimeout(sleepArmTimer);
 });
 
-/* ── 一键停止（wake 的反向操作）：卸载模型 + 停 Ollama；过渡态/结果全由 SSE 播报 ── */
-/** 有可停之物、正在停止中、或启动过渡态之外才露出（启动中不提示停止） */
-const sleepVisible = computed(
-  () => !waking.value && (stopping.value || level.value === "ready" || level.value === "standby"),
-);
+/* ── 一键卸载（wake 的反向操作）：释放模型内存；过渡态/结果全由 SSE 播报 ── */
+/** 只在真有可停之物（已加载）或卸载进行中露出；待命态无内存占用，不显示按钮防点了没反应 */
+const sleepVisible = computed(() => !waking.value && (stopping.value || level.value === "ready"));
 const sleepLabel = computed(() => {
-  if (stopping.value) return "停止中…";
-  return sleepArmed.value ? "确认停止？" : "停止";
+  if (stopping.value) return "卸载中…";
+  return sleepArmed.value ? "确认卸载？" : "卸载模型";
 });
 const sleepTip = computed(() => {
   const name = status.value?.model || "模型";
-  if (stopping.value) return snap.value?.progress ?? "正在停止…";
+  if (stopping.value) return snap.value?.progress ?? "正在卸载…";
   return sleepArmed.value
     ? "再点一次执行；3s 无操作自动取消"
-    : `卸载 ${name} 并停止 Ollama 服务（云端端点仅回探不受影响）`;
+    : `从内存卸载 ${name} 释放资源；Ollama 服务跑在宿主机，容器无法代停（需彻底退出请在宿主机 Quit Ollama）`;
 });
 
 /** 两段式确认：首点击武装，3s 内再击才真关（防误触打断其他会话的生成） */

@@ -113,7 +113,7 @@ async function probeModelLoaded(
           model,
           installed: true,
           loaded: false,
-          reason: `模型 ${model} 未加载进内存（首次调用需冷加载）`,
+          reason: `模型 ${model} 未常驻内存；调用会自动冷加载（首次稍慢），不影响可用性`,
         };
   } catch {
     return { connected: true, model, installed: true };
