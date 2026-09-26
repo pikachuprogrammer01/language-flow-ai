@@ -593,6 +593,64 @@ POST /api/llm/sleep
 
 **`POST /api/llm/sleep`** — 一键关闭（wake 的镜像操作，`sleepEngine()`）：即时返回后走 SSE `phase=stopping` → 本机端点（localhost / 127.0.0.1 / host.docker.internal）先 `POST {host}/api/generate {model, keep_alive:0}` 卸载模型，再 `brew services stop ollama`（幂等；容器内无 brew/非 brew 安装失败仅记 warn 不阻断）→ 回探一次。回探红灯=完全停止（成功终态），仍连但 `loaded=false`=只卸载未停服务（`notice` 降级提示），`loaded=true`=关闭失败（`error`）。前端仅在就绪/待机态露出关闭按钮，首次点击武装（确认关闭？，3s 无操作自动取消）防误触。
 
+### 5.6 视频数据分析 API（Phase 1~4 + Phase 6 全链路，2026-09-24 新增；同日砍除抖音开放平台通道并落地导入向导；2026-09-26 审查修正批次 1/3/5，现 22 路径 28 操作）
+
+> 模块需求源与完整设计见 docs/17_视频数据分析模块设计.md；本节为契约摘要。实现在 `routes/analytics.ts`（批次 5C 已按领域拆分为 `routes/analytics/{records,import,features,dashboard,insights}.ts`，共用实例组合导出，对外路径/operationId 不变；服务 `analytics-metrics.service` / `analytics-feature.service`，领域目录 `lib/analytics-taxonomy.ts`）。
+
+```text
+GET    /api/analytics/publish-records                 发布记录列表（platform/contentId 过滤 + 分页）
+POST   /api/analytics/publish-records                 创建发布记录（自动派生 video_asset_id 并触发生产特征落库）
+PATCH  /api/analytics/publish-records/{recordId}      更新发布记录
+DELETE /api/analytics/publish-records/{recordId}      删除发布记录（指标级联删除）
+GET    /api/analytics/videos/{contentId}/metrics      单视频指标：最新值 + 每日快照（含 provenance 与 emptyReason）
+POST   /api/analytics/import                          Creator Import（动态字段映射）
+GET    /api/analytics/metric-catalog                  canonical 指标目录（availability 分级）
+GET    /api/analytics/features/{contentId}            内容特征读取（即取即重算）
+POST   /api/analytics/features/{contentId}/sync       生产特征重算（保留人工标签）
+PATCH  /api/analytics/features/{contentId}            人工标签覆盖（taxonomy 校验，来源 USER_INPUT）
+GET|POST /api/analytics/creator-daily                 账号每日聚合（(platform,date) 幂等 upsert；查询支持日期范围，含 5 个账号级漏斗/节奏列）
+POST   /api/analytics/creator-daily/import            账号日汇总批量导入（动态列映射 + 逐行归属裁决：account 仅账号级 / video 近似归因落视频指标）
+GET    /api/analytics/overview                        分析首页：视频观看漏斗（播放→2秒→5秒→完播→主页）+ 账号增长独立项（上一等长周期环比，Phase 2）
+GET    /api/analytics/videos                          视频表现列表（排序白名单 play/completion/engagement/fans/publish_time，缺数据恒排末，Phase 2）
+GET    /api/analytics/videos/{contentId}/benchmark    同类 Benchmark（账号自身分组：同模板×时长带×已标注场景/形态；lowSample 强制样本量提示，Phase 2）
+GET    /api/analytics/videos/{contentId}/trend        每日快照趋势序列（不补 0、缺日无点，Phase 2）
+GET    /api/analytics/factors                         内容因子分析（白名单指标×维度分组统计，中位数/均值/样本数，lowSample<8 强制标记；纯读不写库，批次 5B）
+POST   /api/analytics/factors                         因子分析显式重算并留档 analysis_result 快照（批次 5B：留档不再藏在 GET 里）
+GET    /api/analytics/videos/{contentId}/timeline     内容段落时间轴（片头事实 + 字符权重 allocateDurations 派生，非逐帧实测；未派生回 not_derived，Phase 3）
+GET    /api/analytics/recommendations                 生产建议清单（每条必携理由/样本数/依据指标；含采纳汇总 total/pending/accepted/rejected/applied，Phase 4）
+POST   /api/analytics/recommendations/generate        按最新数据重新生成建议（清待处理项重建；已采纳/已忽略历史保留，Phase 4）
+PATCH  /api/analytics/recommendations/{recommendationId} 建议采纳/忽略与采纳后新建内容回写（accepted + appliedToContentId 效果回路，Phase 4）
+GET    /api/analytics/videos/{contentId}/structure    可复用成功结构（从段落时间轴提取结构序列与时长占比，不复制内容，Phase 4）
+GET    /api/analytics/experiments                     内容实验清单（含评估快照，Phase 6）
+POST   /api/analytics/experiments                     创建实验（变量白名单 hook/template/duration/structure/prompt_version/cta/voice；两组非空不相交，Phase 6）
+POST   /api/analytics/experiments/{experimentId}/evaluate 评估归档（A/B 描述统计：中位/差值/样本数/lowSample，小样本不下结论，Phase 6）
+PATCH  /api/analytics/experiments/{experimentId}/status   状态流转（completed 仅由 evaluate 写入防手改结论，Phase 6）
+```
+
+> 抖音开放平台同步端点 `POST /api/analytics/sync` 已砍除（需企业资质，项目不具备，2026-09-24 用户决策）：外部绩效数据唯一入口 = `POST /api/analytics/import`；`source_type` 枚举收敛为五值，不保留 DOUYIN_* 死值。
+
+**统一 ID 链路**：`content_id → publish_record（platform + platform_video_id 唯一）→ 指标`；创建发布记录要求内容存在（404），同平台重复绑定拒绝（409 `DUPLICATE_PLATFORM_VIDEO`；插入竞态撞唯一键同样回 409 不再是 500，2026-09-26 审查批次 3）；DELETE 发布记录对不存在的 recordId 回 404（不再假报删除成功）；导入匹配只允许 `recordId / platformVideoId / platform+contentId` 三种方式，禁止标题模糊匹配。
+
+**Creator Import**（`POST /api/analytics/import`）：`sourceType` 白名单仅 `CREATOR_IMPORT | USER_INPUT`（导入伪装平台官方 API 被 zod 400 拒绝）；`metricMapping` 为外部列名→canonical 指标名的动态映射（列名不写死）；未映射/未知指标/派生指标/非法值逐行返回 `skipped {field, reason}` 不静默丢弃；部分成功语义（逐行 ok/error，不整单回滚），但**单行内原始写入+派生重算同一事务全有或全无**（重算失败不留半写，2026-09-26 审查批次 3）。导入后平台统一重算派生指标（`PLATFORM_CALCULATED`，缺输入的旧派生行同事务内删除不留陈旧值）；视频级 `new_fan_count` 自动标记 `isEstimated`（时间窗口归因，不得伪装精确归因）。前端入口：`/insights/data` 四步导入向导（①导入表格：xlsx 文件（SheetJS）或粘贴 TSV/CSV，表类型自动探测 ②字段映射 ③匹配确认 ④提交落库；解析/预匹配/匹配引擎纯函数 `lib/analytics-import.ts`）。
+
+**账号日汇总导入**（`POST /api/analytics/creator-daily/import`，≤366 行）：每行由操作者裁决 `attribution`（discriminated union，白名单外 mode 400）：`account`=只写 creator_metric_daily；`video`=同时把可归属字段（play/like/comment/share/profile/newFans/bounce2s/watch5s/avgWatchTime）写 video_metrics，必携 `isEstimated=true` + `matched_by=operator_confirmed` 与长尾近似声明；postCount/coverClickRate/totalFans 账号级专属拒写视频指标（逐列回 reason）。(platform,stat_date) upsert 仅覆盖本次提供的列不清空存量。匹配引擎纪律（前端纯函数 `matchRowByDate`）：仅按年月日对齐（发布记录取 publishTime 日期回退 createdAt）；当日 1 条且条数设置=1 → unique 预选；多条 → ambiguous 必人工裁决（系统绝不拆数）；0 条 → none 默认仅账号级；未绑定作品 ID 的记录不参与自动匹配仅可人工指派；条数设置（默认 1）超出即提醒不阻断。
+
+**指标真实性与 Empty State**：每个指标值必携 `sourceType / sourceField / dataDate / fetchedAt / isEstimated / confidence / metadata`；派生计算除零或缺输入→不落该指标（无数据 ≠ 0）；`videos/{id}/metrics` 的 `emptyReason` ∈ `not_published | not_imported | null`；`overview` 阶段级 `emptyReason`（not_imported / missing_rate_or_plays）+ 全局 `emptyReason`（no_records / no_metrics）。指标目录的 `availability` ∈ `AVAILABLE | IMPORT_ONLY | DERIVED | FUTURE`（CONDITIONAL 档已随抖音通道砍除；当前无已接入外部源，计数类/漏斗类均为 IMPORT_ONLY）。
+
+**Phase 2 漏斗口径（2026-09-26 审查批次 1 升级：口径诚实，绝不截断伪装）**：阶段值 = 窗口内发布记录（有 publishTime 按发布时间，否则回退 createdAt）的 Σ播放 / Σ(播放×对应比例)；每阶段附**覆盖元数据** `coverageCount`（参与折算记录数，creator=导入天数）/ `windowRecordCount`（窗口记录总数）/ `basisPlays`（覆盖记录播放合计）。逐级转化 `stepRate` **仅在相邻阶段覆盖记录集一致且数值不倒挂时给出**（`stepRateState="computed"`）；否则置 null 并以枚举说明原因（`first / coverage-mismatch / inverted / missing / standalone`），前端对不可比阶段显示「—」+原因，**不得把百分比截断到 100% 掩盖口径错位**。`shareOfPlays` 分母改为本阶段覆盖播放（与分子同覆盖，杜绝混合覆盖低估）。「关注」= creator_metric_daily 同窗口日新增合计，**账号级独立指标不入观看漏斗链路**（stepRate/shareOfPlays 恒 null，前端独立分区展示）；环比对上一等长窗口同口径，无对比数据 changePct=null 呈现「—」。导入比例类指标无单调性承诺（如完播率可高于 5 秒观看率），倒挂一律走 `inverted` 提示。前端页面：`/insights`（页面 A）、`/insights/videos`（页面 B，排序表头为真 button + aria-sort、行标题真链接，审查批次 4A）、`/insights/videos/:id`（页面 C，生产参数×表现同屏 + 趋势 + 同类 Benchmark + 秒级留存不造假声明）。
+
+**Phase 3 因子分析与时间轴（批次 5B 留档显式化）**：`/factors` 自发分组统计（model_version=group-stats-v1，不冒充模型）：目标指标白名单 10 项、维度白名单 15 项（hook/scene/内容形态/情绪/CTA/模板/等级/时长带/语速带/段落带/音色/BGM/字幕/Prompt 版本/发布时段），未标注入「未标注」桶不剔除样本，每组必携 sampleCount 且 <8 标 lowSample，响应 note 声明相关性非因果；**GET /factors 纯读（批次 5B 消除读副作用），留档只经 POST /factors（页面 D 显式「重算并留档」按钮），写失败报错不静默**。`/videos/{id}/timeline` 读 video_segment 表：段落时长由生产事实派生（scene_word 片头 rendered 占 0~1s + 各段按字符权重 allocateDurations，与渲染链路同源），无产物时长不派生（not_derived）；重建入口 = POST features/{id}/sync 与创建发布记录链路。
+
+**看板查询下推（批次 5A）**：`/overview` 只装载 [上一窗口起点, 现在) coalesce(publish_time, created_at) 区间记录（UTC 字面量比较免会话时区漂移）；`/videos` 排序/分页/总数全部 SQL（指标排序经 (record,metric) 别名左连，`IS NULL` 前置位实现「缺数据恒排末」，同值按 created_at desc 决胜）；loadAllVideoRows 仅供确实需要全分组集的 benchmark/因子路径。
+
+**Phase 4 优化闭环**：建议从因子分组派生（`analytics-recommend.service`）：仅样本 ≥8（MIN_GROUP_SAMPLES）的组出参数建议（§十四 小样本不下结论），无合格组只出 data_readiness 诚实建议；每条必携 reason/sourceSampleCount/sourceMetric/confidence（可解释，§十二）。采纳回路：前端「使用推荐参数创建」经 create-session prefill 单例预填 Create 流程（模板/主题/语速 + hook/scene 标签），生成成功后回写 recommendation.applied_to_content_id 并将标签写入新内容 content_features（USER_INPUT，进入下次同类分组）；「复用此视频结构」（页面 C）提取骨架预填（参考横幅展示占比，不假装生成器能按骨架执行）。实体现：recommendations（§八.8，migration 0009）。
+
+**Phase 6 内容实验**：`experiments` 表（§八.9，migration 0010）= 一个变量 × 两变体（各挂 contentIds）+ 控制变量 + 目标指标；`POST /experiments/{id}/evaluate` 用发布指标做分组描述统计（model_version=ab-descriptive-v1）：任一组样本 <8 → lowSample 且 verdict 只给「不构成结论」；缺指标不补 0（无数据时 verdict=无法评估）；completed 仅由 evaluate 写入（状态 PATCH 拒绝手改结论态）；结论恒附相关≠因果声明。前端 `/insights/experiments`（登记表单两组内容多选 + 冲突即时拦截 + 评估卡片）。Phase 5（停留/完播/涨粉模型 + SHAP）按文档门槛在数据量达标后启动，不提前实现。
+
+**数据源 Adapter**（需求 §二十三）：`AnalyticsDataProvider` 接口统一映射到平台 Domain Model，业务层不依赖抖音 Response DTO；`douyinOpenApiProvider` 为未接入占位（`isAvailable()=false`，sync 诚实返回 501 `DATA_SOURCE_NOT_CONFIGURED`）。
+
+**错误信封**：非 2xx 统一 `{ error: { code, message, ... } }`（DX-1，lib/api-error）。
+
 ---
 
 ## 六、AI 内容生成服务（替代原 Dify Workflow A）
@@ -821,6 +879,93 @@ interface PaginatedResponse<T> {
 
 > API 响应中的 `voice` / `bgm` 不落本表：由本表单一写者在同一事务内回写 `contents.voice.id` / `contents.style.bgm`（白名单校验见 §5.4）。
 > 表名 `video_analytics` 与 API 路径为冻结契约，页面已更名「视频发布管理」（§5.4）。
+
+### 10.5 发布记录表：publish_records（视频数据分析，migration 0007）
+
+生产→发布→分析的统一 ID 链路中枢（需求 §七），实现见 `db/schema.ts`：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | VARCHAR(32) PK | `pub_YYYYMMDD_XXXXXX` |
+| content_id | VARCHAR(32) NOT NULL | FK → contents.id，`ON DELETE CASCADE`（建索引） |
+| video_asset_id | VARCHAR(100) NULL | 视频资产标识 = uploads/video 下文件名（创建时自 contents.video.url 派生） |
+| platform | VARCHAR(50) NOT NULL | 发布平台（与 upload_marks.platform 同口径自由文本，加平台免迁移） |
+| platform_video_id | VARCHAR(100) NULL | 平台侧作品 ID（抖音 = item_id） |
+| publish_title / cover_url | VARCHAR | 发布标题与封面 |
+| publish_time | DATETIME NULL | 实际发布时间（mode:"date"） |
+| publish_status | ENUM('scheduled','published','deleted') | 默认 published |
+| created_at / updated_at | TIMESTAMP | 自动维护 |
+
+**唯一约束** `(platform, platform_video_id)`：禁止按标题模糊匹配维护生产视频↔平台作品关系。
+
+### 10.6 视频指标表：video_metrics（最新值）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT AUTO PK | 自增 |
+| publish_record_id | VARCHAR(32) NOT NULL | FK → publish_records.id，CASCADE |
+| metric_name | VARCHAR(64) NOT NULL | canonical 指标名（lib/analytics-taxonomy 注册表） |
+| metric_value | DOUBLE NOT NULL | 指标值 |
+| source_type | ENUM(5 值) NOT NULL | CREATOR_IMPORT / PLATFORM_PRODUCTION / PLATFORM_CALCULATED / AI_EXTRACTED / USER_INPUT（DOUYIN_* 已随通道砍除） |
+| source_field | VARCHAR(100) NULL | 来源原始字段名（如导出列名，溯源展示用） |
+| data_date | DATE NULL | 数据所属日期（string 模式存 YYYY-MM-DD；累计值可空） |
+| fetched_at | TIMESTAMP NOT NULL | 获取时间 |
+| is_estimated | INT NOT NULL DEFAULT 0 | 估算/窗口归因标记（不得伪装精确归因） |
+| confidence | FLOAT NULL | 置信度 |
+| metadata | JSON NULL | 附加留痕（如派生公式、目录备注） |
+
+唯一约束 `(publish_record_id, metric_name)`；导入后派生指标由平台统一重算（PLATFORM_CALCULATED）。
+
+### 10.7 视频指标每日快照：video_metric_daily
+
+结构同 10.6 但 `data_date NOT NULL`，唯一约束 `(publish_record_id, metric_name, data_date)`；支撑 D0/D1/D2/D3/D7/D14/D30 增长观察（不只存累计值）。
+
+### 10.8 账号每日聚合：creator_metric_daily
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| (platform, stat_date) | 复合 PK | 日期 string 模式 YYYY-MM-DD |
+| play/like/comment/share_increment | INT NULL | 日增量（缺失≠0，null 表未采集） |
+| profile_uv / new_fans / total_fans | INT NULL | 主页访问/新增/总粉丝 |
+| bounce_rate_2s / watch_rate_5s / avg_watch_time | DOUBLE NULL | 2026-09-24 扩展：账号级漏斗比率/均时长（创作者「全量指标」导出，账号级加权口径） |
+| post_count / cover_click_rate | INT / DOUBLE NULL | 投稿量（当日）/封面点击率（漏斗首环，账号级） |
+| source_type | ENUM(5 值) NOT NULL | 来源（DOUYIN_* 已随通道砍除） |
+| fetched_at / metadata | TIMESTAMP / JSON | 留痕 |
+
+账号级数据默认不归因到单视频（需求 §五C）；例外路径 = 导入向导操作者逐行人工裁决归属（`creator-daily/import` attribution=video），落视频指标必携 isEstimated + matched_by=operator_confirmed 近似声明，系统绝不自动拆数。
+
+### 10.9 内容特征表：content_features
+
+Production Feature 落库（需求 §五A）：生产可直取字段从 ContentDTO/产物事实提取（`field_sources` 记 PLATFORM_PRODUCTION）；
+
+- 生产字段：template / level / duration（成片优先，回退配音）/ knowledge_point_count（words 去重）/ segment_count / dialogue_count（仅 scene_word 具台词语义）/ speech_rate（voice.speed 契约默认 1）/ voice_id / bgm / subtitle_type（当前固定 burned_in）/ shot_count（渲染器事实：片头 rendered + 每段/卡/题 1 镜头）/ intro_effect（输出事实 introStatus 映射）/ intro_topic；prompt_version / renderer_version 当前 audit 未留痕→保持 null 不猜测。
+- 人工标签字段（生产未建模）：scene / hook / content_format / emotion / cta_type / cta_start_time，仅 PATCH 写入并记 USER_INPUT；重算不覆盖人工值。
+- 主键 content_id FK → contents.id CASCADE；字段级来源映射存 `field_sources` JSON（需求 §六：每个值可溯源）。
+
+### 10.10 内容时间轴表：video_segments（Phase 3，migration 0008）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT AUTO PK | 自增 |
+| content_id | VARCHAR(32) NOT NULL | FK → contents.id CASCADE；唯一约束 (content_id, idx) |
+| idx | INT NOT NULL | 段序（片头已渲染时占第 0 段） |
+| start_time / end_time | DOUBLE NOT NULL | 秒；片头事实 0~1s，正文按字符权重 allocateDurations 分配，总长守恒 |
+| segment_type | VARCHAR(32) | intro / story_segment / word_card / quiz_question |
+| dialogue / knowledge_point | VARCHAR | 台词文本（截 2000）/ 本段知识点（截 500） |
+| scene / emotion / shot_type | VARCHAR(32) NULL | 生产未建模，人工/AI 补充位 |
+| source_type | ENUM(7 值) | 派生行固定 PLATFORM_CALCULATED（不伪装逐帧实测） |
+
+### 10.11 分析结果快照表：analysis_result（Phase 3，migration 0008）
+
+追加式留痕：`analysis_type`（如 factors:completion_rate）/ `subject_id`（null=账号级）/ `result` JSON / `evidence` JSON（参与样本 recordId 与总样本量）/ `confidence` / `model_version`（分组统计为 group-stats-v1，不冒充模型）/ `created_at`；索引 (analysis_type, subject_id)。
+
+### 10.12 生产建议表：recommendations（Phase 4，migration 0009）
+
+§八.8 全字段落地：`id`（rec_前缀）/ `recommendation_type`（hook/scene/duration/knowledge_points/speech_rate/cta/template/structure/data_readiness）/ `recommendation` JSON `{value,label,kindLabel}` / `reason`（必携：哪个指标、组中位 vs 账号中位、样本数）/ `source_sample_count` / `source_metric` / `confidence` / `accepted`（NULL 待处理 · 1 采纳 · 0 忽略）/ `applied_to_content_id`（采纳后新建内容，效果回路接入点）/ created_at、updated_at。生成纪律：仅 ≥8 样本组出参数建议，否则 data_readiness 诚实建议。
+
+### 10.13 内容实验表：experiments（Phase 6，migration 0010）
+
+§八.9 预留实体落地：`id`（exp_前缀）/ `variable`（实验变量白名单）/ `variant_a`、`variant_b` JSON `{label, contentIds[]}`（两组不相交）/ `control_variables` JSON / `target_metric`（canonical，默认 completion_rate）/ `start_at`、`end_at` DATETIME / `status` ENUM(draft/running/completed/cancelled) / `result` JSON（评估快照：medianA/B、diff、sampleA/B、lowSample、verdict、note、model_version）/ created_at、updated_at；索引 status。
 
 ---
 
