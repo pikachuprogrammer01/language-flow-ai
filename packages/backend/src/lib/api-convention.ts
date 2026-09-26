@@ -95,7 +95,7 @@ export function buildApiRoute(options: ApiRouteOptions): ReturnType<typeof creat
 export const OPENAPI_DOC_BASE = {
   openapi: "3.1.0" as const,
   info: {
-    title: "Language Flow AI API",
+    title: "LanguageFlow AI API",
     version: "0.1.0",
     description: [
       "四级词汇情景记忆短视频平台 API。",

@@ -24,7 +24,7 @@ function renderDocsHtml(): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Language Flow AI · API 文档</title>
+    <title>LanguageFlow AI · API 文档</title>
     <link rel="stylesheet" href="/swagger-ui/swagger-ui.css" />
     <style>
       body { margin: 0; }

@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Language Flow AI API",
+    "title": "LanguageFlow AI API",
     "version": "0.1.0",
     "description": "四级词汇情景记忆短视频平台 API。\n\n**统一规范**（详见 docs/16_API接口规范与文档管理.md）：\n- 路径：/api 下 kebab-case，资源用复数名词\n- 错误格式：非 2xx 统一 `{ error, message?, code? }` 信封\n- 状态码：200/201/204 成功族 · 400/404/409 客户端错 · 500 服务端错\n- 所有端点由 @hono/zod-openapi 定义自动收录，覆盖度校验见 `pnpm openapi:check`"
   },
