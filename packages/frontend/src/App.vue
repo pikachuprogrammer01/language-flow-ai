@@ -3,6 +3,7 @@
 // 响应式：≥lg 常驻侧边栏；小屏隐藏，顶栏汉堡按钮开合抽屉 + 遮罩关闭
 import {
   Activity,
+  ArrowLeft,
   FolderOpen,
   History,
   LayoutDashboard,
@@ -10,16 +11,32 @@ import {
   Play,
   Plus,
   SquareCheck,
+  TrendingUp,
   Upload,
 } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import LlmStatus from "./components/llm-status.vue";
 import AppToaster from "./components/ui/app-toaster.vue";
 import ConfirmDialog from "./components/ui/confirm-dialog.vue";
 import { confirmAbandonCreate, goCreate, useCreateSession } from "./lib/create-session";
 
 const route = useRoute();
+const router = useRouter();
+
+// ── 分析域返回（层级嵌套深：所有 /insights* 页面顶栏提供「← 返回」回上一界面） ──
+
+const inInsights = computed(() => route.path.startsWith("/insights"));
+
+function goBack(): void {
+  const state = window.history.state as { back?: string | null } | null;
+  if (state?.back) {
+    router.back();
+    return;
+  }
+  // 直达子页无历史：回分析首页；首页本身无历史回工作台
+  router.push(route.path === "/insights" ? "/" : "/insights");
+}
 /** 创建会话：全站「新建视频」入口按 busy/done/idle 分流（放弃确认弹窗单实例挂本组件） */
 const { abandonConfirmOpen } = useCreateSession();
 
@@ -57,6 +74,7 @@ const NAV_GROUPS: {
   {
     label: "运营与系统",
     items: [
+      { path: "/insights", label: "数据分析", icon: TrendingUp },
       { path: "/marks", label: "上传标记", icon: SquareCheck },
       { path: "/audit", label: "审计管理", icon: Activity },
     ],
@@ -132,7 +150,7 @@ const crumb = computed(() => String(route.meta.title ?? "工作台"));
       <header
         class="sticky top-0 z-10 flex h-[68px] items-center justify-between border-b border-hairline bg-white/90 px-7 backdrop-blur-md"
       >
-        <div class="flex items-center gap-3">
+        <div class="flex min-w-0 items-center gap-3">
           <!-- 小屏导航按钮（侧边栏隐藏时唤起抽屉） -->
           <button
             class="cursor-pointer rounded-[10px] border border-hairline bg-white p-2 hover:bg-gray-50 lg:hidden"
@@ -142,7 +160,15 @@ const crumb = computed(() => String(route.meta.title ?? "工作台"));
           >
             <Menu :size="18" />
           </button>
-          <p class="font-bold">{{ crumb }}</p>
+          <button
+            v-if="inInsights"
+            class="flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-hairline bg-white px-2.5 py-1.5 text-sm text-subtle hover:bg-gray-50 hover:text-ink"
+            data-testid="insights-back"
+            @click="goBack"
+          >
+            <ArrowLeft class="h-4 w-4" aria-hidden="true" /> 返回
+          </button>
+          <p class="truncate font-bold">{{ crumb }}</p>
         </div>
         <div class="flex items-center gap-2.5">
           <!-- LLM 引擎状态位（探测/唤醒/轮询自含在组件内） -->

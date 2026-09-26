@@ -16,20 +16,62 @@ const abandonConfirmOpen = ref(false);
 
 let abortor: (() => void) | null = null;
 let resetor: (() => void) | null = null;
+let prefillApplier: (() => void) | null = null;
+
+// ── 建议参数回填（Phase 4 优化闭环：基于高表现结构/建议创建下一条视频） ──
+
+export interface CreatePrefill {
+  template?: "scene_word" | "word_card" | "quiz";
+  level?: "CET4" | "CET6";
+  topic?: string;
+  rate?: number;
+  /** 采纳建议附带：生成成功后回写 recommendation 采纳回路 */
+  recommendationId?: string;
+  /** 采纳的标签建议：新内容生成后写入 content_features（USER_INPUT），进入下次同类分组 */
+  labelScene?: string | null;
+  labelHook?: string | null;
+  /** 复用成功结构：只读骨架展示 + 生成后审阅引导（不假装生成器能按骨架执行） */
+  structure?: { label: string; startTime: number; endTime: number; durationShare: number }[];
+  structureSourceContentId?: string;
+}
+
+const prefill = ref<CreatePrefill | null>(null);
+
+/** 装载回填意图（页面 D 建议卡 / 页面 C 复用结构入口调用） */
+export function setCreatePrefill(next: CreatePrefill): void {
+  prefill.value = next;
+}
+
+/** CreateTask 消费：取回并清空（只应用一次） */
+export function consumeCreatePrefill(): CreatePrefill | null {
+  const value = prefill.value;
+  prefill.value = null;
+  return value;
+}
+
+export function peekCreatePrefill(): CreatePrefill | null {
+  return prefill.value;
+}
 
 export function setCreatePhase(next: CreatePhase): void {
   phase.value = next;
 }
 
-/** CreateTask 挂载时注册中断/重置能力；卸载必须注销（防悬挂闭包） */
-export function registerCreateSession(handlers: { abort: () => void; reset: () => void }): void {
+/** CreateTask 挂载时注册中断/重置/回填应用能力；卸载必须注销（防悬挂闭包） */
+export function registerCreateSession(handlers: {
+  abort: () => void;
+  reset: () => void;
+  applyPrefill?: () => void;
+}): void {
   abortor = handlers.abort;
   resetor = handlers.reset;
+  prefillApplier = handlers.applyPrefill ?? null;
 }
 
 export function unregisterCreateSession(): void {
   abortor = null;
   resetor = null;
+  prefillApplier = null;
   phase.value = "idle";
 }
 
@@ -42,8 +84,9 @@ export function decideCreate(p: CreatePhase, currentPath: string): CreateIntent 
   return "navigate";
 }
 
-/** 「新建视频」统一入口（顶栏 / 侧边栏 / 工作台 / 生成记录四处共用） */
-export function goCreate(): void {
+/** 「新建视频」统一入口（四处共用）；携 prefill 时按意图在重置/导航后应用回填 */
+export function goCreate(next?: CreatePrefill): void {
+  if (next) setCreatePrefill(next);
   const currentPath = router.currentRoute.value.path;
   const intent = decideCreate(phase.value, currentPath);
   if (intent === "confirm-abandon") {
@@ -52,16 +95,18 @@ export function goCreate(): void {
   }
   if (intent === "reset-in-place") {
     resetor?.();
+    prefillApplier?.();
     return;
   }
   if (currentPath !== "/create") void router.push("/create");
 }
 
-/** 用户确认放弃：中断在飞请求 + 重置本页 + 确保停在创建页 */
+/** 用户确认放弃：中断在飞请求 + 重置本页 + 应用待回填 + 确保停在创建页 */
 export function confirmAbandonCreate(): void {
   abandonConfirmOpen.value = false;
   abortor?.();
   resetor?.();
+  prefillApplier?.();
   if (router.currentRoute.value.path !== "/create") void router.push("/create");
 }
 

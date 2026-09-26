@@ -5,8 +5,22 @@
 import createClient from "openapi-fetch";
 import type { paths } from "./schema.d.ts";
 
+/**
+ * 网络层翻译（审查批次 4B）：后端未启动/断网时原生 fetch 抛 `TypeError: Failed to fetch`，
+ * 视图层直接上屏就是把底层错误丢给用户；统一转成人话，用户中断（AbortError）原样透传。
+ */
+async function humanizedFetch(request: Request): Promise<Response> {
+  try {
+    return await fetch(request);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new Error("无法连接后端服务：请确认 pnpm dev 或 Docker 测试栈正在运行后重试");
+  }
+}
+
 export const client = createClient<paths>({
   baseUrl: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080",
+  fetch: humanizedFetch,
 });
 
 /** 提取 API 错误信息：优先后端返回的 {error} 字段，fallback HTTP 状态码 */
@@ -402,4 +416,681 @@ export async function deleteUploadMark(id: string) {
   if (error || !response.ok) throw new Error(`删除上传标记失败：${apiError(error, response)}`);
   if (!data) throw new Error("删除上传标记失败：空响应");
   return data;
+}
+
+// ── 视频数据分析（docs/17，Phase 1 数据链路 + Phase 2 看板） ──
+
+/** 带来源的指标单元格（需求 §六：无数据 ≠ 0，缺键即无数据，不伪造 0 值） */
+export interface MetricCellView {
+  value: number;
+  sourceType: string;
+  isEstimated: boolean;
+  dataDate: string | null;
+}
+
+/** 逐级转化可比性（与后端 StepRateState 同源）：仅 computed 时 stepRate 非空 */
+export type FunnelStepRateState =
+  | "first"
+  | "computed"
+  | "coverage-mismatch"
+  | "inverted"
+  | "missing"
+  | "standalone";
+
+export interface FunnelStageView {
+  key: string;
+  label: string;
+  kind: "count" | "rate" | "creator";
+  value: number | null;
+  previousValue: number | null;
+  stepRate: number | null;
+  stepRateState: FunnelStepRateState;
+  shareOfPlays: number | null;
+  /** video 阶段=参与折算记录数；creator 阶段=窗口内参与折算的账号日行数 */
+  coverageCount: number;
+  /** 窗口内发布记录总数（覆盖率分母） */
+  windowRecordCount: number;
+  /** 本阶段覆盖记录的播放量合计（占比/折算分母）；creator 阶段 null */
+  basisPlays: number | null;
+  changePct: number | null;
+  sourceTypes: string[];
+  emptyReason: string | null;
+  note?: string;
+}
+
+export interface AnalyticsOverview {
+  days: number;
+  from: string;
+  to: string;
+  previousFrom: string;
+  previousTo: string;
+  publishedVideos: number;
+  previousPublishedVideos: number;
+  stages: FunnelStageView[];
+  emptyReason: string | null;
+}
+
+export async function getAnalyticsOverview(days = 7): Promise<AnalyticsOverview> {
+  const { data, error, response } = await client.GET("/api/analytics/overview", {
+    params: { query: { days } },
+  });
+  if (error || !data) throw new Error(`查询分析概览失败：${apiError(error, response)}`);
+  return data as AnalyticsOverview;
+}
+
+export type InsightSort = "play" | "completion" | "engagement" | "fans" | "publish_time";
+
+export interface AnalyticsVideoRow {
+  recordId: string;
+  contentId: string;
+  platform: string;
+  platformVideoId: string | null;
+  title: string;
+  template: "scene_word" | "word_card" | "quiz";
+  level: "CET4" | "CET6";
+  durationSec: number | null;
+  publishTime: string | null;
+  metrics: Record<string, MetricCellView>;
+}
+
+export async function listAnalyticsVideos(
+  params: { sort?: InsightSort; order?: "asc" | "desc"; page?: number; pageSize?: number } = {},
+): Promise<{ items: AnalyticsVideoRow[]; total: number; page: number; pageSize: number }> {
+  const { data, error, response } = await client.GET("/api/analytics/videos", {
+    params: { query: params },
+  });
+  if (error || !data) throw new Error(`查询视频表现列表失败：${apiError(error, response)}`);
+  return data as { items: AnalyticsVideoRow[]; total: number; page: number; pageSize: number };
+}
+
+export interface AnalyticsBenchmark {
+  subject: {
+    contentId: string;
+    group: {
+      template: string;
+      scene: string | null;
+      contentFormat: string | null;
+      durationBand: string | null;
+    };
+  };
+  sampleCount: number;
+  lowSample: boolean;
+  metrics: Record<
+    string,
+    {
+      self: MetricCellView | null;
+      groupMedian: number | null;
+      groupMean: number | null;
+      diff: number | null;
+      sampleCount: number;
+    }
+  >;
+  emptyReason: string | null;
+}
+
+export async function getAnalyticsBenchmark(contentId: string): Promise<AnalyticsBenchmark> {
+  const { data, error, response } = await client.GET(
+    "/api/analytics/videos/{contentId}/benchmark",
+    {
+      params: { path: { contentId } },
+    },
+  );
+  if (error || !data) throw new Error(`查询同类基准失败：${apiError(error, response)}`);
+  return data as AnalyticsBenchmark;
+}
+
+export interface AnalyticsTrendRecord {
+  recordId: string;
+  platform: string;
+  series: { metricName: string; points: { date: string; value: number; sourceType: string }[] }[];
+}
+
+export async function getAnalyticsTrend(
+  contentId: string,
+  params: { dateFrom?: string; dateTo?: string } = {},
+): Promise<AnalyticsTrendRecord[]> {
+  const { data, error, response } = await client.GET("/api/analytics/videos/{contentId}/trend", {
+    params: { path: { contentId }, query: params },
+  });
+  if (error || !data) throw new Error(`查询趋势失败：${apiError(error, response)}`);
+  return (data as { records: AnalyticsTrendRecord[] }).records;
+}
+
+export interface AnalyticsFeature {
+  contentId: string;
+  template: "scene_word" | "word_card" | "quiz";
+  level: "CET4" | "CET6";
+  duration: number | null;
+  knowledgePointCount: number | null;
+  characterCount: number | null;
+  dialogueCount: number | null;
+  segmentCount: number | null;
+  speechRate: number | null;
+  voiceId: string | null;
+  bgm: string | null;
+  subtitleType: string | null;
+  shotCount: number | null;
+  introEffect: number | null;
+  introTopic: string | null;
+  promptVersion: string | null;
+  rendererVersion: string | null;
+  scene: string | null;
+  hook: string | null;
+  contentFormat: string | null;
+  emotion: string | null;
+  ctaType: string | null;
+  ctaStartTime: number | null;
+  fieldSources: Record<string, string> | null;
+}
+
+/** 内容特征（只读；未落库返回 null，可先 POST /api/analytics/features/:id/sync 重算） */
+export async function getAnalyticsFeature(contentId: string): Promise<AnalyticsFeature | null> {
+  const { data, error, response } = await client.GET("/api/analytics/features/{contentId}", {
+    params: { path: { contentId } },
+  });
+  if (response.status === 404) return null;
+  if (error || !response.ok) throw new Error(`查询内容特征失败：${apiError(error, response)}`);
+  return (data ?? null) as AnalyticsFeature | null;
+}
+
+/** 人工标签覆盖（scene/hook 等，后端 taxonomy 校验失败抛 400 原文） */
+export async function patchAnalyticsFeature(
+  contentId: string,
+  patch: {
+    scene?: string | null;
+    hook?: string | null;
+    contentFormat?: string | null;
+    emotion?: string | null;
+    ctaType?: string | null;
+    ctaStartTime?: number | null;
+  },
+): Promise<AnalyticsFeature> {
+  const { data, error, response } = await client.PATCH("/api/analytics/features/{contentId}", {
+    params: { path: { contentId } },
+    body: patch,
+  });
+  if (error || !data) {
+    const detail =
+      typeof error === "object" && error !== null && "error" in error
+        ? (error as { error?: { message?: string } }).error?.message
+        : undefined;
+    throw new Error(detail ?? `保存标签失败（HTTP ${response.status}）`);
+  }
+  return data as AnalyticsFeature;
+}
+
+/** 因子分析（Phase 3 页面 D）：分组统计非因果，每组必携样本数 */
+export type FactorMetricName =
+  | "play_count"
+  | "effective_play_rate_2s"
+  | "watch_rate_5s"
+  | "completion_rate"
+  | "avg_watch_ratio"
+  | "like_rate"
+  | "comment_rate"
+  | "share_rate"
+  | "engagement_rate"
+  | "profile_visit_rate";
+
+export interface FactorGroup {
+  value: string;
+  sampleCount: number;
+  median: number | null;
+  mean: number | null;
+  diff: number | null;
+  lowSample: boolean;
+}
+export interface FactorAnalysis {
+  metric: string;
+  accountMedian: number | null;
+  accountSampleCount: number;
+  dimensions: { dimension: string; groups: FactorGroup[] }[];
+  note: string;
+  computedAt: string;
+}
+
+export async function getAnalyticsFactors(params: {
+  metric?: FactorMetricName;
+  dimensions?: string[];
+}): Promise<FactorAnalysis> {
+  const { data, error, response } = await client.GET("/api/analytics/factors", {
+    params: {
+      query: {
+        metric: params.metric,
+        dimensions: params.dimensions?.length ? params.dimensions.join(",") : undefined,
+      },
+    },
+  });
+  if (error || !data) throw new Error(`因子分析失败：${apiError(error, response)}`);
+  return data as FactorAnalysis;
+}
+
+/** 因子维度白名单（与后端 FACTOR_DIMENSIONS 同源；schema 内联联合的具名别） */
+export type FactorDimensionName =
+  | "hook"
+  | "scene"
+  | "contentFormat"
+  | "emotion"
+  | "ctaType"
+  | "template"
+  | "level"
+  | "durationBand"
+  | "speechRateBand"
+  | "segmentCountBand"
+  | "voice"
+  | "bgm"
+  | "subtitleType"
+  | "promptVersion"
+  | "publishHourBand";
+
+/** 显式重算并留档（批次 5B：GET 纯读，只有这里写 analysis_result 快照） */
+export async function recomputeAnalyticsFactors(input: {
+  metric?: FactorMetricName;
+  dimensions?: FactorDimensionName[];
+}): Promise<FactorAnalysis> {
+  const { data, error, response } = await client.POST("/api/analytics/factors", {
+    body: { metric: input.metric, dimensions: input.dimensions },
+  });
+  if (error || !data) throw new Error(`因子重算失败：${apiError(error, response)}`);
+  return data as FactorAnalysis;
+}
+
+/** 内容段落时间轴（生产口径派生） */
+export interface TimelineSegment {
+  idx: number;
+  startTime: number;
+  endTime: number;
+  segmentType: string;
+  dialogue: string | null;
+  knowledgePoint: string | null;
+  scene: string | null;
+  emotion: string | null;
+  shotType: string | null;
+  sourceType: string;
+}
+
+export async function getAnalyticsTimeline(
+  contentId: string,
+): Promise<{ segments: TimelineSegment[]; emptyReason: string | null }> {
+  const { data, error, response } = await client.GET("/api/analytics/videos/{contentId}/timeline", {
+    params: { path: { contentId } },
+  });
+  if (error || !data) throw new Error(`查询时间轴失败：${apiError(error, response)}`);
+  return data as { segments: TimelineSegment[]; emptyReason: string | null };
+}
+
+/** 重算生产特征（一并重建段落时间轴） */
+export async function syncAnalyticsFeature(contentId: string): Promise<AnalyticsFeature> {
+  const { data, error, response } = await client.POST("/api/analytics/features/{contentId}/sync", {
+    params: { path: { contentId } },
+  });
+  if (error || !data) throw new Error(`特征重算失败：${apiError(error, response)}`);
+  return data as AnalyticsFeature;
+}
+
+// ── 生产建议与结构复用（Phase 4 优化闭环） ──
+
+export interface RecommendationView {
+  id: string;
+  recommendationType: string;
+  recommendation: { value: string; label: string; kindLabel: string };
+  reason: string;
+  sourceSampleCount: number;
+  sourceMetric: string;
+  confidence: number | null;
+  accepted: boolean | null;
+  appliedToContentId: string | null;
+  createdAt: string;
+}
+
+export async function listAnalyticsRecommendations(): Promise<{
+  items: RecommendationView[];
+  summary: { total: number; pending: number; accepted: number; rejected: number; applied: number };
+}> {
+  const { data, error, response } = await client.GET("/api/analytics/recommendations");
+  if (error || !data) throw new Error(`查询生产建议失败：${apiError(error, response)}`);
+  return data as never;
+}
+
+export async function generateAnalyticsRecommendations(): Promise<{ created: number }> {
+  const { data, error, response } = await client.POST("/api/analytics/recommendations/generate");
+  if (error || !data) throw new Error(`生成生产建议失败：${apiError(error, response)}`);
+  return data as { created: number };
+}
+
+export async function decideAnalyticsRecommendation(
+  id: string,
+  decision: { accepted: boolean; appliedToContentId?: string | null },
+): Promise<RecommendationView> {
+  const { data, error, response } = await client.PATCH(
+    "/api/analytics/recommendations/{recommendationId}",
+    { params: { path: { recommendationId: id } }, body: decision },
+  );
+  if (error || !data) throw new Error(`建议决策失败：${apiError(error, response)}`);
+  return data as RecommendationView;
+}
+
+export interface VideoStructure {
+  skeleton: {
+    idx: number;
+    segmentType: string;
+    label: string;
+    startTime: number;
+    endTime: number;
+    durationShare: number;
+    knowledgePoint: string | null;
+  }[];
+  totalDuration: number | null;
+  emptyReason: string | null;
+}
+
+export async function getAnalyticsVideoStructure(contentId: string): Promise<VideoStructure> {
+  const { data, error, response } = await client.GET(
+    "/api/analytics/videos/{contentId}/structure",
+    {
+      params: { path: { contentId } },
+    },
+  );
+  if (error || !data) throw new Error(`查询可复用结构失败：${apiError(error, response)}`);
+  return data as VideoStructure;
+}
+
+// ── 内容实验（Phase 6 A/B 描述统计） ──
+
+export interface ExperimentEvaluationView {
+  targetMetric: string;
+  medianA: number | null;
+  medianB: number | null;
+  diff: number | null;
+  sampleA: number;
+  sampleB: number;
+  lowSample: boolean;
+  verdict: string;
+  note: string;
+  modelVersion: string;
+  evaluatedAt: string;
+}
+
+export interface ExperimentView {
+  id: string;
+  variable: string;
+  variantA: { label: string; contentIds: string[] };
+  variantB: { label: string; contentIds: string[] };
+  controlVariables: unknown;
+  targetMetric: string;
+  startAt: string | null;
+  endAt: string | null;
+  status: string;
+  result: ExperimentEvaluationView | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listAnalyticsExperiments(): Promise<ExperimentView[]> {
+  const { data, error, response } = await client.GET("/api/analytics/experiments");
+  if (error || !data) throw new Error(`查询内容实验失败：${apiError(error, response)}`);
+  return (data as { items: unknown[] }).items as ExperimentView[];
+}
+
+export async function createAnalyticsExperiment(input: {
+  variable: string;
+  variantA: { label: string; contentIds: string[] };
+  variantB: { label: string; contentIds: string[] };
+  controlVariables?: Record<string, string>;
+  targetMetric?: string;
+}): Promise<ExperimentView> {
+  const { data, error, response } = await client.POST("/api/analytics/experiments", {
+    body: input,
+  });
+  if (error || !data) {
+    const detail =
+      typeof error === "object" && error !== null && "error" in error
+        ? (error as { error?: { message?: string } }).error?.message
+        : undefined;
+    throw new Error(detail ?? `创建实验失败（HTTP ${response.status}）`);
+  }
+  return data as ExperimentView;
+}
+
+export async function evaluateAnalyticsExperiment(id: string): Promise<ExperimentView> {
+  const { data, error, response } = await client.POST(
+    "/api/analytics/experiments/{experimentId}/evaluate",
+    { params: { path: { experimentId: id } } },
+  );
+  if (error || !data) throw new Error(`实验评估失败：${apiError(error, response)}`);
+  return data as ExperimentView;
+}
+
+export async function updateAnalyticsExperimentStatus(
+  id: string,
+  status: "draft" | "running" | "cancelled",
+): Promise<ExperimentView> {
+  const { data, error, response } = await client.PATCH(
+    "/api/analytics/experiments/{experimentId}/status",
+    { params: { path: { experimentId: id } }, body: { status } },
+  );
+  if (error || !data) throw new Error(`实验状态更新失败：${apiError(error, response)}`);
+  return data as ExperimentView;
+}
+
+/** 单视频指标视图（Phase 1 端点形状：完整 provenance + 目录元信息） */
+export interface VideoMetricView {
+  metricName: string;
+  label: string;
+  unit: string;
+  availability: string;
+  metricValue: number;
+  sourceType: string;
+  sourceField: string | null;
+  dataDate: string | null;
+  isEstimated: boolean;
+  confidence: number | null;
+  fetchedAt: string;
+}
+
+/** 单视频指标（最新值 + 每日快照，emptyReason 表达无数据原因） */
+export interface AnalyticsVideoMetrics {
+  records: {
+    recordId: string;
+    platform: string;
+    platformVideoId: string | null;
+    publishTime: string | null;
+    latest: VideoMetricView[];
+    daily: VideoMetricView[];
+  }[];
+  emptyReason: string | null;
+}
+
+export async function getAnalyticsVideoMetrics(contentId: string): Promise<AnalyticsVideoMetrics> {
+  const { data, error, response } = await client.GET("/api/analytics/videos/{contentId}/metrics", {
+    params: { path: { contentId } },
+  });
+  if (error || !data) throw new Error(`查询视频指标失败：${apiError(error, response)}`);
+  return data as AnalyticsVideoMetrics;
+}
+
+// ── 数据接入：发布记录 + Creator Import + 指标目录（抖音官方 API 通道已砍除，导入即唯一入口） ──
+
+/** 发布记录视图（统一 ID 链路：platform + platform_video_id 全局唯一） */
+export interface PublishRecordView {
+  id: string;
+  contentId: string;
+  contentTitle: string;
+  template: "scene_word" | "word_card" | "quiz";
+  videoAssetId: string | null;
+  platform: string;
+  platformVideoId: string | null;
+  publishTitle: string | null;
+  publishTime: string | null;
+  coverUrl: string | null;
+  publishStatus: "scheduled" | "published" | "deleted";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listAnalyticsPublishRecords(
+  params: { platform?: string; contentId?: string; page?: number; pageSize?: number } = {},
+): Promise<{ items: PublishRecordView[]; total: number }> {
+  const { data, error, response } = await client.GET("/api/analytics/publish-records", {
+    params: { query: { pageSize: 100, ...params } },
+  });
+  if (error || !data) throw new Error(`查询发布记录失败：${apiError(error, response)}`);
+  return { items: data.items as PublishRecordView[], total: data.total };
+}
+
+export interface PublishRecordInput {
+  contentId: string;
+  platform: string;
+  platformVideoId?: string | null;
+  publishTitle?: string | null;
+  /** ISO datetime 字符串（后端 z.string().datetime() 契约） */
+  publishTime?: string | null;
+  coverUrl?: string | null;
+  publishStatus?: "scheduled" | "published" | "deleted";
+}
+
+export async function createAnalyticsPublishRecord(
+  input: PublishRecordInput,
+): Promise<{ id: string }> {
+  const { data, error, response } = await client.POST("/api/analytics/publish-records", {
+    // 平台固定为抖音（当前唯一发布渠道），字段保留扩展性
+    body: { ...input, publishStatus: input.publishStatus ?? "published" },
+  });
+  if (response.status === 409) throw new Error("该平台作品 ID 已有发布记录（禁止重复绑定）");
+  if (error || !data) throw new Error(`创建发布记录失败：${apiError(error, response)}`);
+  return data;
+}
+
+export async function updateAnalyticsPublishRecord(
+  recordId: string,
+  input: Partial<Omit<PublishRecordInput, "contentId">>,
+): Promise<void> {
+  const { error, response } = await client.PATCH("/api/analytics/publish-records/{recordId}", {
+    params: { path: { recordId } },
+    body: input,
+  });
+  if (response.status === 409) throw new Error("该平台作品 ID 已有发布记录（禁止重复绑定）");
+  if (error || !response.ok) throw new Error(`更新发布记录失败：${apiError(error, response)}`);
+}
+
+export async function deleteAnalyticsPublishRecord(recordId: string): Promise<void> {
+  const { error, response } = await client.DELETE("/api/analytics/publish-records/{recordId}", {
+    params: { path: { recordId } },
+  });
+  if (error || !response.ok) throw new Error(`删除发布记录失败：${apiError(error, response)}`);
+}
+
+/** canonical 指标目录（前端动态渲染映射选项，不写死字段名） */
+export interface MetricCatalogEntry {
+  name: string;
+  label: string;
+  unit: string;
+  availability: string;
+  formula?: string;
+  importable: boolean;
+  note?: string;
+}
+
+/** 账号日聚合字段目录项（creator_metric_daily 列白名单，账号级口径） */
+export interface CreatorDailyFieldEntry {
+  name: string;
+  label: string;
+  unit: string;
+  note?: string;
+}
+
+export async function getAnalyticsMetricCatalog(): Promise<{
+  metrics: MetricCatalogEntry[];
+  creatorDailyFields: CreatorDailyFieldEntry[];
+  sourceTypes: string[];
+}> {
+  const { data, error, response } = await client.GET("/api/analytics/metric-catalog");
+  if (error || !data) throw new Error(`查询指标目录失败：${apiError(error, response)}`);
+  return data as {
+    metrics: MetricCatalogEntry[];
+    creatorDailyFields: CreatorDailyFieldEntry[];
+    sourceTypes: string[];
+  };
+}
+
+/** 导入行匹配键（优先级：recordId > platformVideoId > platform+contentId；禁标题模糊匹配） */
+export interface ImportRowMatch {
+  recordId?: string;
+  platformVideoId?: string;
+  platform?: string;
+  contentId?: string;
+}
+
+export interface ImportRowInput {
+  match: ImportRowMatch;
+  values: Record<string, number | string | null>;
+  dataDate?: string;
+}
+
+export interface ImportRowResult {
+  row: number;
+  ok: boolean;
+  recordId: string | null;
+  written: string[];
+  skipped: { field: string; reason: string }[];
+  derived: string[];
+  error?: string;
+}
+
+export async function importAnalyticsMetrics(input: {
+  sourceType?: "CREATOR_IMPORT" | "USER_INPUT";
+  metricMapping: Record<string, string>;
+  dataDate?: string;
+  rows: ImportRowInput[];
+}): Promise<{
+  results: ImportRowResult[];
+  summary: { total: number; succeeded: number; failed: number; batchId: string };
+}> {
+  const { data, error, response } = await client.POST("/api/analytics/import", {
+    body: input,
+  });
+  if (error || !data) throw new Error(`导入失败：${apiError(error, response)}`);
+  return data as {
+    results: ImportRowResult[];
+    summary: { total: number; succeeded: number; failed: number; batchId: string };
+  };
+}
+
+// ── 账号日汇总批量导入（导入向导：逐行归属裁决） ──
+
+export interface CreatorDailyImportRowInput {
+  statDate: string;
+  values: Record<string, number | string | null>;
+  attribution: { mode: "account" } | { mode: "video"; recordId: string };
+}
+
+export interface CreatorDailyImportRowResult {
+  row: number;
+  ok: boolean;
+  statDate: string;
+  dailyWritten: string[];
+  videoRecordId: string | null;
+  videoWritten: string[];
+  videoDerived: string[];
+  skipped: { field: string; reason: string }[];
+  error?: string;
+}
+
+export async function importAnalyticsCreatorDaily(input: {
+  platform: string;
+  sourceType?: "CREATOR_IMPORT" | "USER_INPUT";
+  fieldMapping: Record<string, string>;
+  rows: CreatorDailyImportRowInput[];
+}): Promise<{
+  results: CreatorDailyImportRowResult[];
+  summary: { total: number; succeeded: number; failed: number; batchId: string };
+}> {
+  const { data, error, response } = await client.POST("/api/analytics/creator-daily/import", {
+    body: input,
+  });
+  if (error || !data) throw new Error(`账号日导入失败：${apiError(error, response)}`);
+  return data as {
+    results: CreatorDailyImportRowResult[];
+    summary: { total: number; succeeded: number; failed: number; batchId: string };
+  };
 }

@@ -21,13 +21,16 @@ import {
   type GenerateInput,
   type RenderInput,
   type RenderVideoInput,
+  decideAnalyticsRecommendation,
   generateContent,
   isAbortError,
   listFiles,
   listVoices,
+  patchAnalyticsFeature,
   previewVoice as previewVoiceApi,
   renderVideo,
   suggestTopics,
+  syncAnalyticsFeature,
   synthesizeFromContent,
   updateTask,
   updateVideoAnalytics,
@@ -40,6 +43,9 @@ import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 import Spinner from "../components/ui/spinner.vue";
 import { useAudioPreview } from "../composables/use-audio-preview";
 import {
+  type CreatePrefill,
+  consumeCreatePrefill,
+  peekCreatePrefill,
   registerCreateSession,
   setCreatePhase,
   unregisterCreateSession,
@@ -219,7 +225,66 @@ function resetForNewVideo(): void {
   audioDuration.value = 0;
   videoUrl.value = "";
   introStatus.value = "";
+  pendingAdoption.value = null;
+  reuseStructure.value = [];
+  reuseSourceId.value = "";
   cancelEdit();
+}
+
+/* ── Phase 4 建议回填与采纳回路（docs/17 §十） ── */
+const pendingAdoption = ref<{
+  recommendationId?: string;
+  scene?: string | null;
+  hook?: string | null;
+} | null>(null);
+const reuseStructure = ref<NonNullable<CreatePrefill["structure"]>>([]);
+const reuseSourceId = ref("");
+
+/** 应用待回填（goCreate 携建议/结构或本页挂载时消费） */
+function applyPrefill(): void {
+  const p = consumeCreatePrefill();
+  if (!p) return;
+  if (p.template) template.value = p.template;
+  if (p.level) level.value = p.level;
+  if (p.topic) topic.value = p.topic;
+  if (p.rate !== undefined) rate.value = p.rate;
+  pendingAdoption.value = {
+    recommendationId: p.recommendationId,
+    scene: p.labelScene,
+    hook: p.labelHook,
+  };
+  reuseStructure.value = p.structure ?? [];
+  reuseSourceId.value = p.structureSourceContentId ?? "";
+  toast.info("已应用推荐参数", {
+    description: "模板/主题/语速已预填；生成后自动写入采纳回路与标签",
+    duration: 6000,
+  });
+}
+
+/** 生成成功后：采纳回路回写 + 标签写入新内容特征（失败不阻断主流程） */
+async function applyAdoptionSideEffects(contentId: string): Promise<void> {
+  const adoption = pendingAdoption.value;
+  if (!adoption) return;
+  pendingAdoption.value = null;
+  try {
+    if (adoption.scene !== undefined || adoption.hook !== undefined) {
+      await syncAnalyticsFeature(contentId);
+      await patchAnalyticsFeature(contentId, {
+        ...(adoption.scene !== undefined ? { scene: adoption.scene } : {}),
+        ...(adoption.hook !== undefined ? { hook: adoption.hook } : {}),
+      });
+    }
+    if (adoption.recommendationId) {
+      await decideAnalyticsRecommendation(adoption.recommendationId, {
+        accepted: true,
+        appliedToContentId: contentId,
+      });
+    }
+  } catch (err) {
+    toast.warning(
+      `采纳回路回写失败（${err instanceof Error ? err.message : "未知错误"}），可在因子分析页重试`,
+    );
+  }
 }
 // 创建阶段同步到会话单例：供全站「新建视频」入口判断 busy（放弃确认）/ done（重新创建）
 watch(
@@ -232,7 +297,13 @@ watch(
   { immediate: true },
 );
 onMounted(() => {
-  registerCreateSession({ abort: () => stepAbort.value?.abort(), reset: resetForNewVideo });
+  registerCreateSession({
+    abort: () => stepAbort.value?.abort(),
+    reset: resetForNewVideo,
+    applyPrefill,
+  });
+  // 其页携回填跳转：本页刚挂载时消费一次
+  if (peekCreatePrefill()) applyPrefill();
 });
 onUnmounted(unregisterCreateSession);
 /** 停止后的磁盘回收引导：服务端可能已落盘音频/视频产物 → 文件管理「清理无引用文件」一键回收 */
@@ -693,6 +764,7 @@ async function generateStep(): Promise<boolean> {
     audioSettings.value = null;
     videoUrl.value = "";
     step.value = "generated";
+    void applyAdoptionSideEffects(dto.id);
     return true;
   } catch (err) {
     if (isAbortError(err)) {
@@ -845,6 +917,34 @@ async function renderStep(): Promise<boolean> {
       <div class="rounded-2xl border border-hairline bg-panel p-[18px]">
         <!-- 01 内容设置：模板 / 主题 / 等级 -->
         <div v-show="activeStep === 0">
+        <!-- 复用成功结构（§十七）：只读骨架参考，不假装生成器能按骨架执行 -->
+        <div
+          v-if="reuseStructure.length > 0"
+          class="mb-4 rounded-xl border border-brand/30 bg-brand-soft/60 p-3"
+        >
+          <div class="mb-1.5 flex items-center justify-between gap-2">
+            <p class="text-[13px] font-semibold text-brand">
+              参考结构（复用自 {{ reuseSourceId || "高表现视频" }}，生成后可对照审阅）
+            </p>
+            <button
+              type="button"
+              class="cursor-pointer rounded px-1.5 py-0.5 text-xs text-gray-500 hover:bg-white"
+              @click="reuseStructure = []"
+            >
+              收起
+            </button>
+          </div>
+          <ol class="flex flex-wrap gap-1.5 text-[11px]">
+            <li
+              v-for="s in reuseStructure"
+              :key="s.label"
+              class="rounded-full border border-brand/30 bg-white px-2 py-0.5 text-brand"
+              :title="`${s.startTime.toFixed(1)}~${s.endTime.toFixed(1)}s，占比 ${(s.durationShare * 100).toFixed(0)}%`"
+            >
+              {{ s.label }} · {{ (s.durationShare * 100).toFixed(0) }}%
+            </li>
+          </ol>
+        </div>
         <h3 class="mb-3.5 font-bold">选择模板</h3>
         <div class="grid grid-cols-3 gap-2.5">
           <button
