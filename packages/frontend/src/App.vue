@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Language Flow AI — 入口组件（深色侧边栏 + 顶栏布局，1:1 还原后台原型）
+// LanguageFlow AI — 入口组件（深色侧边栏 + 顶栏布局，1:1 还原后台原型）
 // 响应式：≥lg 常驻侧边栏；小屏隐藏，顶栏汉堡按钮开合抽屉 + 遮罩关闭
 import {
   Activity,
@@ -115,11 +115,21 @@ const crumb = computed(() => String(route.meta.title ?? "工作台"));
       :class="drawerOpen ? 'translate-x-0' : '-translate-x-full'"
     >
       <RouterLink to="/" class="flex items-center gap-2.5 px-2.5 pb-[18px] pt-1.5 text-white">
-        <span
-          class="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-gradient-to-br from-[#7c6cff] to-[#4f46e5] text-[13px] font-extrabold"
-          >LF</span
+        <!-- 品牌图标（public/languageflow_ai_logo_assets 官方 logo，透明底裁切版） -->
+        <img
+          src="/logo-icon.png"
+          alt="LanguageFlow AI"
+          width="32"
+          height="32"
+          class="h-8 w-8 shrink-0"
+        />
+        <span class="text-[17px] leading-tight font-extrabold"
+          >LanguageFlow
+          <span
+            class="bg-gradient-to-r from-[#2b7bff] to-[#6a5cff] bg-clip-text text-transparent"
+            >AI</span
+          ></span
         >
-        <span class="text-[17px] leading-tight font-extrabold">LanguageFlow AI</span>
       </RouterLink>
       <nav class="flex-1 overflow-y-auto">
         <div v-for="group in NAV_GROUPS" :key="group.label" class="mt-3.5">
