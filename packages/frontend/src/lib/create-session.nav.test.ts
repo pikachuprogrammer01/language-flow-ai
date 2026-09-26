@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import router from "../router";
 import {
   confirmAbandonCreate,
+  consumeCreatePrefill,
   goCreate,
+  peekCreatePrefill,
   registerCreateSession,
   setCreatePhase,
   unregisterCreateSession,
@@ -79,5 +81,49 @@ describe("goCreate 导航分支", () => {
     goCreate();
     confirmAbandonCreate();
     expect(router.push).not.toHaveBeenCalled();
+  });
+});
+
+describe("建议回填（Phase 4 prefill 回路）", () => {
+  it("done 原地重置时同步应用回填（reset 后立即消费）", () => {
+    const order: string[] = [];
+    registerCreateSession({
+      reset: () => order.push("reset"),
+      abort: () => {},
+      applyPrefill: () => {
+        order.push("apply");
+        consumeCreatePrefill();
+      },
+    });
+    setCreatePhase("done");
+    at("/create");
+    goCreate({ template: "word_card" });
+    expect(order).toEqual(["reset", "apply"]);
+    expect(peekCreatePrefill()).toBeNull();
+  });
+
+  it("busy 确认放弃后应用回填；取消则保留待处理（下次入口再消费）", () => {
+    registerCreateSession({
+      abort: vi.fn(),
+      reset: vi.fn(),
+      applyPrefill: () => consumeCreatePrefill(),
+    });
+    setCreatePhase("busy");
+    at("/tasks");
+    goCreate({ rate: 1.15 });
+    expect(peekCreatePrefill()).toEqual({ rate: 1.15 });
+    confirmAbandonCreate();
+    expect(consumeCreatePrefill()).toBeNull();
+  });
+
+  it("idle 导航：prefill 留存到新挂载的 CreateTask 消费", () => {
+    at("/insights/factors");
+    goCreate({ topic: "机场场景英语", recommendationId: "rec_x" });
+    expect(router.push).toHaveBeenCalledWith("/create");
+    expect(consumeCreatePrefill()).toMatchObject({
+      topic: "机场场景英语",
+      recommendationId: "rec_x",
+    });
+    expect(consumeCreatePrefill()).toBeNull();
   });
 });

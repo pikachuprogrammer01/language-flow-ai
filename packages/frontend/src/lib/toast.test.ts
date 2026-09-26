@@ -50,4 +50,26 @@ describe("toast", () => {
     vi.advanceTimersByTime(1350);
     expect(toasts.value).toHaveLength(0);
   });
+
+  it("同 key 去重合并（批次 4B）：只保留最新一条并重置计时，不同 key/无 key 照常叠加", () => {
+    const first = toast.error("查询失败：旧错误", { key: "k1", duration: 1000 });
+    const again = toast.error("查询失败：新错误", { key: "k1", duration: 1000 });
+    expect(toasts.value).toHaveLength(1);
+    expect(again).toBe(first);
+    expect(toasts.value[0]?.title).toBe("查询失败：新错误");
+    // 合并后计时重置：退场点在第二次 push 起算 +1000ms（已前进 800ms，再推 200ms 到点）
+    vi.advanceTimersByTime(800);
+    expect(toasts.value[0]?.open).toBe(true);
+    vi.advanceTimersByTime(200);
+    expect(toasts.value[0]?.open).toBe(false);
+    // 退场动画完成后彻底移除，之后已退场的同 key 不再参与合并
+    vi.advanceTimersByTime(350);
+    expect(toasts.value).toHaveLength(0);
+    toast.error("第三次", { key: "k1", duration: 1000 });
+    expect(toasts.value).toHaveLength(1);
+    // 无 key / 异 key 叠加
+    toast.success("x");
+    toast.success("y", { key: "k2" });
+    expect(toasts.value).toHaveLength(3);
+  });
 });
