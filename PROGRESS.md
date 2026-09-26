@@ -1,7 +1,7 @@
 # 项目进度
 
 > 最后更新：2026-09-26
-> 当前阶段：视频数据分析模块 Phase 1~4 + Phase 6 完成；2026-09-26 阶段一审查（证据驱动）→ 阶段二批次 1/2A/3/4 落地（漏斗口径诚实化/回环安全边界/导入事务一致性/表格无障碍与错误人话化，docs/17 §审查修正记录）；批次 2B（认证，待产品形态裁决）与批次 5（架构重构，待逐小批确认）未动；Phase 5 模型按数据门槛待启动；下一项：用户验收后提交固化
+> 当前阶段：视频数据分析模块 Phase 1~4 + Phase 6 完成；2026-09-26 阶段一审查（证据驱动）→ 阶段二批次 1/2A/3/4 落地（漏斗口径诚实化/回环安全边界/导入事务一致性/表格无障碍与错误人话化，docs/17 §审查修正记录）；批次 2B（认证，待产品形态裁决）与批次 5（架构重构，待逐小批确认）未动；Phase 5 模型按数据门槛待启动；官方品牌已接入并发布生产 v171d1d6（2026-09-26）；下一项：数据分析批次二代码提交固化待用户验收
 
 ---
 
@@ -21,6 +21,9 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 
 ## 二、当前在做
 
+→ ✅ 2026-09-26 官方品牌接入 + 生产发布 v171d1d6（用户按设计稿指令；已提交）：
+  **品牌实现**——侧边栏「LF」文字占位徽章替换为官方 logo（`public/languageflow_ai_logo_assets/` 源资产，ffmpeg 按 alpha 边界裁切生成 logo-icon 96²/favicon 64²/apple-touch 180²）+ 字标「LanguageFlow」+「AI」蓝紫渐变；站名统一「LanguageFlow AI」（index.html title / OpenAPI info.title / API 文档页标题同源，openapi.json 重生成）；验证：前/后端单测全绿（96+400）+ typecheck 3/3 + 内置浏览器 5173/5174 双轨 live 截图验收；文档同步 docs/11 V1.4 + README 品牌名；commits `143dcec`（feat frontend）+ `171d1d6`（chore backend）
+  **生产发布**——`pnpm docker:release` 构建 tag `v171d1d6`（=HEAD，业务代码全部提交后工作树净空发布，AOCI 托管资产 stash 隔离不进镜像）→ 15173 滚动启动；验证：UI 标题/favicon/图标 200 + /health ok + 生产库 14 表完好（mysql_data 卷不动）；回滚入口 `pnpm docker:rollback vf9c1883`；同步修正 docs/12 + compose 限流注释（新版含 /api/dashboard/summary 只读豁免，仍按配置层关限流）
 → ✅ 2026-09-26 数据分析模块阶段二实施（按阶段一证据驱动审查计划，用户指令执行；未提交）：
   **批次 1 漏斗口径诚实化**——实测复现「完播 114.0%」双成因（同记录导入比例倒挂 36%>31.59% + 多平台混合覆盖分母错位）；`buildFunnelStages` 新增 `stepRateState`（computed 才给转化；coverage-mismatch/inverted/missing 一律 null）+ 覆盖元数据 coverageCount/windowRecordCount/basisPlays，shareOfPlays 分母改覆盖播放；账号级「关注」不入观看漏斗链路（standalone）；前端页面 A 改「视频观看漏斗」+不可比显「—」带原因+每阶段覆盖/折算基数+账号增长独立分区；**绝不截断百分比掩盖口径错误**；后端 +3 纯函数用例（覆盖错位/倒挂/独立项）+前端 +3 可比性文案测；旧单测被固化的错位语义已纠正
   **批次 2A 安全边界（localhost 形态钉死）**——后端 `serve()` 默认绑 127.0.0.1（compose 显式 HOST=0.0.0.0）；生产库映射改 127.0.0.1:3306、测试栈 UI 改 127.0.0.1:5174（消除 LAN 无意暴露，实测 lsof 验证）；`API_DOCS=0` 一键关 /doc//openapi.json；nginx 全响应加 nosniff/SAMEORIGIN/same-origin 安全头；认证/CSRF 按审查结论留作产品形态裁决停点不自行引入
