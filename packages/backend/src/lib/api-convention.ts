@@ -35,6 +35,7 @@ export const API_TAGS = {
   llm: "LLM 引擎",
   dashboard: "工作台",
   videoAnalytics: "视频发布",
+  analytics: "数据分析",
 } as const;
 
 export type ApiTagKey = keyof typeof API_TAGS;

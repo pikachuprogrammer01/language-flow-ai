@@ -7,6 +7,7 @@ import { cors } from "hono/cors";
 import { OPENAPI_DOC_BASE } from "./lib/api-convention";
 import { registerApiDocs } from "./lib/api-docs";
 import { logger } from "./lib/logger";
+import { analyticsRoute } from "./routes/analytics";
 import { cet } from "./routes/cet";
 import { content } from "./routes/content";
 import { dashboard } from "./routes/dashboard";
@@ -104,19 +105,30 @@ app.route("/api/upload-marks", uploadMarksRoute);
 app.route("/api/llm", llm);
 app.route("/api/dashboard", dashboard);
 app.route("/api/video-analytics", videoAnalyticsRoute);
+app.route("/api/analytics", analyticsRoute);
 app.route("/files", files);
 
 // ── OpenAPI 文档体系（docs/16）──
 // GET /doc → OpenAPI 3.1 JSON；GET /doc/ → 自托管 Swagger UI（本地资源，离线可用）+ 返回管理界面导航
-app.doc("/doc", OPENAPI_DOC_BASE);
-registerApiDocs(app);
+// 默认开启（localhost 单用户形态零打扰）；网络暴露形态可 API_DOCS=0 一键关闭，
+// 避免全量 API 契约对任意网络对端可读（审查批次 2A，2026-09-26）
+if ((process.env.API_DOCS ?? "1") !== "0") {
+  app.doc("/doc", OPENAPI_DOC_BASE);
+  registerApiDocs(app);
+}
 
 // openapi.json 落盘由显式脚本生成：pnpm openapi:gen（lefthook pre-commit backend 变更时自动重生成）
 
 // ── 启动服务器 ──
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
-const server = serve({ fetch: app.fetch, port }, (info) => {
-  logger.info({ port: info.port, env: process.env.NODE_ENV ?? "development" }, "server started");
+// 默认只绑回环：本地 dev 不再无意暴露到局域网（审查批次 2A）；
+// Docker 容器内跨容器访问必须全网卡，由 compose 显式设 HOST=0.0.0.0
+const hostname = process.env.HOST ?? "127.0.0.1";
+const server = serve({ hostname, fetch: app.fetch, port }, (info) => {
+  logger.info(
+    { hostname, port: info.port, env: process.env.NODE_ENV ?? "development" },
+    "server started",
+  );
 });
 
 // ── 优雅关闭 ──
