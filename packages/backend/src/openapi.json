@@ -50,6 +50,9 @@
     },
     {
       "name": "视频发布"
+    },
+    {
+      "name": "数据分析"
     }
   ],
   "components": {
@@ -3791,6 +3794,4228 @@
           },
           "404": {
             "description": "内容不存在"
+          }
+        }
+      }
+    },
+    "/api/analytics/publish-records": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsPublishRecords",
+        "summary": "发布记录列表（统一 ID 链路）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "required": false,
+            "name": "platform",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "required": false,
+            "name": "contentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "required": false,
+            "name": "pageSize",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "发布记录分页列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "contentId": {
+                            "type": "string"
+                          },
+                          "contentTitle": {
+                            "type": "string"
+                          },
+                          "template": {
+                            "type": "string",
+                            "enum": [
+                              "scene_word",
+                              "word_card",
+                              "quiz"
+                            ]
+                          },
+                          "videoAssetId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "platformVideoId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "publishTitle": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "publishTime": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "coverUrl": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "publishStatus": {
+                            "type": "string",
+                            "enum": [
+                              "scheduled",
+                              "published",
+                              "deleted"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "contentId",
+                          "contentTitle",
+                          "template",
+                          "videoAssetId",
+                          "platform",
+                          "platformVideoId",
+                          "publishTitle",
+                          "publishTime",
+                          "coverUrl",
+                          "publishStatus",
+                          "createdAt",
+                          "updatedAt"
+                        ]
+                      }
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "total",
+                    "page",
+                    "pageSize"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "createAnalyticsPublishRecord",
+        "summary": "创建发布记录（自动派生视频资产标识并触发生产特征落库）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "contentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  "platform": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "platformVideoId": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 100
+                  },
+                  "publishTitle": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 255
+                  },
+                  "publishTime": {
+                    "type": "string",
+                    "nullable": true,
+                    "format": "date-time"
+                  },
+                  "coverUrl": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 500
+                  },
+                  "publishStatus": {
+                    "type": "string",
+                    "enum": [
+                      "scheduled",
+                      "published",
+                      "deleted"
+                    ]
+                  }
+                },
+                "required": [
+                  "contentId",
+                  "platform"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "404": {
+            "description": "内容不存在"
+          },
+          "409": {
+            "description": "同平台作品 ID 已存在发布记录"
+          },
+          "500": {
+            "description": "创建失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/publish-records/{recordId}": {
+      "patch": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "updateAnalyticsPublishRecord",
+        "summary": "更新发布记录",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "recordId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "platformVideoId": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 100
+                  },
+                  "videoAssetId": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 100
+                  },
+                  "publishTitle": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 255
+                  },
+                  "publishTime": {
+                    "type": "string",
+                    "nullable": true,
+                    "format": "date-time"
+                  },
+                  "coverUrl": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 500
+                  },
+                  "publishStatus": {
+                    "type": "string",
+                    "enum": [
+                      "scheduled",
+                      "published",
+                      "deleted"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "updated": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "updated"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "发布记录不存在"
+          },
+          "409": {
+            "description": "同平台作品 ID 已存在发布记录"
+          },
+          "500": {
+            "description": "更新失败"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "deleteAnalyticsPublishRecord",
+        "summary": "删除发布记录（关联指标级联删除）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "recordId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "发布记录不存在（不再对不存在的 ID 假报删除成功）"
+          },
+          "500": {
+            "description": "删除失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/videos/{contentId}/metrics": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsVideoMetrics",
+        "summary": "单视频指标：最新值 + 每日快照（多平台逐发布记录返回）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "required": false,
+            "name": "platform",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "required": false,
+            "name": "dateFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "required": false,
+            "name": "dateTo",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "指标视图；emptyReason 表达 Empty State 原因（not_published=尚无发布记录 / not_imported=指标未导入 / null=有数据），无数据不得渲染为 0",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "records": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "recordId": {
+                            "type": "string"
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "platformVideoId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "publishTime": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "latest": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "metricName": {
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "unit": {
+                                  "type": "string"
+                                },
+                                "availability": {
+                                  "type": "string"
+                                },
+                                "metricValue": {
+                                  "type": "number"
+                                },
+                                "sourceType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "CREATOR_IMPORT",
+                                    "PLATFORM_PRODUCTION",
+                                    "PLATFORM_CALCULATED",
+                                    "AI_EXTRACTED",
+                                    "USER_INPUT"
+                                  ]
+                                },
+                                "sourceField": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "dataDate": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "isEstimated": {
+                                  "type": "boolean"
+                                },
+                                "confidence": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "fetchedAt": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "metricName",
+                                "label",
+                                "unit",
+                                "availability",
+                                "metricValue",
+                                "sourceType",
+                                "sourceField",
+                                "dataDate",
+                                "isEstimated",
+                                "confidence",
+                                "fetchedAt"
+                              ]
+                            }
+                          },
+                          "daily": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "metricName": {
+                                  "type": "string"
+                                },
+                                "label": {
+                                  "type": "string"
+                                },
+                                "unit": {
+                                  "type": "string"
+                                },
+                                "availability": {
+                                  "type": "string"
+                                },
+                                "metricValue": {
+                                  "type": "number"
+                                },
+                                "sourceType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "CREATOR_IMPORT",
+                                    "PLATFORM_PRODUCTION",
+                                    "PLATFORM_CALCULATED",
+                                    "AI_EXTRACTED",
+                                    "USER_INPUT"
+                                  ]
+                                },
+                                "sourceField": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "dataDate": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "isEstimated": {
+                                  "type": "boolean"
+                                },
+                                "confidence": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "fetchedAt": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "metricName",
+                                "label",
+                                "unit",
+                                "availability",
+                                "metricValue",
+                                "sourceType",
+                                "sourceField",
+                                "dataDate",
+                                "isEstimated",
+                                "confidence",
+                                "fetchedAt"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "recordId",
+                          "platform",
+                          "platformVideoId",
+                          "publishTime",
+                          "latest",
+                          "daily"
+                        ]
+                      }
+                    },
+                    "emptyReason": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "records",
+                    "emptyReason"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "内容不存在"
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "importAnalyticsMetrics",
+        "summary": "创作者后台数据导入（动态字段映射；外部列名不写死）",
+        "description": "sourceType 仅允许 CREATOR_IMPORT / USER_INPUT：导入数据不得伪装为平台官方 API 来源（需求 §二十二；抖音开放平台通道已砍除，外部绩效数据唯一入口即本端点）。未映射字段逐行返回 skipped 原因，不静默丢弃；派生指标由平台导入后统一重算，不接受导入。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "CREATOR_IMPORT",
+                      "USER_INPUT"
+                    ],
+                    "default": "CREATOR_IMPORT"
+                  },
+                  "metricMapping": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "dataDate": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "match": {
+                          "type": "object",
+                          "properties": {
+                            "recordId": {
+                              "type": "string",
+                              "maxLength": 32
+                            },
+                            "platformVideoId": {
+                              "type": "string",
+                              "maxLength": 100
+                            },
+                            "platform": {
+                              "type": "string",
+                              "maxLength": 50
+                            },
+                            "contentId": {
+                              "type": "string",
+                              "maxLength": 32
+                            }
+                          }
+                        },
+                        "values": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "nullable": true
+                              },
+                              {
+                                "nullable": true
+                              }
+                            ]
+                          }
+                        },
+                        "dataDate": {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        }
+                      },
+                      "required": [
+                        "match",
+                        "values"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 500
+                  }
+                },
+                "required": [
+                  "metricMapping",
+                  "rows"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "逐行处理结果（部分成功语义：ok=false 行带 error，不整单回滚）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "row": {
+                            "type": "number"
+                          },
+                          "ok": {
+                            "type": "boolean"
+                          },
+                          "recordId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "written": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "skipped": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "field": {
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "field",
+                                "reason"
+                              ]
+                            }
+                          },
+                          "derived": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "error": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "row",
+                          "ok",
+                          "recordId",
+                          "written",
+                          "skipped",
+                          "derived"
+                        ]
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "number"
+                        },
+                        "succeeded": {
+                          "type": "number"
+                        },
+                        "failed": {
+                          "type": "number"
+                        },
+                        "batchId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "succeeded",
+                        "failed",
+                        "batchId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "results",
+                    "summary"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法（映射为空 / 超出行数上限等）"
+          },
+          "500": {
+            "description": "导入失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/metric-catalog": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsMetricCatalog",
+        "summary": "canonical 指标目录（含 availability 分级，前端动态渲染不写死字段）",
+        "responses": {
+          "200": {
+            "description": "指标目录（视频级 canonical + 账号日字段目录，前端动态渲染不写死）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "metrics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "unit": {
+                            "type": "string"
+                          },
+                          "availability": {
+                            "type": "string"
+                          },
+                          "formula": {
+                            "type": "string"
+                          },
+                          "importable": {
+                            "type": "boolean"
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "label",
+                          "unit",
+                          "availability",
+                          "importable"
+                        ]
+                      }
+                    },
+                    "creatorDailyFields": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "unit": {
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "label",
+                          "unit"
+                        ]
+                      }
+                    },
+                    "sourceTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "CREATOR_IMPORT",
+                          "PLATFORM_PRODUCTION",
+                          "PLATFORM_CALCULATED",
+                          "AI_EXTRACTED",
+                          "USER_INPUT"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "metrics",
+                    "creatorDailyFields",
+                    "sourceTypes"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/analytics/creator-daily": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "upsertAnalyticsCreatorDaily",
+        "summary": "账号每日聚合指标写入（(platform, date) 幂等 upsert；不自动归因到单视频）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "CREATOR_IMPORT",
+                      "USER_INPUT"
+                    ],
+                    "default": "CREATOR_IMPORT"
+                  },
+                  "playIncrement": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "likeIncrement": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "commentIncrement": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "shareIncrement": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "profileUV": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "newFans": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  },
+                  "totalFans": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "platform",
+                  "date"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "写入成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "date": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "date"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "500": {
+            "description": "写入失败"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsCreatorDaily",
+        "summary": "账号每日聚合指标查询（日期范围，最多 366 条）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "required": false,
+            "name": "platform",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "required": false,
+            "name": "dateFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "required": false,
+            "name": "dateTo",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "聚合列表（无数据返回空数组，不补 0）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "platform": {
+                            "type": "string"
+                          },
+                          "date": {
+                            "type": "string"
+                          },
+                          "playIncrement": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "likeIncrement": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "commentIncrement": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "shareIncrement": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "profileUV": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "newFans": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "totalFans": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "bounceRate2s": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "watchRate5s": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "avgWatchTime": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "postCount": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "coverClickRate": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "sourceType": {
+                            "type": "string",
+                            "enum": [
+                              "CREATOR_IMPORT",
+                              "PLATFORM_PRODUCTION",
+                              "PLATFORM_CALCULATED",
+                              "AI_EXTRACTED",
+                              "USER_INPUT"
+                            ]
+                          },
+                          "fetchedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "platform",
+                          "date",
+                          "playIncrement",
+                          "likeIncrement",
+                          "commentIncrement",
+                          "shareIncrement",
+                          "profileUV",
+                          "newFans",
+                          "totalFans",
+                          "bounceRate2s",
+                          "watchRate5s",
+                          "avgWatchTime",
+                          "postCount",
+                          "coverClickRate",
+                          "sourceType",
+                          "fetchedAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/creator-daily/import": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "importAnalyticsCreatorDaily",
+        "summary": "账号日汇总批量导入（动态字段映射 + 逐行归属裁决：仅账号级 / 归属作品近似落库）",
+        "description": "每行由操作者裁决 attribution：account=只记账号日行；video=同时把可归属字段近似写入该发布记录的 video_metrics（必携 isEstimated + 长尾声明，matched_by=operator_confirmed）。(platform, stat_date) 幂等 upsert 仅覆盖本次提供的列；归属目标不存在/无合法值逐行回 error 不崩整单。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "platform": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50
+                  },
+                  "sourceType": {
+                    "type": "string",
+                    "enum": [
+                      "CREATOR_IMPORT",
+                      "USER_INPUT"
+                    ],
+                    "default": "CREATOR_IMPORT"
+                  },
+                  "fieldMapping": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "statDate": {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        "values": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "nullable": true
+                              },
+                              {
+                                "nullable": true
+                              }
+                            ]
+                          }
+                        },
+                        "attribution": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "mode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "account"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "mode"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "mode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "video"
+                                  ]
+                                },
+                                "recordId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 32
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "recordId"
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "statDate",
+                        "values",
+                        "attribution"
+                      ]
+                    },
+                    "minItems": 1,
+                    "maxItems": 366
+                  }
+                },
+                "required": [
+                  "platform",
+                  "fieldMapping",
+                  "rows"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "逐行处理结果（部分成功语义，不整单回滚）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "row": {
+                            "type": "number"
+                          },
+                          "ok": {
+                            "type": "boolean"
+                          },
+                          "statDate": {
+                            "type": "string"
+                          },
+                          "dailyWritten": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "videoRecordId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "videoWritten": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "videoDerived": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "skipped": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "field": {
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "field",
+                                "reason"
+                              ]
+                            }
+                          },
+                          "error": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "row",
+                          "ok",
+                          "statDate",
+                          "dailyWritten",
+                          "videoRecordId",
+                          "videoWritten",
+                          "videoDerived",
+                          "skipped"
+                        ]
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "number"
+                        },
+                        "succeeded": {
+                          "type": "number"
+                        },
+                        "failed": {
+                          "type": "number"
+                        },
+                        "batchId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "succeeded",
+                        "failed",
+                        "batchId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "results",
+                    "summary"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "500": {
+            "description": "导入失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/features/{contentId}": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsFeature",
+        "summary": "内容特征读取（生产字段 + 人工标签，含字段级来源）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "特征视图（从未落库时返回 null，可先 POST /sync 重算）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "nullable": true,
+                  "properties": {
+                    "contentId": {
+                      "type": "string"
+                    },
+                    "template": {
+                      "type": "string",
+                      "enum": [
+                        "scene_word",
+                        "word_card",
+                        "quiz"
+                      ]
+                    },
+                    "level": {
+                      "type": "string",
+                      "enum": [
+                        "CET4",
+                        "CET6"
+                      ]
+                    },
+                    "duration": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "knowledgePointCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "characterCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "dialogueCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "segmentCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "speechRate": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "voiceId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "bgm": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "subtitleType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "shotCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "introEffect": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "introTopic": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "promptVersion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "rendererVersion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "scene": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "hook": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "contentFormat": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "emotion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "ctaType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "ctaStartTime": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "fieldSources": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "contentId",
+                    "template",
+                    "level",
+                    "duration",
+                    "knowledgePointCount",
+                    "characterCount",
+                    "dialogueCount",
+                    "segmentCount",
+                    "speechRate",
+                    "voiceId",
+                    "bgm",
+                    "subtitleType",
+                    "shotCount",
+                    "introEffect",
+                    "introTopic",
+                    "promptVersion",
+                    "rendererVersion",
+                    "scene",
+                    "hook",
+                    "contentFormat",
+                    "emotion",
+                    "ctaType",
+                    "ctaStartTime",
+                    "fieldSources"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "内容不存在"
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "patchAnalyticsFeature",
+        "summary": "人工标签覆盖（taxonomy 校验；来源记为 USER_INPUT）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scene": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 32
+                  },
+                  "hook": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 32
+                  },
+                  "contentFormat": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 32
+                  },
+                  "emotion": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 32
+                  },
+                  "ctaType": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 32
+                  },
+                  "ctaStartTime": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "覆盖后的特征",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "contentId": {
+                      "type": "string"
+                    },
+                    "template": {
+                      "type": "string",
+                      "enum": [
+                        "scene_word",
+                        "word_card",
+                        "quiz"
+                      ]
+                    },
+                    "level": {
+                      "type": "string",
+                      "enum": [
+                        "CET4",
+                        "CET6"
+                      ]
+                    },
+                    "duration": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "knowledgePointCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "characterCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "dialogueCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "segmentCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "speechRate": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "voiceId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "bgm": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "subtitleType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "shotCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "introEffect": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "introTopic": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "promptVersion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "rendererVersion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "scene": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "hook": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "contentFormat": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "emotion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "ctaType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "ctaStartTime": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "fieldSources": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "contentId",
+                    "template",
+                    "level",
+                    "duration",
+                    "knowledgePointCount",
+                    "characterCount",
+                    "dialogueCount",
+                    "segmentCount",
+                    "speechRate",
+                    "voiceId",
+                    "bgm",
+                    "subtitleType",
+                    "shotCount",
+                    "introEffect",
+                    "introTopic",
+                    "promptVersion",
+                    "rendererVersion",
+                    "scene",
+                    "hook",
+                    "contentFormat",
+                    "emotion",
+                    "ctaType",
+                    "ctaStartTime",
+                    "fieldSources"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "标签值不在体系内"
+          },
+          "404": {
+            "description": "内容不存在"
+          },
+          "500": {
+            "description": "覆盖失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/features/{contentId}/sync": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "syncAnalyticsFeature",
+        "summary": "生产特征重算（人工 USER_INPUT 标签保留不覆盖）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "重算后的特征",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "contentId": {
+                      "type": "string"
+                    },
+                    "template": {
+                      "type": "string",
+                      "enum": [
+                        "scene_word",
+                        "word_card",
+                        "quiz"
+                      ]
+                    },
+                    "level": {
+                      "type": "string",
+                      "enum": [
+                        "CET4",
+                        "CET6"
+                      ]
+                    },
+                    "duration": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "knowledgePointCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "characterCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "dialogueCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "segmentCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "speechRate": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "voiceId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "bgm": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "subtitleType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "shotCount": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "introEffect": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "introTopic": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "promptVersion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "rendererVersion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "scene": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "hook": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "contentFormat": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "emotion": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "ctaType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "ctaStartTime": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "fieldSources": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "contentId",
+                    "template",
+                    "level",
+                    "duration",
+                    "knowledgePointCount",
+                    "characterCount",
+                    "dialogueCount",
+                    "segmentCount",
+                    "speechRate",
+                    "voiceId",
+                    "bgm",
+                    "subtitleType",
+                    "shotCount",
+                    "introEffect",
+                    "introTopic",
+                    "promptVersion",
+                    "rendererVersion",
+                    "scene",
+                    "hook",
+                    "contentFormat",
+                    "emotion",
+                    "ctaType",
+                    "ctaStartTime",
+                    "fieldSources"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "内容不存在"
+          },
+          "500": {
+            "description": "同步失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/overview": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsOverview",
+        "summary": "分析首页：视频观看漏斗（播放→2秒→5秒→完播→主页）+ 账号增长独立项 + 上一周期对比",
+        "description": "窗口内有发布才计入；各阶段携来源与 emptyReason（无数据 ≠ 0）。逐级转化 stepRate 仅在相邻阶段覆盖记录集一致且数值不倒挂时给出（stepRateState 枚举说明不可比原因，绝不截断伪造百分比）；shareOfPlays 分母为本阶段覆盖记录播放合计 basisPlays；「关注」为账号级日新增合计，独立不入观看漏斗链路。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 7
+            },
+            "required": false,
+            "name": "days",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "漏斗视图",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "days": {
+                      "type": "number"
+                    },
+                    "from": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    },
+                    "previousFrom": {
+                      "type": "string"
+                    },
+                    "previousTo": {
+                      "type": "string"
+                    },
+                    "publishedVideos": {
+                      "type": "number"
+                    },
+                    "previousPublishedVideos": {
+                      "type": "number"
+                    },
+                    "stages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "count",
+                              "rate",
+                              "creator"
+                            ]
+                          },
+                          "value": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "previousValue": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "stepRate": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "stepRateState": {
+                            "type": "string",
+                            "enum": [
+                              "first",
+                              "computed",
+                              "coverage-mismatch",
+                              "inverted",
+                              "missing",
+                              "standalone"
+                            ]
+                          },
+                          "shareOfPlays": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "coverageCount": {
+                            "type": "number"
+                          },
+                          "windowRecordCount": {
+                            "type": "number"
+                          },
+                          "basisPlays": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "changePct": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "sourceTypes": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "emptyReason": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "label",
+                          "kind",
+                          "value",
+                          "previousValue",
+                          "stepRate",
+                          "stepRateState",
+                          "shareOfPlays",
+                          "coverageCount",
+                          "windowRecordCount",
+                          "basisPlays",
+                          "changePct",
+                          "sourceTypes",
+                          "emptyReason"
+                        ]
+                      }
+                    },
+                    "emptyReason": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "days",
+                    "from",
+                    "to",
+                    "previousFrom",
+                    "previousTo",
+                    "publishedVideos",
+                    "previousPublishedVideos",
+                    "stages",
+                    "emptyReason"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/videos": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsVideos",
+        "summary": "视频表现列表（多发布记录逐行；排序白名单，缺数据恒排末）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "play",
+                "completion",
+                "engagement",
+                "fans",
+                "publish_time"
+              ],
+              "default": "play"
+            },
+            "required": false,
+            "name": "sort",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "required": false,
+            "name": "order",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "required": false,
+            "name": "pageSize",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "表现列表（metrics 为 canonical 名→带来源单元格；缺失键=无数据，非 0）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "recordId": {
+                            "type": "string"
+                          },
+                          "contentId": {
+                            "type": "string"
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "platformVideoId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "template": {
+                            "type": "string",
+                            "enum": [
+                              "scene_word",
+                              "word_card",
+                              "quiz"
+                            ]
+                          },
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "CET4",
+                              "CET6"
+                            ]
+                          },
+                          "durationSec": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "publishTime": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "metrics": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "type": "number"
+                                },
+                                "sourceType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "CREATOR_IMPORT",
+                                    "PLATFORM_PRODUCTION",
+                                    "PLATFORM_CALCULATED",
+                                    "AI_EXTRACTED",
+                                    "USER_INPUT"
+                                  ]
+                                },
+                                "isEstimated": {
+                                  "type": "boolean"
+                                },
+                                "dataDate": {
+                                  "type": "string",
+                                  "nullable": true
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "sourceType",
+                                "isEstimated",
+                                "dataDate"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "recordId",
+                          "contentId",
+                          "platform",
+                          "platformVideoId",
+                          "title",
+                          "template",
+                          "level",
+                          "durationSec",
+                          "publishTime",
+                          "metrics"
+                        ]
+                      }
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "total",
+                    "page",
+                    "pageSize"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/videos/{contentId}/benchmark": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsBenchmark",
+        "summary": "同类 Benchmark（当前账号×同模板×相似时长带×同场景/形态；必须同时展示样本数）",
+        "description": "拒绝写死行业阈值（需求 §十五）：以账号自身同类分组的中位数/均值为基准；lowSample=true（组内样本 <8）时前端必须提示样本不足，禁止据此下结论。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "分组基准视图",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "subject": {
+                      "type": "object",
+                      "properties": {
+                        "contentId": {
+                          "type": "string"
+                        },
+                        "group": {
+                          "type": "object",
+                          "properties": {
+                            "template": {
+                              "type": "string"
+                            },
+                            "scene": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "contentFormat": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "durationBand": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "template",
+                            "scene",
+                            "contentFormat",
+                            "durationBand"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "contentId",
+                        "group"
+                      ]
+                    },
+                    "sampleCount": {
+                      "type": "number"
+                    },
+                    "lowSample": {
+                      "type": "boolean"
+                    },
+                    "metrics": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "self": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "value": {
+                                "type": "number"
+                              },
+                              "sourceType": {
+                                "type": "string",
+                                "enum": [
+                                  "CREATOR_IMPORT",
+                                  "PLATFORM_PRODUCTION",
+                                  "PLATFORM_CALCULATED",
+                                  "AI_EXTRACTED",
+                                  "USER_INPUT"
+                                ]
+                              },
+                              "isEstimated": {
+                                "type": "boolean"
+                              },
+                              "dataDate": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "sourceType",
+                              "isEstimated",
+                              "dataDate"
+                            ]
+                          },
+                          "groupMedian": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "groupMean": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "diff": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "sampleCount": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "self",
+                          "groupMedian",
+                          "groupMean",
+                          "diff",
+                          "sampleCount"
+                        ]
+                      }
+                    },
+                    "emptyReason": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "subject",
+                    "sampleCount",
+                    "lowSample",
+                    "metrics",
+                    "emptyReason"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/videos/{contentId}/trend": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsTrend",
+        "summary": "单视频每日快照趋势（D0~D30 观察；不补 0，缺日无点；无秒级留存不造假曲线）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "required": false,
+            "name": "dateFrom",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "required": false,
+            "name": "dateTo",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "逐发布记录的指标时间序列（空数组=未导入，前端展示暂无数据）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "records": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "recordId": {
+                            "type": "string"
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "series": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "metricName": {
+                                  "type": "string"
+                                },
+                                "points": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "date": {
+                                        "type": "string"
+                                      },
+                                      "value": {
+                                        "type": "number"
+                                      },
+                                      "sourceType": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "date",
+                                      "value",
+                                      "sourceType"
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "metricName",
+                                "points"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "recordId",
+                          "platform",
+                          "series"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "records"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/factors": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsFactors",
+        "summary": "内容因子分析（哪些生产参数与效果同时出现；分组统计非因果，纯读不落库）",
+        "description": "需求 §十一 页面 D / §十四：早期只做分组统计（中位数/均值/样本数），不上模型；每组必携 sampleCount，<8 标 lowSample；响应 note 声明相关性非因果。批次 5B：GET 纯读不再有写副作用，留档走 POST /factors。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "play_count",
+                "effective_play_rate_2s",
+                "watch_rate_5s",
+                "completion_rate",
+                "avg_watch_ratio",
+                "like_rate",
+                "comment_rate",
+                "share_rate",
+                "engagement_rate",
+                "profile_visit_rate"
+              ],
+              "default": "completion_rate"
+            },
+            "required": false,
+            "name": "metric",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "required": false,
+            "name": "dimensions",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "因子分析结果（含账号整体中位基准与 note 诚实声明；不写入任何表）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "metric": {
+                      "type": "string"
+                    },
+                    "accountMedian": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "accountSampleCount": {
+                      "type": "number"
+                    },
+                    "dimensions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "dimension": {
+                            "type": "string"
+                          },
+                          "groups": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "type": "string"
+                                },
+                                "sampleCount": {
+                                  "type": "number"
+                                },
+                                "median": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "mean": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "diff": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "lowSample": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "sampleCount",
+                                "median",
+                                "mean",
+                                "diff",
+                                "lowSample"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "dimension",
+                          "groups"
+                        ]
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "computedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "metric",
+                    "accountMedian",
+                    "accountSampleCount",
+                    "dimensions",
+                    "note",
+                    "computedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "指标/维度不在白名单"
+          },
+          "500": {
+            "description": "分析失败"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "recomputeAnalyticsFactors",
+        "summary": "因子分析显式重算并留档（写 analysis_result 快照；白名单与 GET 同源）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string",
+                    "enum": [
+                      "play_count",
+                      "effective_play_rate_2s",
+                      "watch_rate_5s",
+                      "completion_rate",
+                      "avg_watch_ratio",
+                      "like_rate",
+                      "comment_rate",
+                      "share_rate",
+                      "engagement_rate",
+                      "profile_visit_rate"
+                    ],
+                    "default": "completion_rate"
+                  },
+                  "dimensions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "hook",
+                        "scene",
+                        "contentFormat",
+                        "emotion",
+                        "ctaType",
+                        "template",
+                        "level",
+                        "durationBand",
+                        "speechRateBand",
+                        "segmentCountBand",
+                        "voice",
+                        "bgm",
+                        "subtitleType",
+                        "promptVersion",
+                        "publishHourBand"
+                      ]
+                    },
+                    "maxItems": 15
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "重算完成已留档（payload 与 GET 同构）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "metric": {
+                      "type": "string"
+                    },
+                    "accountMedian": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "accountSampleCount": {
+                      "type": "number"
+                    },
+                    "dimensions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "dimension": {
+                            "type": "string"
+                          },
+                          "groups": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "type": "string"
+                                },
+                                "sampleCount": {
+                                  "type": "number"
+                                },
+                                "median": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "mean": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "diff": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "lowSample": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "sampleCount",
+                                "median",
+                                "mean",
+                                "diff",
+                                "lowSample"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "dimension",
+                          "groups"
+                        ]
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "computedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "metric",
+                    "accountMedian",
+                    "accountSampleCount",
+                    "dimensions",
+                    "note",
+                    "computedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "指标/维度不在白名单"
+          },
+          "500": {
+            "description": "重算或留档失败（留档失败报错，不再静默）"
+          }
+        }
+      }
+    },
+    "/api/analytics/videos/{contentId}/timeline": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsTimeline",
+        "summary": "内容段落时间轴（生产口径派生：片头事实 + 字符权重分配；非逐帧实测切换点）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "段落列表；emptyReason=not_derived 表示尚未同步或无产物时长（不猜）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "segments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "idx": {
+                            "type": "number"
+                          },
+                          "startTime": {
+                            "type": "number"
+                          },
+                          "endTime": {
+                            "type": "number"
+                          },
+                          "segmentType": {
+                            "type": "string"
+                          },
+                          "dialogue": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "knowledgePoint": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "scene": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "emotion": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "shotType": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "sourceType": {
+                            "type": "string",
+                            "enum": [
+                              "CREATOR_IMPORT",
+                              "PLATFORM_PRODUCTION",
+                              "PLATFORM_CALCULATED",
+                              "AI_EXTRACTED",
+                              "USER_INPUT"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "idx",
+                          "startTime",
+                          "endTime",
+                          "segmentType",
+                          "dialogue",
+                          "knowledgePoint",
+                          "scene",
+                          "emotion",
+                          "shotType",
+                          "sourceType"
+                        ]
+                      }
+                    },
+                    "emptyReason": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "segments",
+                    "emptyReason"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/recommendations": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsRecommendations",
+        "summary": "生产建议清单（每条必携理由/样本数/依据指标；含采纳汇总）",
+        "responses": {
+          "200": {
+            "description": "建议列表与汇总（total/pending/accepted/rejected/applied）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "recommendationType": {
+                            "type": "string"
+                          },
+                          "recommendation": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "kindLabel": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "label",
+                              "kindLabel"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "sourceSampleCount": {
+                            "type": "number"
+                          },
+                          "sourceMetric": {
+                            "type": "string"
+                          },
+                          "confidence": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "accepted": {
+                            "type": "boolean",
+                            "nullable": true
+                          },
+                          "appliedToContentId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "recommendationType",
+                          "recommendation",
+                          "reason",
+                          "sourceSampleCount",
+                          "sourceMetric",
+                          "confidence",
+                          "accepted",
+                          "appliedToContentId",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "number"
+                        },
+                        "pending": {
+                          "type": "number"
+                        },
+                        "accepted": {
+                          "type": "number"
+                        },
+                        "rejected": {
+                          "type": "number"
+                        },
+                        "applied": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "pending",
+                        "accepted",
+                        "rejected",
+                        "applied"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "summary"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/recommendations/generate": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "generateAnalyticsRecommendations",
+        "summary": "按最新数据重新生成建议（清空待处理项；已采纳/已忽略历史保留）",
+        "responses": {
+          "200": {
+            "description": "生成完成（created=建议条数；样本不足时为 data_readiness 诚实建议）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "created": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "created"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "生成失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/recommendations/{recommendationId}": {
+      "patch": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "decideAnalyticsRecommendation",
+        "summary": "建议采纳/忽略（accepted）与采纳后新建内容回写（appliedToContentId 效果回路）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "recommendationId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "accepted": {
+                    "type": "boolean"
+                  },
+                  "appliedToContentId": {
+                    "type": "string",
+                    "nullable": true,
+                    "maxLength": 32
+                  }
+                },
+                "required": [
+                  "accepted"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的建议",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "recommendationType": {
+                      "type": "string"
+                    },
+                    "recommendation": {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "kindLabel": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "value",
+                        "label",
+                        "kindLabel"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "sourceSampleCount": {
+                      "type": "number"
+                    },
+                    "sourceMetric": {
+                      "type": "string"
+                    },
+                    "confidence": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "accepted": {
+                      "type": "boolean",
+                      "nullable": true
+                    },
+                    "appliedToContentId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "recommendationType",
+                    "recommendation",
+                    "reason",
+                    "sourceSampleCount",
+                    "sourceMetric",
+                    "confidence",
+                    "accepted",
+                    "appliedToContentId",
+                    "createdAt"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "建议不存在"
+          },
+          "500": {
+            "description": "更新失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/videos/{contentId}/structure": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsVideoStructure",
+        "summary": "可复用成功结构（从段落时间轴提取结构序列与时长占比；不复制内容）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "contentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "结构骨架；emptyReason=not_derived 表示尚未同步段落",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "skeleton": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "idx": {
+                            "type": "number"
+                          },
+                          "segmentType": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "startTime": {
+                            "type": "number"
+                          },
+                          "endTime": {
+                            "type": "number"
+                          },
+                          "durationShare": {
+                            "type": "number"
+                          },
+                          "knowledgePoint": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "idx",
+                          "segmentType",
+                          "label",
+                          "startTime",
+                          "endTime",
+                          "durationShare",
+                          "knowledgePoint"
+                        ]
+                      }
+                    },
+                    "totalDuration": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "emptyReason": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "skeleton",
+                    "totalDuration",
+                    "emptyReason"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/experiments": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsExperiments",
+        "summary": "内容实验清单（含评估快照；最多 100 条）",
+        "responses": {
+          "200": {
+            "description": "实验列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "variable": {
+                            "type": "string"
+                          },
+                          "variantA": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "maxLength": 255
+                              },
+                              "contentIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 32
+                                },
+                                "maxItems": 500
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "contentIds"
+                            ]
+                          },
+                          "variantB": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string",
+                                "maxLength": 255
+                              },
+                              "contentIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 32
+                                },
+                                "maxItems": 500
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "contentIds"
+                            ]
+                          },
+                          "controlVariables": {
+                            "nullable": true
+                          },
+                          "targetMetric": {
+                            "type": "string"
+                          },
+                          "startAt": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "endAt": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "result": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "targetMetric": {
+                                "type": "string"
+                              },
+                              "medianA": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "medianB": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "diff": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "sampleA": {
+                                "type": "number"
+                              },
+                              "sampleB": {
+                                "type": "number"
+                              },
+                              "lowSample": {
+                                "type": "boolean"
+                              },
+                              "verdict": {
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "modelVersion": {
+                                "type": "string"
+                              },
+                              "evaluatedAt": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "targetMetric",
+                              "medianA",
+                              "medianB",
+                              "diff",
+                              "sampleA",
+                              "sampleB",
+                              "lowSample",
+                              "verdict",
+                              "note",
+                              "modelVersion",
+                              "evaluatedAt"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "variable",
+                          "variantA",
+                          "variantB",
+                          "targetMetric",
+                          "startAt",
+                          "endAt",
+                          "status",
+                          "result",
+                          "createdAt",
+                          "updatedAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "createAnalyticsExperiment",
+        "summary": "创建内容实验（变量白名单；A/B 两组内容非空且不相交；控制变量如实声明）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "variable": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  "variantA": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 255
+                      },
+                      "contentIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 32
+                        },
+                        "maxItems": 500
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "contentIds"
+                    ]
+                  },
+                  "variantB": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "maxLength": 255
+                      },
+                      "contentIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 32
+                        },
+                        "maxItems": 500
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "contentIds"
+                    ]
+                  },
+                  "controlVariables": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "targetMetric": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "default": "completion_rate"
+                  },
+                  "startAt": {
+                    "type": "string",
+                    "nullable": true,
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "variable",
+                  "variantA",
+                  "variantB"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "variable": {
+                      "type": "string"
+                    },
+                    "variantA": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "maxLength": 255
+                        },
+                        "contentIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32
+                          },
+                          "maxItems": 500
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "contentIds"
+                      ]
+                    },
+                    "variantB": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "maxLength": 255
+                        },
+                        "contentIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32
+                          },
+                          "maxItems": 500
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "contentIds"
+                      ]
+                    },
+                    "controlVariables": {
+                      "nullable": true
+                    },
+                    "targetMetric": {
+                      "type": "string"
+                    },
+                    "startAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "endAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "targetMetric": {
+                          "type": "string"
+                        },
+                        "medianA": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "medianB": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "diff": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "sampleA": {
+                          "type": "number"
+                        },
+                        "sampleB": {
+                          "type": "number"
+                        },
+                        "lowSample": {
+                          "type": "boolean"
+                        },
+                        "verdict": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "modelVersion": {
+                          "type": "string"
+                        },
+                        "evaluatedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "targetMetric",
+                        "medianA",
+                        "medianB",
+                        "diff",
+                        "sampleA",
+                        "sampleB",
+                        "lowSample",
+                        "verdict",
+                        "note",
+                        "modelVersion",
+                        "evaluatedAt"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "variable",
+                    "variantA",
+                    "variantB",
+                    "targetMetric",
+                    "startAt",
+                    "endAt",
+                    "status",
+                    "result",
+                    "createdAt",
+                    "updatedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "变量/指标不在白名单或分组不合法"
+          },
+          "500": {
+            "description": "创建失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/experiments/{experimentId}/evaluate": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "evaluateAnalyticsExperiment",
+        "summary": "评估归档：两组发布指标描述统计（小样本只给观察不给结论，相关≠因果）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "experimentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "评估后的实验（result 含 verdict/note/lowSample）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "variable": {
+                      "type": "string"
+                    },
+                    "variantA": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "maxLength": 255
+                        },
+                        "contentIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32
+                          },
+                          "maxItems": 500
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "contentIds"
+                      ]
+                    },
+                    "variantB": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "maxLength": 255
+                        },
+                        "contentIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32
+                          },
+                          "maxItems": 500
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "contentIds"
+                      ]
+                    },
+                    "controlVariables": {
+                      "nullable": true
+                    },
+                    "targetMetric": {
+                      "type": "string"
+                    },
+                    "startAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "endAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "targetMetric": {
+                          "type": "string"
+                        },
+                        "medianA": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "medianB": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "diff": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "sampleA": {
+                          "type": "number"
+                        },
+                        "sampleB": {
+                          "type": "number"
+                        },
+                        "lowSample": {
+                          "type": "boolean"
+                        },
+                        "verdict": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "modelVersion": {
+                          "type": "string"
+                        },
+                        "evaluatedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "targetMetric",
+                        "medianA",
+                        "medianB",
+                        "diff",
+                        "sampleA",
+                        "sampleB",
+                        "lowSample",
+                        "verdict",
+                        "note",
+                        "modelVersion",
+                        "evaluatedAt"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "variable",
+                    "variantA",
+                    "variantB",
+                    "targetMetric",
+                    "startAt",
+                    "endAt",
+                    "status",
+                    "result",
+                    "createdAt",
+                    "updatedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "实验不存在或已取消"
+          },
+          "500": {
+            "description": "评估失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/experiments/{experimentId}/status": {
+      "patch": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "updateAnalyticsExperimentStatus",
+        "summary": "实验状态流转（draft/running/cancelled；completed 仅由 evaluate 写入防手改结论）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "experimentId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "running",
+                      "cancelled"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新后的实验",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "variable": {
+                      "type": "string"
+                    },
+                    "variantA": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "maxLength": 255
+                        },
+                        "contentIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32
+                          },
+                          "maxItems": 500
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "contentIds"
+                      ]
+                    },
+                    "variantB": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "maxLength": 255
+                        },
+                        "contentIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32
+                          },
+                          "maxItems": 500
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "contentIds"
+                      ]
+                    },
+                    "controlVariables": {
+                      "nullable": true
+                    },
+                    "targetMetric": {
+                      "type": "string"
+                    },
+                    "startAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "endAt": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "targetMetric": {
+                          "type": "string"
+                        },
+                        "medianA": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "medianB": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "diff": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "sampleA": {
+                          "type": "number"
+                        },
+                        "sampleB": {
+                          "type": "number"
+                        },
+                        "lowSample": {
+                          "type": "boolean"
+                        },
+                        "verdict": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "modelVersion": {
+                          "type": "string"
+                        },
+                        "evaluatedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "targetMetric",
+                        "medianA",
+                        "medianB",
+                        "diff",
+                        "sampleA",
+                        "sampleB",
+                        "lowSample",
+                        "verdict",
+                        "note",
+                        "modelVersion",
+                        "evaluatedAt"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "variable",
+                    "variantA",
+                    "variantB",
+                    "targetMetric",
+                    "startAt",
+                    "endAt",
+                    "status",
+                    "result",
+                    "createdAt",
+                    "updatedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "实验不存在或已完成不可改状态"
+          },
+          "500": {
+            "description": "更新失败"
           }
         }
       }
