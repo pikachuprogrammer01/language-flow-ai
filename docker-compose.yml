@@ -14,7 +14,9 @@ services:
       MYSQL_USER: dev
       MYSQL_PASSWORD: dev
     ports:
-      - "3306:3306"
+      # 仅绑回环（与测试栈 :3307 同口径，审查批次 2A）：局域网对端不得直连生产库，
+      # 栈内 backend 经服务名 mysql:3306 访问不受影响
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
@@ -33,6 +35,8 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8080
+      # 容器内跨容器访问需全网卡绑定（宿主侧不映射 8080，暴露面仍只有 nginx）；新版镜像代码默认 127.0.0.1
+      HOST: 0.0.0.0
       # 不设 NODE_ENV=production：该版本镜像的限流是「全端点共享 100/min」且无只读端点豁免
       # （豁免只在后续版本里），单用户本地平台按配置层关闭限流；升级后仍应显式保持关闭
       DATABASE_URL: mysql://dev:dev@mysql:3306/language_flow

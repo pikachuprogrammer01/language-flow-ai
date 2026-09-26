@@ -34,6 +34,8 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8080
+      # 容器内跨容器访问需全网卡绑定（新版代码默认 127.0.0.1，审查批次 2A）
+      HOST: 0.0.0.0
       # 不设 production：工作台 500ms 轮询会触发 100/min 限流（429）
       DATABASE_URL: mysql://dev:dev@mysql:3306/language_flow
       DB_HOST: mysql
@@ -64,7 +66,9 @@ services:
     depends_on:
       - backend
     ports:
-      - "5174:80"
+      # 仅绑回环（审查批次 2A）：测试栈零认证，不得无意暴露到局域网；
+      # 如需手机/其他设备验收 UI，临时改用 "5174:80" 并注意用完改回
+      - "127.0.0.1:5174:80"
 
   # 一次性灌入预置测试数据（pnpm docker:test:seed 触发；INSERT IGNORE 幂等可重跑）
   # 等 backend entrypoint 完成 migrate 建表后再导入
