@@ -49,3 +49,6 @@ coverage/
 # Playwright E2E 产物
 test-results/
 playwright-report/
+
+# 临时研究/验证产物（下载的 tarball 与解包内容，非项目代码；其中的第三方 js 会污染全仓 lint）
+.tmp-research/
