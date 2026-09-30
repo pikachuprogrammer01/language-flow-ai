@@ -21,6 +21,17 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 
 ## 二、当前在做
 
+→ ✅ 2026-09-30 交接收尾（用户交接文档驱动；产出 9 个 commit，工作树净空）：
+  **唯一 loose end 闭环**——import.spec.ts 复验 **2 passed**（作品级全链路含冲突裁决/忽略/回滚 + 账号日级红线），全量 E2E **22 passed / 1 skipped**；门禁：typecheck 3/3 · lint 0 · openapi 8/8 · frontend 92 · backend 441（另 32 例仅在 DSH 沙箱下因 uploads 软链指向工作区外报 EPERM，441+32 恰为交接文档所称 473，非代码问题）
+  **纠正交接文档两处失实**——① 「OrbStack 数据盘损坏、重置后未恢复」不成立：日志显示 09-30 00:24 是**正常关机**，VM 盘与 test/prod 两个数据卷均在，`pnpm docker:up` 一行即恢复；且生产库另有 **9/29 真实使用数据**（成片 cnt_20260929_11aec0 已发布抖音 + 30 行导入批次 imp_20260929_e36655），仅存于生产库、任何备份都不含，若按「从零重建」将永久丢失。② 「lint 零告警」不成立：全仓 261 个错误（266 条来自未被忽略的 .tmp-research/，另有 6 处真实告警）
+  **修两个真实缺陷**——① fixture 幂等只在同一天内成立：相对日期 + INSERT IGNORE 使日表跨天堆叠（9/28 与 9/30 各跑一次即得 5 个快照日，钉「3 个快照日」的 insights E2E 确定性失败）；改为三张含相对日期的指标表先删本 fixture 行再插，实测 **11 行/5 天 → 6 行/3 天** 并连续两轮 seed+套件稳定。② lint 清零：修 6 处告警（可选链/表达式赋值/模板字符串）+ .gitignore 忽略 .tmp-research/
+  **提交固化**——68a4a46 后端功能 · 112f293 前端功能 · 2d79ee8 E2E · 9590ba8 fixture 修复 · 5fa30a1 gitignore · 038651e 文档 · b2cda64 生产版本 · 043f5a3 AOCI 资产 · 5b112bd MCP 配置
+
+→ ⏳ 2026-09-30 待办：**AOCI 认知层完整授写**（用户裁决：留到下一会话用原生 MCP 工具做）
+  **现状**：code 卷 **0 条目**（aoci.code.txt 仅 21 字节 `#AOCI-CODE-VOLUME: 1`）；baseline 停在 2026-09-26（2476 文件），早于 09-30 的 9 个提交；ledger 三次 maintain（09-26/09-27/09-28）全部 `result:error`，遗留 66KB 纯路径工单（all_targets 215 + targets 20，键仅 candidate_id/object_ref/path/change/source_sha256，**语义 0 条**）
+  **可直接复用**：baseline 扫描指纹与工单目标清单都在，**扫描与规划无需重做**；缺的是 215 个目标的 F/R/A/S 语义授写（默认每批 20 条约 11 批）——工具只签发候选，语义只能由模型读证据后独立授写，禁按路径/文件名推导
+  **MCP 接入已就绪**：`.mcp.json`（command=aoci, args=[mcp]）已入库；DSH 侧 `~/.dsh/profiles/web/cordis.patch.yml` 已按 DSH 官方模板写入 `- insert:` 条目并实测 JSON-RPC 握手通过（aoci-code 0.1.0-rc14 / 协议 2025-06-18），9 个 aoci_* 工具将在新会话出现；注意 `- insert:` 包裹是必须的，裸条目无效
+
 → ✅ 2026-09-28 生产栈重建 + 日常生产数据回归（用户指令「需要可供日常生产的 docker，把数据导回来，test docker 作日常开发测试」；9/28 盘损停点就此关闭）：
   **版本裁决**（用户选定）——旧 tag `v171d1d6` 镜像已随 OrbStack 重置丢失，且工作树含 migration 0008（导入中间层四表）schema 超前于任何历史 tag，回建历史版会导致数据导入不了 → 按当前工作树发布 `v8db33ce`（脏工作树 FORCE=1，tag 不可由 commit 精确复现，提交固化后建议重发净空版）
   **重建**：`stack.sh release` → 新卷 `language-flow-ai_mysql_data` + 新网络，backend entrypoint 自动 migrate 至 0008，生产 UI :15173 常驻（restart unless-stopped）
