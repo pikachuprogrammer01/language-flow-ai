@@ -5,6 +5,7 @@
 //   ./analytics/features   内容特征（读取/sync 重算/人工标签覆盖）
 //   ./analytics/dashboard  漏斗 overview · 表现列表 · benchmark · trend
 //   ./analytics/insights   factors(GET 纯读/POST 留档) · timeline · recommendations · structure · experiments
+//   ./analytics/import-batches  平台数据导入·四步精准匹配（批次/规则/预匹配/裁决/preflight/提交/回滚）
 //（抖音开放平台同步端点已砍除：无企业资质，外部绩效数据唯一入口 = POST /api/analytics/import）
 import { analyticsRoute } from "./analytics/shared";
 import "./analytics/records";
@@ -12,5 +13,6 @@ import "./analytics/import";
 import "./analytics/features";
 import "./analytics/dashboard";
 import "./analytics/insights";
+import "./analytics/import-batches";
 
 export { analyticsRoute };

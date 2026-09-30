@@ -1,0 +1,2 @@
+ALTER TABLE `match_candidate` MODIFY COLUMN `match_method` enum('platform_work_id_exact','work_url_id','title_exact_plus_time','account_publish_time','account_date_title','account_date_title_duration') NOT NULL;--> statement-breakpoint
+ALTER TABLE `match_decision` MODIFY COLUMN `match_method` enum('platform_work_id_exact','work_url_id','title_exact_plus_time','account_publish_time','account_date_title','account_date_title_duration');

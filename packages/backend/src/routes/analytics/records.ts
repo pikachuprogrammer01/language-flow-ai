@@ -24,6 +24,8 @@ const listRecordsRoute = createRoute({
     query: z.object({
       platform: z.string().max(50).optional(),
       contentId: z.string().max(32).optional(),
+      /** 模糊搜索：发布标题/内容标题/作品 ID（导入向导未匹配行手动绑定用） */
+      keyword: z.string().max(100).optional(),
       page: z.coerce.number().int().min(1).optional().default(1),
       pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
     }),

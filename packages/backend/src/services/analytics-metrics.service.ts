@@ -7,7 +7,7 @@
  * - 视频级 new_fan_count 属时间窗口归因/估算，导入时必须显式携带 isEstimated（本服务不自动派生粉丝归因）
  */
 import { randomBytes } from "node:crypto";
-import { and, asc, count, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   contents,
@@ -167,8 +167,8 @@ export interface MetricDraftRow {
   metadata?: Record<string, unknown> | null;
 }
 
-/** upsert 最新值 + （带 dataDate 时）每日快照 */
-async function writeMetricRows(
+/** upsert 最新值 + （带 dataDate 时）每日快照（导出供四步导入批次提交在同一事务内复用，单一口径） */
+export async function writeMetricRows(
   executor: Executor,
   publishRecordId: string,
   rows: MetricDraftRow[],
@@ -360,12 +360,24 @@ const iso = (value: Date | string | null): string | null =>
 export async function listPublishRecords(query: {
   platform?: string;
   contentId?: string;
+  /** 模糊搜索（发布标题/内容标题/作品 ID），导入向导未匹配行手动绑定用 */
+  keyword?: string;
   page: number;
   pageSize: number;
 }): Promise<{ items: PublishRecordListItem[]; total: number }> {
   const conditions = [];
   if (query.platform) conditions.push(eq(publishRecords.platform, query.platform));
   if (query.contentId) conditions.push(eq(publishRecords.contentId, query.contentId));
+  if (query.keyword) {
+    const kw = `%${query.keyword}%`;
+    conditions.push(
+      or(
+        like(publishRecords.publishTitle, kw),
+        like(contents.title, kw),
+        like(publishRecords.platformVideoId, kw),
+      ),
+    );
+  }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const rows = await db
     .select({
@@ -379,7 +391,12 @@ export async function listPublishRecords(query: {
     .orderBy(desc(publishRecords.createdAt))
     .limit(query.pageSize)
     .offset((query.page - 1) * query.pageSize);
-  const totalRows = await db.select({ n: count() }).from(publishRecords).where(where);
+  // count 与列表同构 join（keyword 条件引用 contents.title，不 join 会 Unknown column；FK 保证行集不变）
+  const totalRows = await db
+    .select({ n: count() })
+    .from(publishRecords)
+    .innerJoin(contents, eq(contents.id, publishRecords.contentId))
+    .where(where);
   const total = Number(totalRows[0]?.n ?? 0);
   return {
     items: rows.map(({ record, contentTitle, template }) => ({
@@ -726,6 +743,30 @@ export async function upsertCreatorDaily(input: CreatorDailyInput): Promise<void
     sourceType: input.sourceType,
   };
   await db
+    .insert(creatorMetricDaily)
+    .values(values)
+    .onDuplicateKeyUpdate({ set: { ...values, fetchedAt: sql`now()` } });
+}
+
+/** 账号日行 upsert（(platform, statDate) 幂等，仅覆盖提供列）；导出供批次提交在同一事务内复用 */
+export async function upsertCreatorDailyRow(
+  executor: Executor,
+  input: {
+    platform: string;
+    statDate: string;
+    sourceType: MetricSourceType;
+    fields: Record<string, number>;
+    metadata?: Record<string, unknown> | null;
+  },
+): Promise<void> {
+  const values = {
+    platform: input.platform,
+    statDate: input.statDate,
+    sourceType: input.sourceType,
+    ...(input.metadata ? { metadata: input.metadata } : {}),
+    ...input.fields,
+  };
+  await executor
     .insert(creatorMetricDaily)
     .values(values)
     .onDuplicateKeyUpdate({ set: { ...values, fetchedAt: sql`now()` } });

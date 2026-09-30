@@ -381,3 +381,167 @@ export const experiments = mysqlTable(
   },
   (table) => [index("idx_experiments_status").on(table.status)],
 );
+
+// ══ 以下为平台数据导入·四步精准匹配表（docs/17 §数据导入，migration 0008）══
+// 纪律：导入数据永远经 import_batch/import_row 中间层，禁止 CSV/XLSX 直写 video_analytics；
+// raw_data 永久保留；匹配只走确定性规则（lib/import-matcher），禁止 LLM 猜归属。
+
+/** 数据粒度三态：作品级强标识 / 作品级弱标识 / 账号日汇总（账号日级禁止进入作品级匹配） */
+export const IMPORT_DATA_GRANULARITIES = [
+  "work_level_strong",
+  "work_level_weak",
+  "account_day_level",
+] as const;
+
+/** 行匹配状态六态（禁止新增意义重复的状态） */
+export const IMPORT_ROW_MATCH_STATUSES = [
+  "unique_match",
+  "conflict",
+  "unmatched",
+  "account_day_level",
+  "confirmed",
+  "ignored",
+] as const;
+
+/** 确定性匹配方法（优先级 1→6，强证据压制弱证据；title_exact_plus_time 为 2026-09-28 用户裁决的双证据自动入库档） */
+export const IMPORT_MATCH_METHODS = [
+  "platform_work_id_exact",
+  "work_url_id",
+  "title_exact_plus_time",
+  "account_publish_time",
+  "account_date_title",
+  "account_date_title_duration",
+] as const;
+
+// ── 导入批次表：一次上传 = 一个批次，可追溯、可回滚 ──
+export const importBatch = mysqlTable(
+  "import_batch",
+  {
+    id: varchar("id", { length: 32 }).primaryKey(),
+    filename: varchar("filename", { length: 255 }).notNull(),
+    fileSize: int("file_size").notNull(),
+    /** 文件内容 sha256：重复导入检测（与既有 committed 批次撞号 → preflight 阻断） */
+    fileHash: varchar("file_hash", { length: 64 }).notNull(),
+    /** 批次声明平台（抖音/快手/视频号…；自由文本与 publish_records.platform 同口径） */
+    platform: varchar("platform", { length: 50 }).notNull(),
+    rowCount: int("row_count").notNull(),
+    dataGranularity: mysqlEnum("data_granularity", IMPORT_DATA_GRANULARITIES).notNull(),
+    /** 粒度判定依据（命中列/ID 非空占比/是否含作品维度），UI 必须可解释 */
+    granularityEvidence: json("granularity_evidence").notNull(),
+    /** 原始表头 */
+    headers: json("headers").notNull(),
+    /** 列下标 → canonical 角色映射（platform_work_id/work_url/account/publish_time/title/...） */
+    fieldDetection: json("field_detection").notNull(),
+    /** STEP2 匹配规则快照（账号/平台映射、时区、容差、标题标准化、相似度阈值） */
+    matchRules: json("match_rules"),
+    status: mysqlEnum("status", [
+      "draft",
+      "granularity_confirmed",
+      "rules_set",
+      "prematched",
+      "preflight_ok",
+      "committed",
+      "rolled_back",
+      "cancelled",
+    ])
+      .notNull()
+      .default("draft"),
+    /** 提交摘要 { workLevel, accountDayLevel, ignored, external, perRow? } */
+    commitSummary: json("commit_summary"),
+    /** 被覆盖指标旧值快照（回滚依据；null=本批新插入，回滚即删除） */
+    commitPreimage: json("commit_preimage"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("idx_import_batch_status").on(table.status),
+    index("idx_import_batch_file_hash").on(table.fileHash),
+  ],
+);
+
+// ── 导入行表：原始整行永久保留 ──
+export const importRow = mysqlTable(
+  "import_row",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    batchId: varchar("batch_id", { length: 32 })
+      .notNull()
+      .references(() => importBatch.id, { onDelete: "cascade" }),
+    /** 1-based，对应表格行序 */
+    rowNumber: int("row_number").notNull(),
+    /** 原始整行 { 列名: 原值 }，导入后永不删改 */
+    rawData: json("raw_data").notNull(),
+    /** 字段识别后的标准数据 { platformWorkId?, workUrl?, account?, publishTime?, title?, views?, ... } */
+    normalizedData: json("normalized_data").notNull(),
+    dataGranularity: mysqlEnum("data_granularity", IMPORT_DATA_GRANULARITIES).notNull(),
+    matchStatus: mysqlEnum("match_status", IMPORT_ROW_MATCH_STATUSES).notNull(),
+    /** preflight 行级校验结果 */
+    validationStatus: mysqlEnum("validation_status", ["pending", "ok", "warning", "error"])
+      .notNull()
+      .default("pending"),
+  },
+  (table) => [
+    uniqueIndex("uq_import_row_batch_number").on(table.batchId, table.rowNumber),
+    index("idx_import_row_batch_status").on(table.batchId, table.matchStatus),
+  ],
+);
+
+// ── 匹配候选表：一行可产生多个候选；一个 import_row 可关联多个 video ──
+export const matchCandidate = mysqlTable(
+  "match_candidate",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    importRowId: int("import_row_id")
+      .notNull()
+      .references(() => importRow.id, { onDelete: "cascade" }),
+    /** 系统视频 = 发布记录 id（publish_records.id）；候选是引擎产物，随批次重跑级联重建 */
+    videoId: varchar("video_id", { length: 32 })
+      .notNull()
+      .references(() => publishRecords.id, { onDelete: "cascade" }),
+    matchMethod: mysqlEnum("match_method", IMPORT_MATCH_METHODS).notNull(),
+    matchScore: float("match_score").notNull(),
+    /** 结构化匹配证据（platformWorkIdExact/accountExact/publishTimeDiffSeconds/titleSimilarity…），禁止裸分数 */
+    evidence: json("evidence").notNull(),
+    /** 1=最强证据；冲突时全部并列展示，系统绝不自动选最高分 */
+    rank: int("rank").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uq_match_candidate_row_video").on(table.importRowId, table.videoId),
+    index("idx_match_candidate_row").on(table.importRowId, table.rank),
+  ],
+);
+
+// ── 匹配裁决表：一行一条最终决定（系统建议或人工裁决），可追溯 operator/confirmed_at ──
+export const matchDecision = mysqlTable(
+  "match_decision",
+  {
+    importRowId: int("import_row_id")
+      .primaryKey()
+      .references(() => importRow.id, { onDelete: "cascade" }),
+    batchId: varchar("batch_id", { length: 32 })
+      .notNull()
+      .references(() => importBatch.id, { onDelete: "cascade" }),
+    matchStatus: mysqlEnum("match_status", IMPORT_ROW_MATCH_STATUSES).notNull(),
+    /** 确认归属的系统视频（publish_records.id）；不设 FK——发布记录删除不抹掉裁决历史，提交时服务端校验存在性 */
+    matchedVideoId: varchar("matched_video_id", { length: 32 }),
+    /** 最终生效证据 */
+    matchMethod: mysqlEnum("match_method", IMPORT_MATCH_METHODS),
+    confidence: float("confidence"),
+    decisionType: mysqlEnum("decision_type", [
+      "system_auto", // 系统建议（unique_match 预选）
+      "operator_confirm", // 人工确认（批量/单条）
+      "operator_assign", // 人工指定归属（冲突选择/搜索绑定）
+      "operator_external", // 标记外部视频（不落作品指标）
+      "operator_account_day", // 保存为账号日级数据
+      "operator_ignore", // 忽略本行
+    ])
+      .notNull()
+      .default("system_auto"),
+    /** 操作者（本机无认证，固定 local，字段留位供未来接入） */
+    operator: varchar("operator", { length: 100 }).notNull().default("local"),
+    confirmedAt: datetime("confirmed_at", { mode: "date" }),
+    /** 扩展信息（external 行的平台标题/账号留档、批量操作幂等键等） */
+    metadata: json("metadata"),
+  },
+  (table) => [index("idx_match_decision_batch").on(table.batchId, table.matchStatus)],
+);

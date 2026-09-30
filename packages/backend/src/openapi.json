@@ -3826,6 +3826,15 @@
           },
           {
             "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "required": false,
+            "name": "keyword",
+            "in": "query"
+          },
+          {
+            "schema": {
               "type": "integer",
               "minimum": 1,
               "default": 1
@@ -8016,6 +8025,1997 @@
           },
           "500": {
             "description": "更新失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "createAnalyticsImportBatch",
+        "summary": "创建导入批次：服务端字段识别 + 数据粒度三态判定（可解释）",
+        "description": "浏览器解析 CSV/XLSX 后提交结构化数据；服务端识别 10 类字段并判定 work_level_strong / work_level_weak / account_day_level。账号日汇总只允许保存为账号日级数据，绝不进入作品级匹配；同 file_hash 已有提交批次返回 409（重复导入拦截）。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "fileSize": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "fileHash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "platform": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50,
+                    "default": "抖音"
+                  },
+                  "headers": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "minItems": 2,
+                    "maxItems": 100
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "minItems": 1
+                    },
+                    "minItems": 1,
+                    "maxItems": 5000
+                  },
+                  "fieldOverride": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "nullable": true,
+                      "enum": [
+                        "platform_work_id",
+                        "work_url",
+                        "account",
+                        "publish_time",
+                        "date",
+                        "title",
+                        "views",
+                        "likes",
+                        "comments",
+                        "shares",
+                        "completion_rate",
+                        "duration",
+                        "watch_rate_5s",
+                        "bounce_rate_2s",
+                        "avg_watch_time",
+                        "collect_count",
+                        "profile_visit_count",
+                        "fans_increment",
+                        "cover_click_rate",
+                        "genre",
+                        "review_status"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "filename",
+                  "fileSize",
+                  "fileHash",
+                  "headers",
+                  "rows"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "批次视图 + 前 10 条预览",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "batchId": {
+                      "type": "string"
+                    },
+                    "dataGranularity": {
+                      "type": "string",
+                      "enum": [
+                        "work_level_strong",
+                        "work_level_weak",
+                        "account_day_level"
+                      ]
+                    },
+                    "granularityEvidence": {
+                      "nullable": true
+                    },
+                    "fieldDetection": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "col": {
+                            "type": "number"
+                          },
+                          "header": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "sample": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "col",
+                          "header",
+                          "role",
+                          "sample"
+                        ]
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "rowCount": {
+                          "type": "number"
+                        },
+                        "accountCount": {
+                          "type": "number"
+                        },
+                        "dateFrom": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "dateTo": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "rowCount",
+                        "accountCount",
+                        "dateFrom",
+                        "dateTo"
+                      ]
+                    },
+                    "preview": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "batchId",
+                    "dataGranularity",
+                    "fieldDetection",
+                    "summary",
+                    "preview"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法（行数/列数超限、hash 格式错等）"
+          },
+          "409": {
+            "description": "相同文件已有提交批次（重复导入拦截）"
+          },
+          "500": {
+            "description": "创建失败"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsImportBatches",
+        "summary": "批次列表（最近 50，页面刷新恢复 + 回滚入口）",
+        "responses": {
+          "200": {
+            "description": "批次视图列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "filename": {
+                            "type": "string"
+                          },
+                          "fileSize": {
+                            "type": "number"
+                          },
+                          "fileHash": {
+                            "type": "string"
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "rowCount": {
+                            "type": "number"
+                          },
+                          "dataGranularity": {
+                            "type": "string",
+                            "enum": [
+                              "work_level_strong",
+                              "work_level_weak",
+                              "account_day_level"
+                            ]
+                          },
+                          "granularityEvidence": {
+                            "nullable": true
+                          },
+                          "headers": {
+                            "nullable": true
+                          },
+                          "fieldDetection": {
+                            "nullable": true
+                          },
+                          "matchRules": {
+                            "nullable": true
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "stats": {
+                            "type": "object",
+                            "properties": {
+                              "uniqueMatch": {
+                                "type": "number"
+                              },
+                              "conflict": {
+                                "type": "number"
+                              },
+                              "unmatched": {
+                                "type": "number"
+                              },
+                              "accountDayLevel": {
+                                "type": "number"
+                              },
+                              "confirmed": {
+                                "type": "number"
+                              },
+                              "ignored": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "uniqueMatch",
+                              "conflict",
+                              "unmatched",
+                              "accountDayLevel",
+                              "confirmed",
+                              "ignored"
+                            ]
+                          },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "rowCount": {
+                                "type": "number"
+                              },
+                              "accountCount": {
+                                "type": "number"
+                              },
+                              "dateFrom": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "dateTo": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "rowCount",
+                              "accountCount",
+                              "dateFrom",
+                              "dateTo"
+                            ]
+                          },
+                          "commitSummary": {
+                            "nullable": true
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "completedAt": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "filename",
+                          "fileSize",
+                          "fileHash",
+                          "platform",
+                          "rowCount",
+                          "dataGranularity",
+                          "status",
+                          "stats",
+                          "summary",
+                          "createdAt",
+                          "completedAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/quick": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "quickImportAnalyticsBatch",
+        "summary": "合集一键导入：同引擎同状态机无人值守跑四步；有任异常整批不入库并返回批次号转人工",
+        "description": "复用创建/粒度确认/默认规则/预匹配/批量确认/preflight/提交全链路（审计痕迹与回滚能力与四步一致）。committed=全部行强证据或双证据（标题完全一致+时间容差内）自动入库；manual_required=批次已预匹配保留，携 batchId 到四步 STEP3 处理；account_day_denied=账号日汇总拒绝作品入库（红线），引导存账号级数据。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "fileSize": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "fileHash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "platform": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50,
+                    "default": "抖音"
+                  },
+                  "headers": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "minItems": 2,
+                    "maxItems": 100
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      "minItems": 1
+                    },
+                    "minItems": 1,
+                    "maxItems": 5000
+                  }
+                },
+                "required": [
+                  "filename",
+                  "fileSize",
+                  "fileHash",
+                  "headers",
+                  "rows"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "三态结果（committed / manual_required / account_day_denied）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "committed",
+                        "manual_required",
+                        "account_day_denied"
+                      ]
+                    },
+                    "batchId": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "nullable": true
+                    },
+                    "stats": {
+                      "nullable": true
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "batchId"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "500": {
+            "description": "导入失败（事务已回滚）"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsImportBatch",
+        "summary": "批次完整视图（状态/统计/规则，刷新即恢复）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "批次视图",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "fileSize": {
+                      "type": "number"
+                    },
+                    "fileHash": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "rowCount": {
+                      "type": "number"
+                    },
+                    "dataGranularity": {
+                      "type": "string",
+                      "enum": [
+                        "work_level_strong",
+                        "work_level_weak",
+                        "account_day_level"
+                      ]
+                    },
+                    "granularityEvidence": {
+                      "nullable": true
+                    },
+                    "headers": {
+                      "nullable": true
+                    },
+                    "fieldDetection": {
+                      "nullable": true
+                    },
+                    "matchRules": {
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "stats": {
+                      "type": "object",
+                      "properties": {
+                        "uniqueMatch": {
+                          "type": "number"
+                        },
+                        "conflict": {
+                          "type": "number"
+                        },
+                        "unmatched": {
+                          "type": "number"
+                        },
+                        "accountDayLevel": {
+                          "type": "number"
+                        },
+                        "confirmed": {
+                          "type": "number"
+                        },
+                        "ignored": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "uniqueMatch",
+                        "conflict",
+                        "unmatched",
+                        "accountDayLevel",
+                        "confirmed",
+                        "ignored"
+                      ]
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "rowCount": {
+                          "type": "number"
+                        },
+                        "accountCount": {
+                          "type": "number"
+                        },
+                        "dateFrom": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "dateTo": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "rowCount",
+                        "accountCount",
+                        "dateFrom",
+                        "dateTo"
+                      ]
+                    },
+                    "commitSummary": {
+                      "nullable": true
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "completedAt": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "filename",
+                    "fileSize",
+                    "fileHash",
+                    "platform",
+                    "rowCount",
+                    "dataGranularity",
+                    "status",
+                    "stats",
+                    "summary",
+                    "createdAt",
+                    "completedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "批次不存在"
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "deleteAnalyticsImportBatch",
+        "summary": "删除未提交批次（已提交批次只能回滚，保留审计）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "deleted": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "deleted"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "批次不存在"
+          },
+          "409": {
+            "description": "批次已提交，禁止删除"
+          },
+          "500": {
+            "description": "删除失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/confirm-granularity": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "confirmAnalyticsImportGranularity",
+        "summary": "确认数据粒度（STEP1→STEP2；手动只允许降级，账号日级禁止升格作品级）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "granularity": {
+                    "type": "string",
+                    "enum": [
+                      "work_level_strong",
+                      "work_level_weak",
+                      "account_day_level"
+                    ]
+                  }
+                },
+                "required": [
+                  "granularity"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "确认成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "dataGranularity": {
+                      "type": "string",
+                      "enum": [
+                        "work_level_strong",
+                        "work_level_weak",
+                        "account_day_level"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "dataGranularity"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "粒度升格被拒（账号日级数据不允许按作品匹配）"
+          },
+          "404": {
+            "description": "批次不存在"
+          },
+          "409": {
+            "description": "批次状态不允许"
+          },
+          "500": {
+            "description": "操作失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/rules": {
+      "put": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "saveAnalyticsImportRules",
+        "summary": "保存匹配规则并返回 dry-run 预估（总记录/预计强匹配/预计人工确认/预计未匹配）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "accountMapping": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "default": {}
+                  },
+                  "platformMapping": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "default": {}
+                  },
+                  "timezoneOffsetMinutes": {
+                    "type": "integer",
+                    "minimum": -720,
+                    "maximum": 840,
+                    "default": 480
+                  },
+                  "publishTimeToleranceMinutes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1440,
+                    "default": 5
+                  },
+                  "titleNormalization": {
+                    "type": "object",
+                    "properties": {
+                      "stripEmoji": {
+                        "type": "boolean"
+                      },
+                      "stripHashtag": {
+                        "type": "boolean"
+                      },
+                      "collapseWhitespace": {
+                        "type": "boolean"
+                      },
+                      "toLowercase": {
+                        "type": "boolean"
+                      },
+                      "fullToHalfWidth": {
+                        "type": "boolean"
+                      }
+                    },
+                    "default": {
+                      "stripEmoji": true,
+                      "stripHashtag": true,
+                      "collapseWhitespace": true,
+                      "toLowercase": true,
+                      "fullToHalfWidth": true
+                    },
+                    "required": [
+                      "stripEmoji",
+                      "stripHashtag",
+                      "collapseWhitespace",
+                      "toLowercase",
+                      "fullToHalfWidth"
+                    ]
+                  },
+                  "titleSimilarityThreshold": {
+                    "type": "number",
+                    "minimum": 0.5,
+                    "maximum": 1,
+                    "default": 0.9
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "规则已保存 + 预估",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "dataGranularity": {
+                      "type": "string",
+                      "enum": [
+                        "work_level_strong",
+                        "work_level_weak",
+                        "account_day_level"
+                      ]
+                    },
+                    "estimate": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "number"
+                        },
+                        "expectStrongMatch": {
+                          "type": "number"
+                        },
+                        "expectManualConfirm": {
+                          "type": "number"
+                        },
+                        "expectUnmatched": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "expectStrongMatch",
+                        "expectManualConfirm",
+                        "expectUnmatched"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "dataGranularity",
+                    "estimate"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "批次不存在"
+          },
+          "409": {
+            "description": "请先在 STEP1 确认数据粒度"
+          },
+          "500": {
+            "description": "保存失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/prematch": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "prematchAnalyticsImportBatch",
+        "summary": "执行预匹配（确定性规则引擎，零 LLM；force=true 为「重新执行匹配」）",
+        "description": "存在人工裁决时未带 force 返回 409 needs_confirmation（重匹配会清空人工裁决，必须显式确认）。账号日级批次不产候选，全部行直接终态。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "force": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "匹配完成 + 五类统计",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "stats": {
+                      "type": "object",
+                      "properties": {
+                        "uniqueMatch": {
+                          "type": "number"
+                        },
+                        "conflict": {
+                          "type": "number"
+                        },
+                        "unmatched": {
+                          "type": "number"
+                        },
+                        "accountDayLevel": {
+                          "type": "number"
+                        },
+                        "confirmed": {
+                          "type": "number"
+                        },
+                        "ignored": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "uniqueMatch",
+                        "conflict",
+                        "unmatched",
+                        "accountDayLevel",
+                        "confirmed",
+                        "ignored"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "stats"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "批次不存在"
+          },
+          "409": {
+            "description": "状态不允许 / 需确认清空人工裁决"
+          },
+          "500": {
+            "description": "匹配失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/rows": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsImportRows",
+        "summary": "STEP3 主列表：导入侧+匹配侧+状态+依据摘要（分页/状态筛选/关键词）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "required": false,
+            "name": "keyword",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "required": false,
+            "name": "pageSize",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "分页行列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "rowId": {
+                            "type": "number"
+                          },
+                          "rowNumber": {
+                            "type": "number"
+                          },
+                          "imported": {
+                            "type": "object",
+                            "properties": {
+                              "date": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "platform": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "account": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "title": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "platformWorkId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "views": {
+                                "type": "string",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "date",
+                              "platform",
+                              "account",
+                              "title",
+                              "platformWorkId",
+                              "views"
+                            ]
+                          },
+                          "matched": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "videoId": {
+                                "type": "string"
+                              },
+                              "videoTitle": {
+                                "type": "string"
+                              },
+                              "coverUrl": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "publishTime": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "durationSec": {
+                                "type": "number",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "videoId",
+                              "videoTitle",
+                              "coverUrl",
+                              "publishTime",
+                              "durationSec"
+                            ]
+                          },
+                          "matchStatus": {
+                            "type": "string",
+                            "enum": [
+                              "unique_match",
+                              "conflict",
+                              "unmatched",
+                              "account_day_level",
+                              "confirmed",
+                              "ignored"
+                            ]
+                          },
+                          "decisionType": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "matchMethod": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "candidateCount": {
+                            "type": "number"
+                          },
+                          "evidenceSummary": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "rowId",
+                          "rowNumber",
+                          "imported",
+                          "matched",
+                          "matchStatus",
+                          "decisionType",
+                          "matchMethod",
+                          "candidateCount",
+                          "evidenceSummary"
+                        ]
+                      }
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "total"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/rows/{rowId}": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsImportRowDetail",
+        "summary": "行详情：全部候选+结构化匹配证据（evidence，禁止裸置信度）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "required": true,
+            "name": "rowId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "行详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "number"
+                        },
+                        "rowNumber": {
+                          "type": "number"
+                        },
+                        "matchStatus": {
+                          "type": "string",
+                          "enum": [
+                            "unique_match",
+                            "conflict",
+                            "unmatched",
+                            "account_day_level",
+                            "confirmed",
+                            "ignored"
+                          ]
+                        },
+                        "dataGranularity": {
+                          "type": "string",
+                          "enum": [
+                            "work_level_strong",
+                            "work_level_weak",
+                            "account_day_level"
+                          ]
+                        },
+                        "rawData": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "normalized": {
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "rowNumber",
+                        "matchStatus",
+                        "dataGranularity",
+                        "rawData"
+                      ]
+                    },
+                    "decision": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "matchStatus": {
+                          "type": "string",
+                          "enum": [
+                            "unique_match",
+                            "conflict",
+                            "unmatched",
+                            "account_day_level",
+                            "confirmed",
+                            "ignored"
+                          ]
+                        },
+                        "matchedVideoId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "decisionType": {
+                          "type": "string"
+                        },
+                        "operator": {
+                          "type": "string"
+                        },
+                        "confirmedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "metadata": {
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "matchStatus",
+                        "matchedVideoId",
+                        "decisionType",
+                        "operator",
+                        "confirmedAt"
+                      ]
+                    },
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "videoId": {
+                            "type": "string"
+                          },
+                          "matchMethod": {
+                            "type": "string",
+                            "enum": [
+                              "platform_work_id_exact",
+                              "work_url_id",
+                              "title_exact_plus_time",
+                              "account_publish_time",
+                              "account_date_title",
+                              "account_date_title_duration"
+                            ]
+                          },
+                          "matchScore": {
+                            "type": "number"
+                          },
+                          "rank": {
+                            "type": "number"
+                          },
+                          "evidence": {
+                            "nullable": true
+                          },
+                          "video": {
+                            "type": "object",
+                            "nullable": true,
+                            "properties": {
+                              "videoId": {
+                                "type": "string"
+                              },
+                              "videoTitle": {
+                                "type": "string"
+                              },
+                              "coverUrl": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "publishTime": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "durationSec": {
+                                "type": "number",
+                                "nullable": true
+                              }
+                            },
+                            "required": [
+                              "videoId",
+                              "videoTitle",
+                              "coverUrl",
+                              "publishTime",
+                              "durationSec"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "videoId",
+                          "matchMethod",
+                          "matchScore",
+                          "rank",
+                          "video"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "decision",
+                    "candidates"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "行不存在或不属于该批次"
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/decisions": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "decideAnalyticsImportRows",
+        "summary": "批量裁决：confirm(唯一匹配一键确认)/assign(选择或搜索绑定)/ignore/external/account_day/reset",
+        "description": "confirm 只接受 unique_match 行（含 allUnique 全量模式）；CONFLICT 必须 assign 显式指定视频，系统绝不自动选最高分；账号日级行 assign 直接 400（红线：禁止归属到单个视频）；external 行不落任何作品指标。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "confirm"
+                        ]
+                      },
+                      "rowIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "minItems": 1,
+                        "maxItems": 5000
+                      },
+                      "allUnique": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "assign"
+                        ]
+                      },
+                      "rowId": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "videoId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "rowId",
+                      "videoId"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "ignore"
+                        ]
+                      },
+                      "rowIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "minItems": 1,
+                        "maxItems": 5000
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "rowIds"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "external"
+                        ]
+                      },
+                      "rowIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "minItems": 1,
+                        "maxItems": 5000
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "rowIds"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "account_day"
+                        ]
+                      },
+                      "rowIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "minItems": 1,
+                        "maxItems": 5000
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "rowIds"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "action": {
+                        "type": "string",
+                        "enum": [
+                          "reset"
+                        ]
+                      },
+                      "rowIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "minItems": 1,
+                        "maxItems": 5000
+                      }
+                    },
+                    "required": [
+                      "action",
+                      "rowIds"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "裁决成功 + 最新统计",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "affected": {
+                      "type": "number"
+                    },
+                    "stats": {
+                      "type": "object",
+                      "properties": {
+                        "uniqueMatch": {
+                          "type": "number"
+                        },
+                        "conflict": {
+                          "type": "number"
+                        },
+                        "unmatched": {
+                          "type": "number"
+                        },
+                        "accountDayLevel": {
+                          "type": "number"
+                        },
+                        "confirmed": {
+                          "type": "number"
+                        },
+                        "ignored": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "uniqueMatch",
+                        "conflict",
+                        "unmatched",
+                        "accountDayLevel",
+                        "confirmed",
+                        "ignored"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "affected",
+                    "stats"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "账号日级禁止归属 / confirm 含非唯一匹配行 / 目标视频不存在"
+          },
+          "404": {
+            "description": "批次或行不存在"
+          },
+          "409": {
+            "description": "批次状态不允许裁决"
+          },
+          "500": {
+            "description": "操作失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/preflight": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "preflightAnalyticsImportBatch",
+        "summary": "提交前十项校验报告（重复导入/未处理冲突/非法数值等，blocking 未清零禁止提交）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "校验报告（pass=false 时含 blocking 清单）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pass": {
+                      "type": "boolean"
+                    },
+                    "checks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "number"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "pass",
+                              "warning",
+                              "blocking"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "rowIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "level",
+                          "message",
+                          "rowIds"
+                        ]
+                      }
+                    },
+                    "counts": {
+                      "type": "object",
+                      "properties": {
+                        "workLevel": {
+                          "type": "number"
+                        },
+                        "accountDayLevel": {
+                          "type": "number"
+                        },
+                        "ignored": {
+                          "type": "number"
+                        },
+                        "external": {
+                          "type": "number"
+                        },
+                        "pendingUnique": {
+                          "type": "number"
+                        },
+                        "pendingConflict": {
+                          "type": "number"
+                        },
+                        "pendingUnmatched": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "workLevel",
+                        "accountDayLevel",
+                        "ignored",
+                        "external",
+                        "pendingUnique",
+                        "pendingConflict",
+                        "pendingUnmatched"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "pass",
+                    "checks",
+                    "counts"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "批次不存在"
+          },
+          "500": {
+            "description": "校验失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/commit": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "commitAnalyticsImportBatch",
+        "summary": "确认导入：作品级写 video_metrics（复用单一口径+派生重算），账号级写 creator_metric_daily",
+        "description": "服务端不信任前端态：提交前重跑十项校验，不过一律 409 PREFLIGHT_FAILED 携报告；落库记录 metadata.batch_id 溯源，commit_preimage 快照支持整批回滚；禁止直写 video_analytics。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "提交成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "workLevel": {
+                          "type": "number"
+                        },
+                        "accountDayLevel": {
+                          "type": "number"
+                        },
+                        "ignored": {
+                          "type": "number"
+                        },
+                        "external": {
+                          "type": "number"
+                        },
+                        "skippedRows": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rowNumber": {
+                                "type": "number"
+                              },
+                              "reason": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "rowNumber",
+                              "reason"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "workLevel",
+                        "accountDayLevel",
+                        "ignored",
+                        "external",
+                        "skippedRows"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "summary"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "批次不存在"
+          },
+          "409": {
+            "description": "校验未通过（携完整报告）"
+          },
+          "500": {
+            "description": "提交失败（事务整体回滚，可修正后重试）"
+          }
+        }
+      }
+    },
+    "/api/analytics/import-batches/{batchId}/rollback": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "rollbackAnalyticsImportBatch",
+        "summary": "回滚已提交批次：按 commit_preimage 精确恢复受影响记录（含派生行），导入可追溯可撤销",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "batchId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "回滚成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "records": {
+                      "type": "number"
+                    },
+                    "creatorDailyKeys": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "records",
+                    "creatorDailyKeys"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "批次不存在"
+          },
+          "409": {
+            "description": "批次未提交 / 缺少回滚快照"
+          },
+          "500": {
+            "description": "回滚失败"
           }
         }
       }
