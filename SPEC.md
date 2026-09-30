@@ -593,7 +593,7 @@ POST /api/llm/sleep
 
 **`POST /api/llm/sleep`** — 一键关闭（wake 的镜像操作，`sleepEngine()`）：即时返回后走 SSE `phase=stopping` → 本机端点（localhost / 127.0.0.1 / host.docker.internal）先 `POST {host}/api/generate {model, keep_alive:0}` 卸载模型，再 `brew services stop ollama`（幂等；容器内无 brew/非 brew 安装失败仅记 warn 不阻断）→ 回探一次。回探红灯=完全停止（成功终态），仍连但 `loaded=false`=只卸载未停服务（`notice` 降级提示），`loaded=true`=关闭失败（`error`）。前端仅在就绪/待机态露出关闭按钮，首次点击武装（确认关闭？，3s 无操作自动取消）防误触。
 
-### 5.6 视频数据分析 API（Phase 1~4 + Phase 6 全链路，2026-09-24 新增；同日砍除抖音开放平台通道并落地导入向导；2026-09-26 审查修正批次 1/3/5，现 22 路径 28 操作）
+### 5.6 视频数据分析 API（Phase 1~4 + Phase 6 全链路，2026-09-24 新增；同日砍除 抖音开放平台通道并落地导入向导；2026-09-26 审查修正批次 1/3/5；2026-09-28 四步精准匹配导入上线替代旧逐行向导，现 33 路径 41 操作）
 
 > 模块需求源与完整设计见 docs/17_视频数据分析模块设计.md；本节为契约摘要。实现在 `routes/analytics.ts`（批次 5C 已按领域拆分为 `routes/analytics/{records,import,features,dashboard,insights}.ts`，共用实例组合导出，对外路径/operationId 不变；服务 `analytics-metrics.service` / `analytics-feature.service`，领域目录 `lib/analytics-taxonomy.ts`）。
 
@@ -648,6 +648,11 @@ PATCH  /api/analytics/experiments/{experimentId}/status   状态流转（complet
 **Phase 6 内容实验**：`experiments` 表（§八.9，migration 0010）= 一个变量 × 两变体（各挂 contentIds）+ 控制变量 + 目标指标；`POST /experiments/{id}/evaluate` 用发布指标做分组描述统计（model_version=ab-descriptive-v1）：任一组样本 <8 → lowSample 且 verdict 只给「不构成结论」；缺指标不补 0（无数据时 verdict=无法评估）；completed 仅由 evaluate 写入（状态 PATCH 拒绝手改结论态）；结论恒附相关≠因果声明。前端 `/insights/experiments`（登记表单两组内容多选 + 冲突即时拦截 + 评估卡片）。Phase 5（停留/完播/涨粉模型 + SHAP）按文档门槛在数据量达标后启动，不提前实现。
 
 **数据源 Adapter**（需求 §二十三）：`AnalyticsDataProvider` 接口统一映射到平台 Domain Model，业务层不依赖抖音 Response DTO；`douyinOpenApiProvider` 为未接入占位（`isAvailable()=false`，sync 诚实返回 501 `DATA_SOURCE_NOT_CONFIGURED`）。
+
+**四步精准匹配导入（2026-09-28，`routes/analytics/import-batches.ts`，11 路径 13 操作）**：平台导出数据（抖音/快手/视频号…）经中间层四表（import_batch/import_row/match_candidate/match_decision，migration 0008）与作品建立一一对应，「系统自动完成确定性匹配，用户只处理异常」。
+- 端点：`POST/GET /import-batches`（创建即服务端字段识别 12 角色 + 粒度三态判定 work_level_strong/weak/account_day_level，判定依据可解释；同 file_hash 已提交 → 409 重复拦截）· `GET/DELETE /import-batches/{id}`（刷新恢复/未提交可删）· `POST .../confirm-granularity`（只允许降级，账号日级升格 400）· `PUT .../rules`（账号/平台映射、时区、发布时间容差、标题标准化 5 开关、相似度阈值 + dry-run 四类预估）· `POST .../prematch`（确定性引擎零 LLM；有人工裁决未 force → 409 needs_confirmation）· `GET .../rows`（分页/状态筛选/关键词）· `GET .../rows/{rowId}`（候选+结构化 evidence）· `POST .../decisions`（confirm/assign/ignore/external/account_day/reset 批量裁决；账号日级行 assign → 400 红线）· `POST .../preflight`（十项校验，③重复导入/④未处理冲突/⑨非法数值/⑩重复提交阻断）· `POST .../commit`（服务端重验 preflight 不过 409 携报告；单事务写 video_metrics/creator_metric_daily 复用单一口径，metadata.batch_id 溯源，commit_preimage 快照）· `POST .../rollback`（按 preimage 精确恢复，含派生行与每日快照）。
+- 匹配优先级固定（`lib/import-matcher.ts` 纯函数）：作品 ID 精确 > URL 解析 ID > 账号+发布时间容差 > 账号+日+标题相似（编辑距离口径）> +时长辅助；强证据（方法1/2）单候选才 unique_match 可批量确认，弱证据单候选一律 conflict（已裁决）；未绑定作品 ID 的发布记录不参与自动匹配仅可人工绑定；每候选必存 evidence（禁裸置信度）。
+- 前端 `/insights/import` 四步工作台（导入数据→匹配规则→匹配校验→提交落库）：统计卡筛选/批量操作/高密度表/右侧详情证据 checklist；旧逐行下拉框向导（analytics-import-wizard.vue）已删除，`/insights/data` 保留发布记录绑定 + 入口卡；`POST /import`、`POST /creator-daily/import` 后端端点保留（已发布契约）。
 
 **错误信封**：非 2xx 统一 `{ error: { code, message, ... } }`（DX-1，lib/api-error）。
 
@@ -965,7 +970,23 @@ Production Feature 落库（需求 §五A）：生产可直取字段从 ContentD
 
 ### 10.13 内容实验表：experiments（Phase 6，migration 0010）
 
-§八.9 预留实体落地：`id`（exp_前缀）/ `variable`（实验变量白名单）/ `variant_a`、`variant_b` JSON `{label, contentIds[]}`（两组不相交）/ `control_variables` JSON / `target_metric`（canonical，默认 completion_rate）/ `start_at`、`end_at` DATETIME / `status` ENUM(draft/running/completed/cancelled) / `result` JSON（评估快照：medianA/B、diff、sampleA/B、lowSample、verdict、note、model_version）/ created_at、updated_at；索引 status。
+§八.9 预留实体落地：`id`（exp_前缀）/ `variable`（实验变量白名单）/ `variant_a` 、`variant_b` JSON `{label, contentIds[]}`（两组不相交）/ `control_variables` JSON / `target_metric`（canonical，默认 completion_rate）/ `start_at`、`end_at` DATETIME / `status` ENUM(draft/running/completed/cancelled) / `result` JSON（评估 快照：medianA/B、diff、sampleA/B、lowSample、verdict、note、model_version）/ created_at、updated_at；索引 status。
+
+### 10.14 导入批次表：import_batch（四步精准匹配，migration 0008）
+
+`id`（imp_前缀）/ `filename`、`file_size`、`file_hash`（sha256，重复导入检测，索引）/ `platform`（批次声明，自由文本同 publish_records 口径）/ `row_count` / `data_granularity` ENUM(work_level_strong/work_level_weak/account_day_level) / `granularity_evidence` JSON（判定依据可解释）/ `headers`、`field_detection` JSON / `match_rules` JSON（STEP2 快照）/ `status` ENUM(draft→granularity_confirmed→rules_set→prematched→preflight_ok→committed→rolled_back，另有 cancelled) / `commit_summary`、`commit_preimage` JSON（回滚依据）/ created_at、completed_at。
+
+### 10.15 导入行表：import_row（migration 0008）
+
+`id` 自增 PK / `batch_id` FK(cascade) / `row_number`（1-based，UNIQUE(batch_id,row_number)）/ `raw_data` JSON（原始整行，**永久保留永不删改**）/ `normalized_data` JSON（字段识别后标准数据）/ `data_granularity` ENUM / `match_status` ENUM(unique_match/conflict/unmatched/account_day_level/confirmed/ignored，六态禁增) / `validation_status` ENUM(pending/ok/warning/error，preflight 行级结果)；索引 (batch_id, match_status)。
+
+### 10.16 匹配候选表：match_candidate（migration 0008）
+
+`id` 自增 PK / `import_row_id` FK(cascade) / `video_id` FK→publish_records.id(cascade)（一个 import_row 可多候选）/ `match_method` ENUM(platform_work_id_exact/work_url_id/account_publish_time/account_date_title/account_date_title_duration) / `match_score` FLOAT / `evidence` JSON（结构化必存，禁裸分数）/ `rank`（1=最强）；UNIQUE(import_row_id,video_id)。
+
+### 10.17 匹配裁决表：match_decision（migration 0008）
+
+`import_row_id` PK FK(cascade)（一行一决定）/ `batch_id` FK / `match_status` 同六态 / `matched_video_id`（无 FK：发布记录删除不抹裁决历史，提交时服务端校验存在性）/ `match_method`、`confidence` / `decision_type` ENUM(system_auto/operator_confirm/operator_assign/operator_external/operator_account_day/operator_ignore) / `operator`（本机无认证固定 local，字段留位）/ `confirmed_at` / `metadata` JSON（external 留档、系统建议态回退依据）。
 
 ---
 
