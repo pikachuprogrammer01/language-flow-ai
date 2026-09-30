@@ -1,23 +1,22 @@
 <script setup lang="ts">
+import { FileSpreadsheet } from "lucide-vue-next";
 /**
- * 数据接入（/insights/data）— 发布记录绑定 + 导入向导（四步：表格→映射→匹配确认→落库）
- * 抖音官方 API 通道已砍除（无企业资质）：本页即外部绩效数据唯一入口（需求 §二十二 真实性约束）
+ * 数据接入（/insights/data）— 发布记录绑定（统一 ID 链路）+ 四步精准匹配导入入口
+ * 抖音官方 API 通道已砍除（无企业资质）：导入是外部绩效数据唯一入口（需求 §二十二 真实性约束）
+ * 旧逐行下拉框向导已由 /insights/import 四步精准匹配工作台替代（确定性匹配 + 异常人工裁决）
  * 交互组件全部走 reka-ui 底座（Select/Dialog/ConfirmDialog），不使用浏览器原生 select/dialog/alert
  */
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import {
-  type CreatorDailyFieldEntry,
-  type MetricCatalogEntry,
   type PublishRecordInput,
   type PublishRecordView,
   createAnalyticsPublishRecord,
   deleteAnalyticsPublishRecord,
-  getAnalyticsMetricCatalog,
   listAnalyticsPublishRecords,
   listTasks,
   updateAnalyticsPublishRecord,
 } from "../api/client";
-import AnalyticsImportWizard from "../components/analytics-import-wizard.vue";
 import Button from "../components/ui/button.vue";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 import DataTable from "../components/ui/data-table.vue";
@@ -188,20 +187,12 @@ async function confirmDeleteRecord(): Promise<void> {
   }
 }
 
-// ── 导入向导（目录驱动，向导组件自持四步状态） ──
+// ── 导入入口：四步精准匹配工作台（批次 H2：旧逐行向导已删除） ──
 
-const catalog = ref<MetricCatalogEntry[]>([]);
-const creatorDailyFields = ref<CreatorDailyFieldEntry[]>([]);
+const router = useRouter();
 
 onMounted(async () => {
   await Promise.all([loadRecords(), loadVideoOptions()]);
-  try {
-    const data = await getAnalyticsMetricCatalog();
-    catalog.value = data.metrics;
-    creatorDailyFields.value = data.creatorDailyFields;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : "指标目录加载失败，映射选项不可用");
-  }
 });
 </script>
 
@@ -267,15 +258,24 @@ onMounted(async () => {
       </DataTable>
     </section>
 
-    <!-- ── 导入向导（四步：逐视频 / 账号日汇总双路径，xlsx 文件或粘贴） ── -->
+    <!-- ── 数据导入入口：四步精准匹配工作台 ── -->
     <section>
       <h2 class="mb-2.5 text-[17px] font-bold">数据导入（创作者后台导出）</h2>
-      <AnalyticsImportWizard
-        :records="records"
-        :catalog="catalog"
-        :creator-daily-fields="creatorDailyFields"
-        @imported="loadRecords"
-      />
+      <button
+        class="flex w-full cursor-pointer items-center gap-4 rounded-2xl border border-hairline bg-panel px-5 py-4 text-left transition-colors hover:border-brand/50"
+        data-testid="goto-import"
+        @click="router.push('/insights/import')"
+      >
+        <FileSpreadsheet class="h-9 w-9 shrink-0 text-brand" aria-hidden="true" />
+        <span class="min-w-0 flex-1">
+          <span class="block text-[14px] font-bold">四步精准匹配导入工作台</span>
+          <span class="block text-xs leading-relaxed text-subtle">
+            导入数据 → 匹配规则 → 匹配校验 → 提交落库：系统自动完成确定性匹配，用户只处理异常；
+            账号日汇总绝不归属到单个作品；批次可追溯、可回滚。
+          </span>
+        </span>
+        <span class="shrink-0 text-sm font-medium text-brand">前往导入 →</span>
+      </button>
     </section>
 
     <!-- 发布记录表单（reka-ui Dialog，非原生） -->

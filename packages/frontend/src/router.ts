@@ -7,6 +7,7 @@ import Files from "./views/Files.vue";
 import InsightsData from "./views/InsightsData.vue";
 import InsightsExperiments from "./views/InsightsExperiments.vue";
 import InsightsFactors from "./views/InsightsFactors.vue";
+import InsightsImport from "./views/InsightsImport.vue";
 import InsightsOverview from "./views/InsightsOverview.vue";
 import InsightsVideoDetail from "./views/InsightsVideoDetail.vue";
 import InsightsVideos from "./views/InsightsVideos.vue";
@@ -43,6 +44,12 @@ const routes = [
     name: "insights-data",
     component: InsightsData,
     meta: { title: "数据接入" },
+  },
+  {
+    path: "/insights/import",
+    name: "insights-import",
+    component: InsightsImport,
+    meta: { title: "数据导入" },
   },
   {
     path: "/insights/videos",

@@ -4,6 +4,7 @@
 import {
   Activity,
   ArrowLeft,
+  FileDown,
   FolderOpen,
   History,
   LayoutDashboard,
@@ -75,15 +76,20 @@ const NAV_GROUPS: {
     label: "运营与系统",
     items: [
       { path: "/insights", label: "数据分析", icon: TrendingUp },
+      { path: "/insights/import", label: "数据导入", icon: FileDown },
       { path: "/marks", label: "上传标记", icon: SquareCheck },
       { path: "/audit", label: "审计管理", icon: Activity },
     ],
   },
 ];
 
-/** 侧边栏导航激活：工作台精确匹配，其余路径前缀匹配（详情页也高亮记录入口） */
+/** 侧边栏导航激活：工作台精确匹配，其余最长前缀匹配（数据导入不被数据分析吞并高亮） */
 function isActive(item: { path: string; exact?: boolean }): boolean {
-  return item.exact ? route.path === "/" : route.path.startsWith(item.path);
+  if (item.exact) return route.path === "/";
+  const all = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.path));
+  const matched = all.filter((p) => route.path.startsWith(p));
+  const longest = matched.sort((a, b) => b.length - a.length)[0];
+  return longest === item.path;
 }
 
 /** 侧边栏点击：「新建视频」走创建会话分流（busy 确认放弃 / done 重新创建），其余正常导航 */

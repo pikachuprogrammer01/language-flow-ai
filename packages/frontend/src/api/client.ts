@@ -929,7 +929,13 @@ export interface PublishRecordView {
 }
 
 export async function listAnalyticsPublishRecords(
-  params: { platform?: string; contentId?: string; page?: number; pageSize?: number } = {},
+  params: {
+    platform?: string;
+    contentId?: string;
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
 ): Promise<{ items: PublishRecordView[]; total: number }> {
   const { data, error, response } = await client.GET("/api/analytics/publish-records", {
     params: { query: { pageSize: 100, ...params } },
@@ -1093,4 +1099,428 @@ export async function importAnalyticsCreatorDaily(input: {
     results: CreatorDailyImportRowResult[];
     summary: { total: number; succeeded: number; failed: number; batchId: string };
   };
+}
+
+// ══ 平台数据导入 · 四步精准匹配（import-batches）══
+
+/** 结构化错误信封提取：{error:{code,message}} 优先 message，兼容旧 {error:"..."} */
+function envelopeMessage(
+  error: { error?: unknown } | undefined,
+  response: Response,
+): { message: string; code: string } {
+  const env = error?.error;
+  if (typeof env === "string") return { message: env, code: "ERROR" };
+  if (env && typeof env === "object") {
+    const e = env as { code?: string; message?: string };
+    return { message: e.message ?? `HTTP ${response.status}`, code: e.code ?? "ERROR" };
+  }
+  return { message: `HTTP ${response.status}`, code: "ERROR" };
+}
+
+export type ImportGranularity = "work_level_strong" | "work_level_weak" | "account_day_level";
+export type ImportRowStatus =
+  | "unique_match"
+  | "conflict"
+  | "unmatched"
+  | "account_day_level"
+  | "confirmed"
+  | "ignored";
+
+export interface ImportFieldDetectionEntry {
+  col: number;
+  header: string;
+  role: string | null;
+  sample: string;
+}
+
+export interface ImportGranularityEvidence {
+  note: string;
+  idColumn: string | null;
+  urlColumn: string | null;
+  idNonEmptyRatio: number;
+  urlNonEmptyRatio: number;
+  hasTitle: boolean;
+  hasPublishTime: boolean;
+  hasWorkDimension: boolean;
+  threshold: number;
+}
+
+export interface ImportBatchStats {
+  uniqueMatch: number;
+  conflict: number;
+  unmatched: number;
+  accountDayLevel: number;
+  confirmed: number;
+  ignored: number;
+}
+
+export interface ImportBatchView {
+  id: string;
+  filename: string;
+  fileSize: number;
+  fileHash: string;
+  platform: string;
+  rowCount: number;
+  dataGranularity: ImportGranularity;
+  granularityEvidence: ImportGranularityEvidence;
+  headers: string[];
+  fieldDetection: ImportFieldDetectionEntry[];
+  matchRules: ImportRulesPayload | null;
+  status: string;
+  stats: ImportBatchStats;
+  /** 概要统计（账号数量/日期范围，服务端聚合，刷新后仍在） */
+  summary: {
+    rowCount: number;
+    accountCount: number;
+    dateFrom: string | null;
+    dateTo: string | null;
+  };
+  commitSummary: unknown;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface ImportRulesPayload {
+  accountMapping: Record<string, string>;
+  platformMapping: Record<string, string>;
+  timezoneOffsetMinutes: number;
+  publishTimeToleranceMinutes: number;
+  titleNormalization: {
+    stripEmoji: boolean;
+    stripHashtag: boolean;
+    collapseWhitespace: boolean;
+    toLowercase: boolean;
+    fullToHalfWidth: boolean;
+  };
+  titleSimilarityThreshold: number;
+}
+
+export interface ImportCreateResult {
+  batchId: string;
+  dataGranularity: ImportGranularity;
+  granularityEvidence: ImportGranularityEvidence;
+  fieldDetection: ImportFieldDetectionEntry[];
+  summary: {
+    rowCount: number;
+    accountCount: number;
+    dateFrom: string | null;
+    dateTo: string | null;
+  };
+  preview: string[][];
+}
+
+export async function createImportBatch(input: {
+  filename: string;
+  fileSize: number;
+  fileHash: string;
+  platform: string;
+  headers: string[];
+  rows: string[][];
+  fieldOverride?: Record<string, string | null>;
+}): Promise<ImportCreateResult> {
+  const { data, error, response } = await client.POST("/api/analytics/import-batches", {
+    // role 字符串已由后端 zod 枚举校验
+    body: input as never,
+  });
+  if (error || !data)
+    throw new Error(`创建导入批次失败：${envelopeMessage(error, response).message}`);
+  return data as ImportCreateResult;
+}
+
+/** 一键导入（合集快速模式）：零异常自动入库；有异常整批不入库返回批次号转四步；账号日汇总拒绝 */
+export type QuickImportResult =
+  | { mode: "committed"; batchId: string; summary: ImportCommitSummary }
+  | { mode: "manual_required"; batchId: string; stats: ImportBatchStats | null; reason: string }
+  | { mode: "account_day_denied"; batchId: string; reason: string };
+
+export async function quickImportBatch(input: {
+  filename: string;
+  fileSize: number;
+  fileHash: string;
+  platform: string;
+  headers: string[];
+  rows: string[][];
+}): Promise<QuickImportResult> {
+  const { data, error, response } = await client.POST("/api/analytics/import-batches/quick", {
+    body: input,
+  });
+  if (error || !data) throw new Error(`一键导入失败：${envelopeMessage(error, response).message}`);
+  return data as unknown as QuickImportResult;
+}
+
+export async function listImportBatches(): Promise<ImportBatchView[]> {
+  const { data, error, response } = await client.GET("/api/analytics/import-batches");
+  if (error || !data)
+    throw new Error(`查询批次列表失败：${envelopeMessage(error, response).message}`);
+  return data.items as unknown as ImportBatchView[];
+}
+
+export async function getImportBatch(batchId: string): Promise<ImportBatchView> {
+  const { data, error, response } = await client.GET("/api/analytics/import-batches/{batchId}", {
+    params: { path: { batchId } },
+  });
+  if (error || !data) throw new Error(`查询批次失败：${envelopeMessage(error, response).message}`);
+  return data as unknown as ImportBatchView;
+}
+
+export async function deleteImportBatch(batchId: string): Promise<void> {
+  const { error, response } = await client.DELETE("/api/analytics/import-batches/{batchId}", {
+    params: { path: { batchId } },
+  });
+  if (error || !response.ok)
+    throw new Error(`删除批次失败：${envelopeMessage(error, response).message}`);
+}
+
+export async function confirmImportGranularity(
+  batchId: string,
+  granularity: ImportGranularity,
+): Promise<void> {
+  const { error, response } = await client.POST(
+    "/api/analytics/import-batches/{batchId}/confirm-granularity",
+    { params: { path: { batchId } }, body: { granularity } },
+  );
+  if (error || !response.ok)
+    throw new Error(`粒度确认失败：${envelopeMessage(error, response).message}`);
+}
+
+export interface ImportEstimate {
+  total: number;
+  expectStrongMatch: number;
+  expectManualConfirm: number;
+  expectUnmatched: number;
+}
+
+export async function saveImportRules(
+  batchId: string,
+  rules: ImportRulesPayload,
+): Promise<{ dataGranularity: ImportGranularity; estimate: ImportEstimate }> {
+  const { data, error, response } = await client.PUT(
+    "/api/analytics/import-batches/{batchId}/rules",
+    { params: { path: { batchId } }, body: rules },
+  );
+  if (error || !data) throw new Error(`规则保存失败：${envelopeMessage(error, response).message}`);
+  return data as { dataGranularity: ImportGranularity; estimate: ImportEstimate };
+}
+
+/** 预匹配；force=true 为「重新执行匹配」。存在人工裁决且未 force 时抛 needs_confirmation（调用方弹二次确认） */
+export async function prematchImportBatch(
+  batchId: string,
+  force = false,
+): Promise<ImportBatchStats> {
+  const { data, error, response } = await client.POST(
+    "/api/analytics/import-batches/{batchId}/prematch",
+    { params: { path: { batchId } }, body: { force } },
+  );
+  if (response.status === 409 && error) {
+    const env = envelopeMessage(error, response);
+    if (env.code === "NEEDS_CONFIRMATION") {
+      const err = new Error(env.message) as Error & { code?: string };
+      err.code = "NEEDS_CONFIRMATION";
+      throw err;
+    }
+  }
+  if (error || !data) throw new Error(`预匹配失败：${envelopeMessage(error, response).message}`);
+  return data.stats as ImportBatchStats;
+}
+
+export interface ImportRowListItem {
+  rowId: number;
+  rowNumber: number;
+  imported: {
+    date: string | null;
+    platform: string | null;
+    account: string | null;
+    title: string | null;
+    platformWorkId: string | null;
+    views: string | null;
+  };
+  matched: {
+    videoId: string;
+    videoTitle: string;
+    coverUrl: string | null;
+    publishTime: string | null;
+    durationSec: number | null;
+  } | null;
+  matchStatus: ImportRowStatus;
+  decisionType: string | null;
+  matchMethod: string | null;
+  candidateCount: number;
+  evidenceSummary: string[];
+}
+
+export async function listImportRows(
+  batchId: string,
+  query: { status?: string; keyword?: string; page?: number; pageSize?: number },
+): Promise<{ items: ImportRowListItem[]; total: number }> {
+  const { data, error, response } = await client.GET(
+    "/api/analytics/import-batches/{batchId}/rows",
+    { params: { path: { batchId }, query: { page: 1, pageSize: 20, ...query } } },
+  );
+  if (error || !data)
+    throw new Error(`查询行列表失败：${envelopeMessage(error, response).message}`);
+  return data as { items: ImportRowListItem[]; total: number };
+}
+
+export interface ImportMatchEvidence {
+  platformWorkIdExact?: boolean;
+  workUrlIdExact?: boolean;
+  /** 双证据：标题标准化后完全一致（strict equal） */
+  titleExact?: boolean;
+  accountMapped?: boolean | null;
+  mappedAccount?: string | null;
+  platformMatched?: boolean;
+  publishTimeDiffSeconds?: number | null;
+  dateMatched?: boolean;
+  titleSimilarity?: number | null;
+  normalizedImportTitle?: string;
+  normalizedSystemTitle?: string;
+  durationDiffSeconds?: number | null;
+  workIdMissing?: boolean;
+}
+
+export interface ImportCandidate {
+  videoId: string;
+  matchMethod: string;
+  matchScore: number;
+  rank: number;
+  evidence: ImportMatchEvidence;
+  video: {
+    videoId: string;
+    videoTitle: string;
+    coverUrl: string | null;
+    publishTime: string | null;
+    durationSec: number | null;
+  } | null;
+}
+
+export interface ImportRowDetail {
+  row: {
+    id: number;
+    rowNumber: number;
+    matchStatus: ImportRowStatus;
+    dataGranularity: ImportGranularity;
+    rawData: Record<string, string>;
+    normalized: {
+      platformWorkId: string | null;
+      workUrl: string | null;
+      account: string | null;
+      publishTime: string | null;
+      date: string | null;
+      title: string | null;
+      durationSec: number | null;
+      platform: string | null;
+      metricHeaders: string[];
+      viewsHeader: string | null;
+    };
+  };
+  decision: {
+    matchStatus: ImportRowStatus;
+    matchedVideoId: string | null;
+    decisionType: string;
+    operator: string;
+    confirmedAt: string | null;
+    metadata: unknown;
+  } | null;
+  candidates: ImportCandidate[];
+}
+
+export async function getImportRowDetail(batchId: string, rowId: number): Promise<ImportRowDetail> {
+  const { data, error, response } = await client.GET(
+    "/api/analytics/import-batches/{batchId}/rows/{rowId}",
+    { params: { path: { batchId, rowId } } },
+  );
+  if (error || !data)
+    throw new Error(`查询行详情失败：${envelopeMessage(error, response).message}`);
+  return data as unknown as ImportRowDetail;
+}
+
+export type ImportDecisionAction =
+  | { action: "confirm"; rowIds?: number[]; allUnique?: boolean }
+  | { action: "assign"; rowId: number; videoId: string }
+  | { action: "ignore"; rowIds: number[] }
+  | { action: "external"; rowIds: number[] }
+  | { action: "account_day"; rowIds: number[] }
+  | { action: "reset"; rowIds: number[] };
+
+export async function decideImportRows(
+  batchId: string,
+  action: ImportDecisionAction,
+): Promise<{ affected: number; stats: ImportBatchStats }> {
+  const { data, error, response } = await client.POST(
+    "/api/analytics/import-batches/{batchId}/decisions",
+    // discriminated union 与生成类型同构
+    { params: { path: { batchId } }, body: action as never },
+  );
+  if (error || !data) throw new Error(`裁决失败：${envelopeMessage(error, response).message}`);
+  return data as { affected: number; stats: ImportBatchStats };
+}
+
+export interface PreflightCheck {
+  id: number;
+  name: string;
+  level: "pass" | "warning" | "blocking";
+  message: string;
+  rowIds: number[];
+}
+
+export interface PreflightCounts {
+  workLevel: number;
+  accountDayLevel: number;
+  ignored: number;
+  external: number;
+  pendingUnique: number;
+  pendingConflict: number;
+  pendingUnmatched: number;
+}
+
+export interface PreflightReport {
+  pass: boolean;
+  checks: PreflightCheck[];
+  counts: PreflightCounts;
+}
+
+export async function preflightImportBatch(batchId: string): Promise<PreflightReport> {
+  const { data, error, response } = await client.POST(
+    "/api/analytics/import-batches/{batchId}/preflight",
+    { params: { path: { batchId } } },
+  );
+  if (error || !data) throw new Error(`校验失败：${envelopeMessage(error, response).message}`);
+  return data as unknown as PreflightReport;
+}
+
+export interface ImportCommitSummary {
+  workLevel: number;
+  accountDayLevel: number;
+  ignored: number;
+  external: number;
+  skippedRows: { rowNumber: number; reason: string }[];
+}
+
+/** 提交；preflight 不过时抛携报告的错误（err.report 透出阻断清单） */
+export async function commitImportBatch(batchId: string): Promise<ImportCommitSummary> {
+  const { data, error, response } = await client.POST(
+    "/api/analytics/import-batches/{batchId}/commit",
+    { params: { path: { batchId } } },
+  );
+  if (response.status === 409 && error) {
+    const env = error as { error?: { code?: string; message?: string }; report?: PreflightReport };
+    if (env.error?.code === "PREFLIGHT_FAILED") {
+      const err = new Error(env.error.message ?? "提交前校验未通过") as Error & {
+        report?: PreflightReport;
+      };
+      err.report = env.report;
+      throw err;
+    }
+  }
+  if (error || !data) throw new Error(`提交失败：${envelopeMessage(error, response).message}`);
+  return data.summary as ImportCommitSummary;
+}
+
+export async function rollbackImportBatch(batchId: string): Promise<void> {
+  const { error, response } = await client.POST(
+    "/api/analytics/import-batches/{batchId}/rollback",
+    { params: { path: { batchId } } },
+  );
+  if (error || !response.ok)
+    throw new Error(`回滚失败：${envelopeMessage(error, response).message}`);
 }

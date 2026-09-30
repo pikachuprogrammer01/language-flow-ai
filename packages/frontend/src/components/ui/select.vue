@@ -23,6 +23,10 @@ export interface SelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  /** 下拉项缩略图（内容确认场景：封面图）；缺省或加载失败时退回纯文本展示 */
+  image?: string | null;
+  /** 下拉项副行提示（如模板类型），灰色小字 */
+  hint?: string | null;
 }
 
 const props = withDefaults(
@@ -87,7 +91,17 @@ function onUpdate(next: unknown): void {
             <SelectItemIndicator class="absolute left-1.5 inline-flex items-center">
               <Check class="h-3.5 w-3.5 text-brand" aria-hidden="true" />
             </SelectItemIndicator>
-            <SelectItemText>{{ opt.label }}</SelectItemText>
+            <img
+              v-if="opt.image"
+              :src="opt.image"
+              alt=""
+              class="h-8 w-14 shrink-0 rounded-md border border-hairline object-cover"
+              @error="($event.target as HTMLImageElement).style.display = 'none'"
+            />
+            <span class="min-w-0">
+              <SelectItemText>{{ opt.label }}</SelectItemText>
+              <span v-if="opt.hint" class="block truncate text-[11px] text-subtle">{{ opt.hint }}</span>
+            </span>
           </SelectItem>
         </SelectViewport>
       </SelectContent>
