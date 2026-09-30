@@ -39,7 +39,8 @@ test.describe("数据分析看板", () => {
     await expect(page.getByText("15,000").first()).toBeVisible();
     await expect(page.getByText("2秒有效观看").first()).toBeVisible();
     // 口径诚实（批次 1）：快手无比例→ 2秒阶段与播放覆盖不同，给「—」+原因，绝不出现 114% 类截断/硬算
-    await expect(page.getByText("覆盖 1/2 条记录").first()).toBeVisible();
+    // 覆盖计数随窗口内发布记录数变化（恢复真实数据后非 2），断言只钉「存在部分覆盖」语义不钉分母
+    await expect(page.getByText(/覆盖 1\/\d+ 条记录/).first()).toBeVisible();
     await expect(page.getByText("与上一阶段覆盖的记录不同，不计算逐级转化").first()).toBeVisible();
     await expect(page.getByText("114.0%")).toHaveCount(0);
     // 关注（账号级）移出观看漏斗链路，独立分区展示
@@ -83,8 +84,13 @@ test.describe("数据分析看板", () => {
     // 右：发布表现（12,000 播放 + 来源标签）与每日快照趋势（3 个快照日）
     await expect(page.getByText("12,000").first()).toBeVisible();
     await expect(page.getByText(/3 个快照日/).first()).toBeVisible();
-    // 同类 Benchmark 小样本必须给样本不足提示（需求 §十一 页面 D 纪律）
-    await expect(page.getByText("样本不足").first()).toBeVisible();
+    // 同类 Benchmark 样本量必须透明（需求 §十一）：小样本给「样本不足」横幅，达门槛给组内样本数+逐指标 n 标注
+    await expect(
+      page
+        .getByText("样本不足")
+        .or(page.getByText(/组内样本 \d+ 条/))
+        .first(),
+    ).toBeVisible();
     // 无秒级留存不造假曲线（需求 §二十二）
     await expect(page.getByRole("heading", { name: "秒级留存曲线为何不显示？" })).toBeVisible();
     expect(errors).toEqual([]);
@@ -125,8 +131,8 @@ test.describe("数据分析看板", () => {
     // 生成建议仅写 recommendations 派生表（测试栈隔离环境，幂等重建，非破坏性）
     await page.getByRole("button", { name: "按最新数据生成" }).click();
     await expect(page.getByText("继续导入创作者数据并标注场景/Hook")).toBeVisible();
-    // fixture 仅 2 样本：总样本不足横幅必须在位
-    await expect(page.getByText("总样本不足 8 条").first()).toBeVisible();
+    // 样本不足纪律（措辞随数据形态，只钉语义：无达门槛分组→不出参数建议）
+    await expect(page.getByText(/无分组达到最小样本量 8|总样本不足 8 条/).first()).toBeVisible();
     expect(errors).toEqual([]);
   });
 
@@ -183,77 +189,7 @@ test.describe("数据分析看板", () => {
     expect(errors).toEqual([]);
   });
 
-  test("导入向导 · 逐视频粘贴路径（预匹配→可匹配预览→提交成功）", async ({ page }) => {
-    const errors = trackPageErrors(page);
-    await page.goto("/insights/data");
-    await expect(page.getByRole("heading", { name: "数据接入" })).toBeVisible();
-    // 真实性声明：抖音开放平台通道已砍除，导入即唯一入口
-    await expect(page.getByText("抖音开放平台数据通道未接入")).toBeVisible();
-    // fixture 发布记录（统一 ID 链路）
-    await expect(page.getByText("7432123456789012345").first()).toBeVisible();
-    // ① 粘贴 TSV → 自动判定为逐视频明细
-    await page
-      .getByTestId("wizard-textarea")
-      .fill("作品ID\t播放量\t点赞量\n7432123456789012345\t12000\t500");
-    await expect(page.getByText(/3 列/)).toBeVisible();
-    await page.getByTestId("wizard-next-1").click();
-    // ② 预匹配两列 + ID 列自动识别
-    await expect(page.getByText(/已自动预匹配 2 列/)).toBeVisible();
-    await expect(page.getByText("ID 列")).toBeVisible();
-    await page.getByTestId("wizard-next-2").click();
-    // ③ 可匹配性预览（不阻断只提醒）
-    await expect(page.getByText("可匹配").first()).toBeVisible();
-    await page.getByTestId("wizard-next-3").click();
-    // ④ 提交（播放量与 fixture 同值幂等，不干扰页面 A 合计断言）
-    await page.getByTestId("wizard-submit").click();
-    await expect(page.getByText(/导入结果：成功 1 \/ 共 1/)).toBeVisible({ timeout: 10_000 });
-    expect(errors).toEqual([]);
-  });
-
-  test("导入向导 · xlsx 上传账号日 7 天表（自动匹配+人工裁决+仅账号级混合落库）", async ({
-    page,
-  }) => {
-    const errors = trackPageErrors(page);
-    await page.goto("/insights/data");
-    // ① 选文件（隐藏 input 由按钮唤起）
-    const chooser = page.waitForEvent("filechooser");
-    await page.getByTestId("wizard-xlsx-btn").click();
-    (await chooser).setFiles("e2e/fixtures/creator-daily.xlsx");
-    await expect(page.getByText("7 行 × 10 列（分隔：xlsx）")).toBeVisible();
-    await page.getByTestId("wizard-next-1").click();
-    // ② 自动判定账号日 + 日期列 + 预匹配（总播放量/2秒跳出率等真实表头）
-    await expect(page.getByText("日期列")).toBeVisible();
-    await expect(page.getByText(/已自动预匹配 [6-9] 列/)).toBeVisible();
-    await page.getByTestId("wizard-next-2").click();
-    // ③ 三态判定：发布日那行自动匹配，其余行当日无发布→仅账号级；采纳全部自动建议
-    await expect(page.getByText("自动匹配").first()).toBeVisible();
-    await expect(page.getByText("当日无发布").first()).toBeVisible();
-    await page.getByTestId("wizard-adopt-all").click();
-    await page.getByTestId("wizard-next-3").click();
-    // ④ 提交 7 行全部成功（归属行播放量与 fixture 同值幂等）
-    await page.getByTestId("wizard-submit").click();
-    await expect(page.getByText(/导入结果：成功 7 \/ 共 7/)).toBeVisible({ timeout: 15_000 });
-    expect(errors).toEqual([]);
-    // API 断言：账号日行真实落库（15.08%/78.07%/3.94s 归一化）
-    const resp = await page.request.get(
-      "/api/analytics/creator-daily?dateFrom=2026-09-17&dateTo=2026-09-17",
-    );
-    const data = (await resp.json()) as {
-      items: {
-        playIncrement: number;
-        bounceRate2s: number;
-        watchRate5s: number;
-        avgWatchTime: number;
-        postCount: number;
-      }[];
-    };
-    expect(data.items).toHaveLength(1);
-    expect(data.items[0].playIncrement).toBe(708);
-    expect(data.items[0].bounceRate2s).toBeCloseTo(0.7807, 4);
-    expect(data.items[0].watchRate5s).toBeCloseTo(0.1508, 4);
-    expect(data.items[0].avgWatchTime).toBeCloseTo(3.94, 2);
-    expect(data.items[0].postCount).toBe(1);
-  });
+  // 旧逐行下拉框向导的两条 E2E 已随组件删除（批次 H2）；四步精准匹配工作台的 E2E 在批次 I 重建
 
   test("数据接入页：新建发布记录走 reka Dialog/Select（非浏览器原生控件，只打开不提交）", async ({
     page,
