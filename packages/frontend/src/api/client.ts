@@ -521,12 +521,24 @@ export interface AnalyticsVideoRow {
 
 export async function listAnalyticsVideos(
   params: { sort?: InsightSort; order?: "asc" | "desc"; page?: number; pageSize?: number } = {},
-): Promise<{ items: AnalyticsVideoRow[]; total: number; page: number; pageSize: number }> {
+): Promise<{
+  items: AnalyticsVideoRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  unregisteredContentCount: number;
+}> {
   const { data, error, response } = await client.GET("/api/analytics/videos", {
     params: { query: params },
   });
   if (error || !data) throw new Error(`查询视频表现列表失败：${apiError(error, response)}`);
-  return data as { items: AnalyticsVideoRow[]; total: number; page: number; pageSize: number };
+  return data as {
+    items: AnalyticsVideoRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+    unregisteredContentCount: number;
+  };
 }
 
 export interface AnalyticsBenchmark {

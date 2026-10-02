@@ -719,6 +719,7 @@ describe("GET /api/analytics/videos（Phase 2 表现列表）", () => {
       total: 0,
       page: 1,
       pageSize: 20,
+      unregisteredContentCount: 0,
     });
     const res = await app.request("/videos?sort=completion&order=asc&page=2&pageSize=10");
     expect(res.status).toBe(200);
@@ -726,6 +727,18 @@ describe("GET /api/analytics/videos（Phase 2 表现列表）", () => {
     const def = await app.request("/videos");
     expect(def.status).toBe(200);
     expect(listAnalyticsVideos).toHaveBeenLastCalledWith({ sort: "play", order: "desc" }, 1, 20);
+  });
+
+  it("未登记发布记录的集数原样透出（行集锚点会吞集，必须可见）", async () => {
+    vi.mocked(listAnalyticsVideos).mockResolvedValue({
+      items: [],
+      total: 39,
+      page: 1,
+      pageSize: 20,
+      unregisteredContentCount: 6,
+    });
+    const res = await app.request("/videos");
+    await expect(res.json()).resolves.toMatchObject({ total: 39, unregisteredContentCount: 6 });
   });
 
   it("非白名单排序键 → 400（拒绝任意列排序）", async () => {

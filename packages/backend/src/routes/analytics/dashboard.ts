@@ -100,6 +100,8 @@ const videosListRoute = createRoute({
   tags: [API_TAGS.analytics],
   operationId: "listAnalyticsVideos",
   summary: "视频表现列表（多发布记录逐行；排序白名单，缺数据恒排末）",
+  description:
+    "行集以 publish_records 为锚点：有成片但未登记发布记录的集不在 items 内，改由 unregisteredContentCount 显式点破（未标记发布的集本就没有平台侧指标，不占一行空数据）。",
   request: {
     query: z.object({
       sort: z
@@ -134,6 +136,7 @@ const videosListRoute = createRoute({
             total: z.number(),
             page: z.number(),
             pageSize: z.number(),
+            unregisteredContentCount: z.number(),
           }),
         },
       },

@@ -596,11 +596,24 @@ export async function listAnalyticsVideos(
   total: number;
   page: number;
   pageSize: number;
+  /** 有成片但未登记发布记录的集数（不在本列表行集内，需前端显式提示） */
+  unregisteredContentCount: number;
 }> {
   // 批次 5A：排序/分页/总数全部下推 SQL；「缺数据恒排末」由 `IS NULL` 前置位实现，
   // 同值/同缺失尾部按 createdAt desc 决胜（与旧内存路径装载序一致）
   const totalRows = await db.select({ n: count() }).from(publishRecords);
   const total = Number(totalRows[0]?.n ?? 0);
+  // 本列表行集以 publish_records 为锚点：有成片但从未登记发布记录的集不在这里，
+  // 必须把数量点破，否则用户只会看到「少了两集」而没有任何解释。
+  const unregisteredRows = await db
+    .select({ n: count() })
+    .from(contents)
+    .where(
+      and(
+        sql`${contents.video} is not null`,
+        sql`not exists (select 1 from ${publishRecords} where ${publishRecords.contentId} = ${contents.id})`,
+      ),
+    );
   let recordIds: { recordId: string }[];
   if (sort.sort === "publish_time") {
     const dir = sort.order === "asc" ? asc(publishedAtSql) : desc(publishedAtSql);
@@ -645,7 +658,13 @@ export async function listAnalyticsVideos(
       },
     ];
   });
-  return { items, total, page, pageSize };
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    unregisteredContentCount: Number(unregisteredRows[0]?.n ?? 0),
+  };
 }
 
 export interface BenchmarkResult {

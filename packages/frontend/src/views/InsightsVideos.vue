@@ -12,6 +12,8 @@ import { VIDEO_LIST_COLUMNS, formatByKind, sourceLabel } from "../lib/analytics-
 const router = useRouter();
 const rows = ref<AnalyticsVideoRow[]>([]);
 const total = ref(0);
+/** 有成片但未登记发布记录的集数——它们不在本列表行集内，必须显式点破 */
+const unregistered = ref(0);
 const page = ref(1);
 const pageSize = 20;
 const sort = ref<InsightSort>("play");
@@ -36,9 +38,11 @@ async function load(): Promise<void> {
     });
     rows.value = data.items;
     total.value = data.total;
+    unregistered.value = data.unregisteredContentCount;
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);
     rows.value = [];
+    unregistered.value = 0;
   } finally {
     loading.value = false;
   }
@@ -86,6 +90,16 @@ onMounted(load);
         刷新数据
       </button>
     </section>
+
+    <p
+      v-if="unregistered > 0 && !loading"
+      class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800"
+      data-testid="unregistered-episodes"
+    >
+      另有 {{ unregistered }} 集已有成片但未登记发布记录，因此不在本列表里——在
+      <RouterLink class="font-medium underline" to="/marks">上传标记</RouterLink>
+      中标记一次即自动登记（标记即发布）。
+    </p>
 
     <div
       v-if="errorMsg"
