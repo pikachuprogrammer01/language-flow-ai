@@ -18,6 +18,7 @@ import {
   type SaveState,
   mergeServerAnalyticsMeta,
   pendingSaveIds,
+  publishTitleOf,
   reconcileSelectedId,
   safeWriteStorage,
   scheduleDebouncedSave,
@@ -56,7 +57,8 @@ function localDateTime(value: string | null | undefined): string {
 
 function defaultMeta(task: Task): AnalyticsMeta {
   return {
-    storyTopic: task.title,
+    /** 空 = 未覆盖，标题跟随生成后的 contents.title（见 titleOf） */
+    storyTopic: "",
     cover: "",
     voice: "",
     bgm: "",
@@ -64,6 +66,11 @@ function defaultMeta(task: Task): AnalyticsMeta {
     allowSave: false,
     customFields: [],
   };
+}
+
+/** 发布标题：显式覆盖优先，否则跟随生成标题（规则在 lib/analytics-state 与单测共用） */
+function titleOf(task: Task): string {
+  return publishTitleOf(task, metaFor(task).storyTopic);
 }
 
 function metaFor(task: Task): AnalyticsMeta {
@@ -355,11 +362,11 @@ watch(selectedId, (nextId, previousId) => {
       <section class="order-2 overflow-hidden rounded-2xl border border-hairline bg-panel lg:order-1">
         <p v-if="loading" class="p-8 text-center text-sm text-subtle">加载中...</p>
         <p v-else-if="tasks.length === 0" class="p-8 text-center text-sm text-subtle">暂无生成记录</p>
-        <div v-else class="overflow-x-auto"><table class="w-full border-collapse text-left text-[13px]"><thead class="bg-[#fafbfc] text-subtle"><tr><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">故事主题</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">时长</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">视频模板</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">发布时间</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">可保存</th></tr></thead><tbody><tr v-for="task in tasks" :key="task.id" class="cursor-pointer border-b border-hairline last:border-b-0 hover:bg-brand-soft/60" :class="selectedTask?.id === task.id ? 'border-l-[3px] border-l-brand bg-brand-soft font-medium' : ''" :aria-current="selectedTask?.id === task.id ? 'true' : undefined" @click="selectedId = task.id"><td class="max-w-[220px] px-3.5 py-[13px] font-medium"><button type="button" class="cursor-pointer rounded text-left hover:underline focus:outline-none focus:ring-2 focus:ring-brand" @click.stop="selectedId = task.id">{{ hydratedIds.has(task.id) ? (metaFor(task).storyTopic || "未命名") : "—" }}</button></td><td class="px-3.5 py-[13px]">{{ durationOf(task).toFixed(1) }}s</td><td class="px-3.5 py-[13px]">{{ task.template }}</td><td class="px-3.5 py-[13px]">{{ hydratedIds.has(task.id) ? (metaFor(task).publishAt || "—") : "—" }}</td><td class="px-3.5 py-[13px]">{{ hydratedIds.has(task.id) ? (metaFor(task).allowSave ? "是" : "否") : "—" }}</td></tr></tbody></table></div>
+        <div v-else class="overflow-x-auto"><table class="w-full border-collapse text-left text-[13px]"><thead class="bg-[#fafbfc] text-subtle"><tr><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">故事主题</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">时长</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">视频模板</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">发布时间</th><th class="border-b border-hairline px-3.5 py-[13px] font-semibold">可保存</th></tr></thead><tbody><tr v-for="task in tasks" :key="task.id" class="cursor-pointer border-b border-hairline last:border-b-0 hover:bg-brand-soft/60" :class="selectedTask?.id === task.id ? 'border-l-[3px] border-l-brand bg-brand-soft font-medium' : ''" :aria-current="selectedTask?.id === task.id ? 'true' : undefined" @click="selectedId = task.id"><td class="max-w-[220px] px-3.5 py-[13px] font-medium"><button type="button" class="cursor-pointer rounded text-left hover:underline focus:outline-none focus:ring-2 focus:ring-brand" @click.stop="selectedId = task.id">{{ titleOf(task) }}</button></td><td class="px-3.5 py-[13px]">{{ durationOf(task).toFixed(1) }}s</td><td class="px-3.5 py-[13px]">{{ task.template }}</td><td class="px-3.5 py-[13px]">{{ hydratedIds.has(task.id) ? (metaFor(task).publishAt || "—") : "—" }}</td><td class="px-3.5 py-[13px]">{{ hydratedIds.has(task.id) ? (metaFor(task).allowSave ? "是" : "否") : "—" }}</td></tr></tbody></table></div>
       </section>
       <aside v-if="selectedTask && selectedMeta" class="order-1 space-y-4 lg:order-2">
-        <section class="rounded-2xl border border-hairline bg-panel p-4"><h2 class="flex items-center justify-between gap-2 font-semibold">视频详情<span class="truncate text-xs font-normal text-subtle">{{ selectedMeta?.storyTopic || selectedTask?.title }}</span><span class="inline-flex items-center gap-2 text-xs font-normal"><span role="status" aria-live="polite" :class="saveStates[selectedTask!.id] === 'failed' ? 'text-red-600' : 'text-gray-500'">{{ SAVE_STATE_LABEL[saveStates[selectedTask!.id] ?? 'idle'] }}</span><button v-if="saveStates[selectedTask!.id] === 'failed'" class="rounded border border-red-300 px-2 py-0.5 text-red-600 hover:bg-red-50" @click="saveServer(selectedTask!)">重试保存</button></span></h2><div class="mt-3 space-y-3 text-sm">
-          <label class="block">故事主题<input :value="selectedMeta.storyTopic" :disabled="detailLoading" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @input="updateMeta(selectedTask!, { storyTopic: ($event.target as HTMLInputElement).value })" /></label>
+        <section class="rounded-2xl border border-hairline bg-panel p-4"><h2 class="flex items-center justify-between gap-2 font-semibold">视频详情<span class="truncate text-xs font-normal text-subtle">{{ selectedTask ? titleOf(selectedTask) : "" }}</span><span class="inline-flex items-center gap-2 text-xs font-normal"><span role="status" aria-live="polite" :class="saveStates[selectedTask!.id] === 'failed' ? 'text-red-600' : 'text-gray-500'">{{ SAVE_STATE_LABEL[saveStates[selectedTask!.id] ?? 'idle'] }}</span><button v-if="saveStates[selectedTask!.id] === 'failed'" class="rounded border border-red-300 px-2 py-0.5 text-red-600 hover:bg-red-50" @click="saveServer(selectedTask!)">重试保存</button></span></h2><div class="mt-3 space-y-3 text-sm">
+          <label class="block">故事主题<input :value="selectedMeta.storyTopic" :disabled="detailLoading" :placeholder="selectedTask.title" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @input="updateMeta(selectedTask!, { storyTopic: ($event.target as HTMLInputElement).value })" /><span class="mt-1 block text-xs text-subtle">留空则跟随生成标题「{{ selectedTask.title }}」</span></label>
           <label class="block">封面图 URL<input :value="selectedMeta.cover" :disabled="detailLoading" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @input="updateMeta(selectedTask!, { cover: ($event.target as HTMLInputElement).value })" /></label>
           <label class="block">音色<select :value="selectedMeta.voice" :disabled="detailLoading" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @change="updateMeta(selectedTask!, { voice: ($event.target as HTMLSelectElement).value })"><option value="">未指定</option><option v-for="v in voiceOptions" :key="v.id" :value="v.id">{{ v.name }}</option><option v-if="selectedMeta!.voice && !voiceOptions.some((v) => v.id === selectedMeta!.voice)" :value="selectedMeta!.voice" disabled>{{ selectedMeta!.voice }}（当前值不可选）</option></select></label>
           <label class="block">背景音乐<select :value="selectedMeta.bgm" :disabled="detailLoading" class="mt-1 w-full rounded-[10px] border border-hairline bg-white px-3 py-2 text-sm focus:border-brand focus:outline-none disabled:opacity-60" @change="updateMeta(selectedTask!, { bgm: ($event.target as HTMLSelectElement).value })"><option value="">无 BGM</option><option v-for="src in bgmOptions" :key="src" :value="src">{{ src.split('/').pop() }}</option><option v-if="selectedMeta!.bgm && !bgmOptions.includes(selectedMeta!.bgm)" :value="selectedMeta!.bgm" disabled>{{ selectedMeta!.bgm.split('/').pop() }}（当前值不可选）</option></select></label>

@@ -51,11 +51,14 @@ function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function getStoryTopic(content: typeof contents.$inferSelect): string | null {
-  const style = asRecord(content.style);
-  const audit = asRecord(content.audit);
-  const input = asRecord(audit.input);
-  return asString(style.introTopic) ?? asString(input.topic) ?? content.title;
+/**
+ * 发布主题只回传用户的显式覆盖值：空/NULL 语义是「跟随生成标题」，由展示层回落 contents.title。
+ * 服务端不得在这里混入回落值——前端保存会把回显内容原样写回，一旦混入就把「跟随」固化成了永久覆盖。
+ */
+export function resolveStoryTopicOverride(
+  analytics: Pick<typeof videoAnalytics.$inferSelect, "storyTopic"> | undefined,
+): string | null {
+  return asString(analytics?.storyTopic);
 }
 
 function getDuration(content: typeof contents.$inferSelect): number | null {
@@ -96,7 +99,7 @@ function buildResponse(
     template: content.template,
     targetDuration: content.targetDuration,
     duration: getDuration(content),
-    storyTopic: analytics ? analytics.storyTopic : getStoryTopic(content),
+    storyTopic: resolveStoryTopicOverride(analytics),
     voice: asString(voice.id),
     bgm: asString(style.bgm),
     publishAt: analytics?.publishAt?.toISOString() ?? null,

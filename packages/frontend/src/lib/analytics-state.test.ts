@@ -5,6 +5,7 @@ import {
   type SaveState,
   mergeServerAnalyticsMeta,
   pendingSaveIds,
+  publishTitleOf,
   reconcileSelectedId,
   safeWriteStorage,
   scheduleDebouncedSave,
@@ -65,6 +66,30 @@ describe("analytics state", () => {
       allowSave: false,
     });
     expect(merged.customFields[0].key).toBe("new");
+  });
+
+  it("keeps a null server topic as 「无覆盖」instead of a frozen value", () => {
+    const merged = mergeServerAnalyticsMeta(base("不该被固化"), {
+      storyTopic: null,
+      coverUrl: null,
+      voice: null,
+      bgm: null,
+      publishAt: null,
+      allowSave: false,
+      customParams: [],
+    });
+    expect(merged.storyTopic).toBe("");
+  });
+
+  it("follows the generated title unless the user overrode it", () => {
+    const task = { id: "cnt_20261002_469bc3", title: "线上学习的新支持" };
+    expect(publishTitleOf(task, "")).toBe("线上学习的新支持");
+    expect(publishTitleOf(task, null)).toBe("线上学习的新支持");
+    expect(publishTitleOf(task, "选修课翻车")).toBe("选修课翻车");
+  });
+
+  it("surfaces the content id rather than 「未命名」 when a title is genuinely missing", () => {
+    expect(publishTitleOf({ id: "cnt_x", title: "" }, "")).toBe("cnt_x");
   });
 
   it("only invokes the final value for each video after debounce", () => {

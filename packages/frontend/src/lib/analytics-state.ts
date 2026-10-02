@@ -90,6 +90,7 @@ export function mergeServerAnalyticsMeta(
 ): AnalyticsMeta {
   return {
     ...local,
+    /** 服务端只回传显式覆盖值；null = 跟随生成标题（见 publishTitleOf），固化为 "" 而非本地值 */
     storyTopic: saved.storyTopic ?? "",
     cover: saved.coverUrl ?? "",
     voice: saved.voice ?? "",
@@ -98,4 +99,15 @@ export function mergeServerAnalyticsMeta(
     allowSave: saved.allowSave,
     customFields: saved.customParams,
   };
+}
+
+/**
+ * 发布标题口径：用户在发布管理里显式改过的「故事主题」优先，未改过则跟随生成后的标题。
+ * 两者皆空时露出内容 ID 而不是「未命名」——空标题是异常，露 ID 才能定位，写兜底文案只会掩盖。
+ */
+export function publishTitleOf(
+  task: { id: string; title: string },
+  override: string | null | undefined,
+): string {
+  return override || task.title || task.id;
 }

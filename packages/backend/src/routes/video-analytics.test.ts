@@ -121,16 +121,54 @@ beforeEach(() => {
 });
 
 describe("video analytics routes", () => {
-  it("returns canonical task metadata and topic fallback", async () => {
+  it("returns canonical task metadata with no topic override (display follows contents.title)", async () => {
     const response = await videoAnalyticsRoute.request("/cnt_analytics_001");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      storyTopic: "原始主题",
+      // 无 video_analytics 行 → 覆盖值为 null；生成入参主题「原始主题」不得冒充标题
+      storyTopic: null,
       voice: "voice-old",
       bgm: "/files/bgm/old.mp3",
       duration: 12.5,
       allowSave: true,
     });
+  });
+
+  it("does not echo the generated title as an override (would freeze it on next save)", async () => {
+    state.analytics = [
+      {
+        contentId: "cnt_analytics_001",
+        storyTopic: null,
+        publishAt: null,
+        coverUrl: null,
+        allowSave: 0,
+        customParams: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    const single = await videoAnalyticsRoute.request("/cnt_analytics_001");
+    await expect(single.json()).resolves.toMatchObject({ storyTopic: null });
+
+    const batch = await videoAnalyticsRoute.request("/?ids=cnt_analytics_001");
+    await expect(batch.json()).resolves.toEqual([expect.objectContaining({ storyTopic: null })]);
+  });
+
+  it("treats an empty-string snapshot as no override", async () => {
+    state.analytics = [
+      {
+        contentId: "cnt_analytics_001",
+        storyTopic: "",
+        publishAt: null,
+        coverUrl: null,
+        allowSave: 0,
+        customParams: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    const response = await videoAnalyticsRoute.request("/cnt_analytics_001");
+    await expect(response.json()).resolves.toMatchObject({ storyTopic: null });
   });
 
   it("returns batch metadata in requested order and skips missing content", async () => {
@@ -140,8 +178,8 @@ describe("video analytics routes", () => {
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual([
-      expect.objectContaining({ contentId: "cnt_analytics_002", storyTopic: "原始主题" }),
-      expect.objectContaining({ contentId: "cnt_analytics_001", storyTopic: "原始主题" }),
+      expect.objectContaining({ contentId: "cnt_analytics_002", storyTopic: null }),
+      expect.objectContaining({ contentId: "cnt_analytics_001", storyTopic: null }),
     ]);
   });
 
