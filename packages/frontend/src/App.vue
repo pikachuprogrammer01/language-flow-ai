@@ -128,18 +128,6 @@ const crumb = computed(() => String(route.meta.title ?? "工作台"));
       ]"
       :data-collapsed="collapsed ? 'true' : 'false'"
     >
-      <!-- 折叠开关：压在侧边栏右缘，只作用于 lg 以上（小屏是抽屉，折叠无意义） -->
-      <button
-        type="button"
-        class="absolute -right-3 top-[30px] z-50 hidden h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-hairline bg-white text-subtle shadow-sm hover:text-ink lg:flex"
-        :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
-        :aria-expanded="!collapsed"
-        :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
-        data-testid="sidebar-toggle"
-        @click="toggle"
-      >
-        <component :is="collapsed ? PanelLeftOpen : PanelLeftClose" :size="14" aria-hidden="true" />
-      </button>
       <RouterLink
         to="/"
         class="flex items-center gap-2.5 px-2.5 pb-[18px] pt-1.5 text-white"
@@ -193,6 +181,25 @@ const crumb = computed(() => String(route.meta.title ?? "工作台"));
           </div>
         </div>
       </nav>
+      <!-- 折叠开关：侧边栏自己的底部按钮条（44px 高整宽命中区，不压内容边界、不与 logo 打架）；仅 lg 以上 -->
+      <button
+        type="button"
+        class="mt-2 hidden h-11 shrink-0 items-center gap-[11px] rounded-[10px] border-t border-white/10 px-3 pt-2.5 text-[13px] text-sidebar-text transition-colors hover:bg-sidebar-item hover:text-white lg:flex"
+        :class="collapsed ? 'lg:justify-center lg:gap-0 lg:px-0' : ''"
+        :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        :aria-expanded="!collapsed"
+        :title="collapsed ? '展开侧边栏' : undefined"
+        data-testid="sidebar-toggle"
+        @click="toggle"
+      >
+        <component
+          :is="collapsed ? PanelLeftOpen : PanelLeftClose"
+          :size="16"
+          class="shrink-0"
+          aria-hidden="true"
+        />
+        <span class="lg:group-data-[collapsed=true]/sidebar:hidden">收起侧边栏</span>
+      </button>
     </aside>
 
     <!-- 主区（原型 .main：topbar + content） -->
