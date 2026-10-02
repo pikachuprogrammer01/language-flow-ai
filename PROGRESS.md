@@ -13,7 +13,8 @@
 shared 包     [████████████] 100%  enums + ContentDTO + Request/Response DTO + 类型守卫
 后端 API      [████████████] 100%  三模板生成（scene_word/word_card/quiz）+ 审计档案 + TTS（混合音色+语速）/ 渲染（quiz 音画对齐+提示音，scene_word 片头截帧）/ 任务 CRUD+搜索+批量+render-settings / 发布元数据 video-analytics（白名单）/ 文件管理 / 词库 5999 / **数据分析 Phase 1~4 + 6（MVP 闭环+实验）+ 数据接入向导（xlsx/账号日汇总/人工裁决归属）**（发布记录统一 ID + 指标 provenance + Creator Import 动态映射 + 生产特征落库 + 派生指标 + 漏斗/列表/Benchmark/趋势 + 因子分析/时间轴 + 生产建议/结构复用/prefill 回填 + A/B 内容实验；抖音资质通道已砍除，/api/analytics 22 路径 28 操作，docs/17）
 前端          [████████████]  98%  后台原型 1:1 还原（侧边栏+顶栏+工作台+步进器/手机预览）/ 全站 DataTable 统一表格 / LLM 三级就绪探测+SSE 实时推送+启停按钮全 loading 反馈 / 工作台 500ms 实时轮询+待推进卡点拆解 / 发布元数据回显（保存策略创建/详情/标记/发布四处同源）/ 手机预览等比复刻渲染帧（与成片所见即所得）（待提交）
-测试          [████████████]  98%  Vitest 499 用例（实测 2026-09-26：shared 3 + backend 400 含 2 skip + frontend 96）· 行覆盖 shared 100% / backend 97%± / frontend 100%（诚实排除面已声明）· Playwright E2E 22 passed/1 skipped（含 xlsx 上传向导与返回按钮）· @full 需 Ollama 手动触发
+测试          [████████████]  98%  Vitest 606 用例（实测 2026-10-03：shared 3 + backend 504（491 通过 · 2 集成测试按 env skip · 11 真库不变量按 env skip）+ frontend 99）· 行覆盖 **实测口径** shared 100% / frontend 99.66% / backend 语句 80.5%·分支 83.7%·函数 72.4%（阈值按实测水位设闸，非 90 目标）· Playwright E2E 22 passed/1 skipped（须重建测试栈+重灌夹具后才可信）· @full 需 Ollama 手动触发
+质量与运维门禁 [████████████] 100%  2026-10-03 新增（docs/20-21）：`docker:backup` 库+成片备份并强制演一次真恢复（业务键对账）· `docker:audit` 生产只读对账（集数断号/标记未派生/成片缺失/孤儿记录）· `docker:gate` 七步质量门禁 · `docker:release` 现在必须先过备份+门禁才切 APP_VERSION，发布后跑 /health 复核
 部署          [█████████░░░]  90%  Docker 容器化完成（mysql+backend+frontend，一条 compose 命令）；生产部署（域名/反代）待做
 ```
 
@@ -297,6 +298,11 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 
 | 日期 | 决策 | 理由 |
 |------|------|------|
+| 2026-10-03 | 发布前强制备份 + 七步质量门禁（内置于 `docker:release`，可 `docker:gate` 单独跑） | 风险发生在切生产版本那一刻，不在提交那一刻；pre-push 保持秒级。备份段不可跳（代码能回滚、数据不能），质量段允许 `GATE_SKIP=1` 显式跳过并留痕 |
+| 2026-10-03 | 覆盖率阈值从 90 改为实测水位 78/82/70/78，并接入门禁执行 | 原 90 从未被执行（`test` 脚本不带 `--coverage`）属假承诺；宁可要会拦人的低门槛，也不要好看的空数字 |
+| 2026-10-03 | 备份范围含成片目录 `~/language-flow-uploads`（rsync 硬链接增量） | `publish_records.video_asset_id` 只存文件名；09-28 丢集后只能靠读成片截帧反推文案，只 dump 库救不回来 |
+| 2026-10-03 | 新增真库不变量测试 11 条（:3307，`invtest` 前缀夹具自清） | mock 掉 drizzle 链式对象后，FK/级联/唯一键/datetime 精度这些真出过问题的层面完全无守护 |
+| 2026-10-03 | 维持「不恢复 CI」 | 2026-08-29 决策继续有效：单人单机、无第三方审核人，runner 维护成本换不到拦截力 |
 | 2026-07-28 | 前端选 Vue 不选 React | 开发者更熟 Vue |
 | 2026-07-28 | 技术栈：Hono + Drizzle + Vue 3 + shadcn-vue | 轻量 TS 全栈，与 Dify Code 节点语言统一 |
 | 2026-07-28 | API 管理：@hono/zod-openapi → openapi-typescript → openapi-fetch | 编译期类型安全，零手动同步 |

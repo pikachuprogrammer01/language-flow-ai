@@ -294,7 +294,9 @@ cmd_backup() {
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   sha="$(git -C "${ROOT}" rev-parse --short=7 HEAD 2>/dev/null || echo nogit)"
   dir="${BACKUP_DIR}/${ts}-${sha}"
-  mkdir -p "${dir}"
+  # set -e 在 `cmd_backup || ...` 这种上下文里是失效的，关键步骤必须显式判失败——
+  # 实测：BACKUP_DIR 被占成文件时 mkdir 失败却继续往下跑，直到重定向才炸出难懂的报错
+  mkdir -p "${dir}" || { log "错误: 无法创建备份目录 ${dir}（检查 BACKUP_DIR 路径）"; return 1; }
   log "备份目录 ${dir}"
 
   log "① 导出生产库（只读；--single-transaction 不锁表，生产容器不停）"
@@ -309,7 +311,8 @@ cmd_backup() {
     log "  错误: mysqldump 失败（退出码 ${rc}），备份中止 —— 不带成功的备份不许发布"
     return 1
   fi
-  ( cd "${dir}" && $(sha_tool) "language_flow.sql.gz" > "language_flow.sql.gz.sha256" )
+  ( cd "${dir}" && $(sha_tool) "language_flow.sql.gz" > "language_flow.sql.gz.sha256" ) \
+    || { log "  错误: 校验和写入失败"; return 1; }
 
   log "② 成片目录快照（rsync --link-dest 硬链接增量：10 份实际占用 ≈ 1 份 + 变更量）"
   if [[ -d "${PROD_UPLOADS_DIR}" ]]; then
@@ -346,6 +349,186 @@ cmd_backup() {
   log "备份完成 → ${dir}（库 $(du -h "${dir}/language_flow.sql.gz" | cut -f1) + 成片快照）"
 }
 
+# 「第 N 集」的 N 既写作阿拉伯数字也写作中文数字（生产实况：第七集 / 第36集 并存）。
+# 只认阿拉伯数字会把「第七集」CAST 成 0，凭空造出「第 1~9 集缺失」的假警报——
+# 而编号正是产品负责人定位一集的入口，不能因为难解析就静默跳过。
+cn_digit() {
+  case "$1" in
+    一) echo 1 ;; 二) echo 2 ;; 三) echo 3 ;; 四) echo 4 ;; 五) echo 5 ;;
+    六) echo 6 ;; 七) echo 7 ;; 八) echo 8 ;; 九) echo 9 ;; *) echo "" ;;
+  esac
+}
+
+# 阿拉伯数字直接取用；中文数字支持 1~99（十、十一、二十、三十五）；解析不了返回空
+cn2num() {
+  local s="$1" t o
+  [[ "$s" =~ ^[0-9]+$ ]] && { echo "${s}"; return; }
+  if [[ "$s" == *十* ]]; then
+    t="${s%%十*}"; o="${s##*十}"
+    [[ -z "${t}" ]] && t=1 || t="$(cn_digit "${t}")"
+    [[ -z "${o}" ]] && o=0 || o="$(cn_digit "${o}")"
+    [[ -n "${t}" && -n "${o}" ]] && echo $(( t * 10 + o )) || echo ""
+  else
+    cn_digit "${s}"
+  fi
+}
+
+# ── 生产数据只读对账（docs/21 决策 8）─────────────────────────────
+# 全程 SELECT + 文件系统存在性检查，不持有任何写路径。会话级 READ ONLY 是第二道保险。
+# 存在的理由：测试库全绿但生产已经飘了，是最坏的一种假绿灯。
+# 输出纪律：无漂移要说清「未发现漂移，未做任何修改」并且退出码 0，不得把无事可做报成失败。
+cmd_audit() {
+  local drift=0 missing_files=0
+  # 可对账任意实例/库/uploads 目录：默认生产（只读），也可指向一份恢复出来的副本做演练
+  local inst="${AUDIT_CONTAINER:-${MYSQL_NAME}}"
+  local db_name="${AUDIT_DB:-language_flow}"
+  local uploads="${AUDIT_UPLOADS_DIR:-${PROD_UPLOADS_DIR}}"
+  log "只读对账（容器 ${inst} · 库 ${db_name} · uploads ${uploads}）"
+
+  # 每条查询都先设 READ ONLY：本命令任何 SQL 都不该能写
+  local ro="SET SESSION TRANSACTION READ ONLY;"
+
+  # 1) 集数序列断号：note 里的「第 N 集」是产品负责人定位一集的主要入口，
+  #    断号既是丢数据最直观的物理证据，也是他「看不看得见」的判断依据
+  local notes seq="" unparsed="" raw="" mid="" num="" prev="" gap_list="" gaps=0
+  notes="$(docker exec "${inst}" mysql -udev -pdev -N -B --default-character-set=utf8mb4 -D "${db_name}" -e \
+    "${ro} SELECT DISTINCT note FROM upload_marks WHERE note LIKE '%第%集%' ORDER BY 1" 2>/dev/null | tr -d '\r')"
+  while IFS= read -r raw; do
+    [[ -z "${raw}" ]] && continue
+    mid="${raw##*第}"; mid="${mid%%集*}"
+    num="$(cn2num "${mid}")"
+    if [[ -n "${num}" ]]; then
+      seq+="${num}"$'\n'
+    else
+      unparsed+="  · ${raw}"$'\n'
+    fi
+  done <<<"${notes}"
+  seq="$(printf '%s' "${seq}" | grep -E '^[0-9]+$' | sort -n | uniq)"
+  if [[ -n "${seq}" ]]; then
+    while IFS= read -r num; do
+      [[ "${num}" =~ ^[0-9]+$ ]] || continue
+      if [[ -n "${prev}" && $(( num - prev )) -gt 1 ]]; then
+        gaps=$(( gaps + num - prev - 1 ))
+        gap_list+=" $(( prev + 1 ))..$(( num - 1 ))"
+      fi
+      prev="${num}"
+    done <<<"${seq}"
+    if [[ "${gaps}" -gt 0 ]]; then
+      log "  ✗ 集数断号：已登记到第 ${prev} 集，中间缺 ${gaps} 集 →${gap_list}"
+      drift=1
+    else
+      log "  ✓ 集数序列连续（共 ${prev} 集，无断号）"
+    fi
+  else
+    log "  · 没有带集数编号的标记（note 形如「情景英语四级词汇-第 N 集」），未做断号核对"
+  fi
+  if [[ -n "${unparsed}" ]]; then
+    log "  ! 以下标记的编号解析不出来，未纳入断号核对（宁可显式承认盲区，不静默跳过）："
+    printf '%s\n' "${unparsed}"
+  fi
+
+  # 2) 标记⇒发布记录：有归属任务的标记必须能派生出对应发布记录，否则该集从分析里静默消失
+  local orphan_marks
+  orphan_marks="$(docker exec "${inst}" mysql -udev -pdev -N -B --default-character-set=utf8mb4 -D "${db_name}" -e \
+    "${ro} SELECT COUNT(*) FROM upload_marks m WHERE m.task_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM publish_records p WHERE p.content_id = m.task_id AND p.platform = m.platform)" 2>/dev/null | tr -d '\r')"
+  if [[ "${orphan_marks:-0}" == "0" ]]; then
+    log "  ✓ 已绑定生成记录的上传标记全部派生出发布记录（0 条缺口）"
+  else
+    log "  ✗ ${orphan_marks} 条标记有归属却没有发布记录（这些集会从数据分析里消失）"
+    drift=1
+  fi
+
+  # 3) 成片存在性：video_asset_id 只存文件名，文件丢了 DB 恢复也指回空路径
+  local assets f asset_count
+  assets="$(docker exec "${inst}" mysql -udev -pdev -N -B --default-character-set=utf8mb4 -D "${db_name}" -e \
+    "${ro} SELECT DISTINCT video_asset_id FROM publish_records WHERE video_asset_id IS NOT NULL AND video_asset_id <> ''" 2>/dev/null | tr -d '\r')"
+  asset_count="$(grep -c . <<<"${assets}")"
+  while IFS= read -r f; do
+    [[ -z "${f}" ]] && continue
+    [[ -e "${uploads}/video/${f}" ]] || missing_files=$(( missing_files + 1 ))
+  done <<<"${assets}"
+  if [[ "${missing_files}" -eq 0 ]]; then
+    log "  ✓ 发布记录指向的成片文件全部存在（共 ${asset_count} 个资产引用）"
+  else
+    log "  ✗ ${missing_files} 个成片文件在 ${uploads}/video 下找不到（指标还在，视频已丢）"
+    drift=1
+  fi
+
+  # 4) 孤儿发布记录：FK 本该保证为 0，非 0 说明有人绕过应用直改过库
+  local orphan_pr
+  orphan_pr="$(docker exec "${inst}" mysql -udev -pdev -N -B --default-character-set=utf8mb4 -D "${db_name}" -e \
+    "${ro} SELECT COUNT(*) FROM publish_records p LEFT JOIN contents c ON c.id = p.content_id WHERE c.id IS NULL" 2>/dev/null | tr -d '\r')"
+  if [[ "${orphan_pr:-0}" == "0" ]]; then
+    log "  ✓ 无孤儿发布记录（content_id 全部指向存在的内容）"
+  else
+    log "  ✗ ${orphan_pr} 条发布记录的 content_id 指向不存在的内容"
+    drift=1
+  fi
+
+  # 5) 总量底账：给一行前后对账用的基准数（发布记录数 + 最后一次写入时间 = 「生产未变」的证据）
+  docker exec "${inst}" mysql -udev -pdev -N -B --default-character-set=utf8mb4 -D "${db_name}" -e \
+    "${ro} SELECT CONCAT('  · 底账 contents=', (SELECT COUNT(*) FROM contents),
+      ' publish_records=', (SELECT COUNT(*) FROM publish_records),
+      ' upload_marks=', (SELECT COUNT(*) FROM upload_marks),
+      ' video_metrics=', (SELECT COUNT(*) FROM video_metrics),
+      ' 最后写入 MAX(updated_at)=', IFNULL((SELECT MAX(updated_at) FROM contents),'NULL'))" 2>/dev/null
+
+  if [[ "${drift}" -eq 0 ]]; then
+    log "对账结论：未发现漂移，未做任何修改（全程只读）"
+    return 0
+  fi
+  log "对账结论：发现漂移项（上方 ✗ 标记），本命令未做任何修改"
+  return 1
+}
+
+# ── 发布质量门禁（docs/21 决策 5-6、9-10）────────────────────────
+# 跑一步、失败就打印该步输出末段并记账；任一步红则不切 APP_VERSION。
+# 放这里而不是 pre-push：风险发生在切生产版本那一刻，日常提交不该被分钟级检查拖住。
+gate_run() {
+  local label="$1"; shift
+  local out="" rc=0 attempt
+  for attempt in 1 2; do
+    if out="$("$@" 2>&1)"; then
+      log "${label} … 通过"
+      return 0
+    fi
+    rc=$?
+    # 并行会话抢 CPU 时含真实超时的用例（如文件管理 reveal）会偶发红：重试一次，仍红才算红
+    [[ "${attempt}" == "1" ]] && log "${label} … 第 1 次失败，重试一次（并行会话偶发抢 CPU）"
+  done
+  log "${label} … 失败（退出码 ${rc}）"
+  printf '%s\n' "${out}" | tail -15 | sed 's/^/      /'
+  return "${rc}"
+}
+
+# E2E 必须打在新鲜产物上：镜像落后工作树时，同一份代码能测出完全相反的结论
+# （本轮就发生过：旧镜像 9 红 vs 重建后 22 passed / 1 skipped）。
+# 次序固定为 重建 → 重灌夹具 → 再跑：数据修复脚本会删 test% 行，次序反了用例必挂。
+gate_e2e() {
+  pnpm docker:test >/dev/null 2>&1 || { log "  E2E 前置：测试栈重建失败"; return 1; }
+  pnpm docker:test:seed >/dev/null 2>&1 || { log "  E2E 前置：夹具重灌失败"; return 1; }
+  E2E_BASE_URL="http://127.0.0.1:5174" pnpm e2e
+}
+
+cmd_gate() {
+  local fails=()
+  log "质量门禁（7 步；任一步红则 cmd_release 不切 APP_VERSION）"
+  gate_run "1/7 全仓类型检查" pnpm typecheck || fails+=("类型检查")
+  gate_run "2/7 单元测试" pnpm -r test || fails+=("单元测试")
+  gate_run "3/7 覆盖率水位" pnpm coverage || fails+=("覆盖率")
+  gate_run "4/7 真库不变量（测试库 :3307）" pnpm --filter @ai-english/backend test:invariants \
+    || fails+=("真库不变量")
+  gate_run "5/7 API 契约与文档覆盖" pnpm openapi:check || fails+=("API 契约")
+  gate_run "6/7 E2E（重建测试栈 + 重灌夹具后整套默认套件）" gate_e2e || fails+=("E2E")
+  gate_run "7/7 生产只读对账" cmd_audit || fails+=("生产只读对账")
+  if [[ ${#fails[@]} -gt 0 ]]; then
+    log "门禁结论：未通过 → ${fails[*]}"
+    return 1
+  fi
+  log "门禁结论：7 步全绿"
+  return 0
+}
+
 # 构建生产镜像并打版本 tag（不启动）：context = 仓根，与原 compose build 语义一致
 cmd_release() {
   local sha ver nocache=() tag
@@ -360,6 +543,15 @@ cmd_release() {
     fi
     log "FORCE=1 → 忽略脏工作树继续发布（该 tag 不可由 commit ${sha} 精确复现）"
   fi
+  # 备份不可跳：跳过它省的是 20 秒，代价是丢掉唯一回滚路径——代码能回滚，数据不能
+  local prev_ver
+  prev_ver="$(prod_env_get APP_VERSION)"
+  cmd_backup || { log "错误: 备份失败或恢复演练未通过 —— 拒绝发布（生产保持 ${prev_ver}）"; exit 1; }
+  if [[ "${GATE_SKIP:-0}" == "1" ]]; then
+    log "警告: GATE_SKIP=1 → 跳过 7 步质量门禁（备份没有被跳过；本次发布未经完整验证）"
+  else
+    cmd_gate || { log "错误: 质量门禁未通过 —— 未构建、未切版本，生产保持 ${prev_ver}"; exit 1; }
+  fi
   ensure_uploads_link
   log "构建生产镜像 ${ver}（backend + frontend，取当前工作树）"
   docker build ${nocache[@]+"${nocache[@]}"} -f Dockerfile.backend -t "${PROD_BACKEND_IMAGE}:${ver}" .
@@ -368,8 +560,21 @@ cmd_release() {
   ensure_mysql
   log "滚动启动生产栈到 ${ver}（数据层：mysql_data 卷 + ${HOME}/language-flow-uploads 不动）"
   prod up -d
-  log "发布完成 → http://localhost:$(prod_env_get PROD_UI_PORT)（版本 ${ver}）"
-  log "回滚：pnpm docker:rollback <旧 tag>（pnpm docker:version 可查已有 tag）"
+  local port ok=0 i
+  port="$(prod_env_get PROD_UI_PORT)"
+  for i in $(seq 1 30); do
+    curl -fsS --max-time 3 "http://localhost:${port}/health" >/dev/null 2>&1 && { ok=1; break; }
+    sleep 2
+  done
+  if [[ "${ok}" -eq 1 ]]; then
+    log "发布后健康检查通过（:${port}/health）"
+    log "发布完成 → http://localhost:${port}（版本 ${ver}；上一版 ${prev_ver}）"
+  else
+    log "错误: 生产 UI 60 秒内未通过健康检查。版本已切到 ${ver}（上一版 ${prev_ver}），镜像与数据都还在"
+    log "  确认要退回去就执行：pnpm docker:rollback ${prev_ver}"
+    log "  （不自动回滚：重启生产容器属于需要你点头的动作）"
+    exit 1
+  fi
 }
 
 # 启动生产栈（不构建）：版本 = deploy/prod.env 的 APP_VERSION
@@ -450,6 +655,8 @@ case "${1:-}" in
   mysql) cmd_mysql ;;
   backup) cmd_backup ;;
   backup:verify) cmd_backup_verify "${2:-}" ;;
+  audit) cmd_audit ;;
+  gate) cmd_gate ;;
   stop) cmd_stop ;;
   *)
     cat <<'EOF'
@@ -457,7 +664,8 @@ case "${1:-}" in
 
   dev       本地开发（测试数据源）：释放本仓 dev 端口 → 拉起测试栈 MySQL(:3307) → pnpm 前后端
   docker    启动生产栈（不构建）：校准生产 MySQL → compose up -d（镜像 = deploy/prod.env 的 APP_VERSION）
-  release   发布当前工作树为生产版本：构建 → 打 v<git SHA> tag → 改 APP_VERSION → up -d（脏工作树需 FORCE=1）
+  release   发布当前工作树为生产版本：备份 + 7 步质量门禁 → 构建 → 打 v<git SHA> tag → 改 APP_VERSION → up -d → 健康检查
+            （脏工作树需 FORCE=1；质量段可用 GATE_SKIP=1 显式跳过，备份段不可跳）
   rollback  回滚生产到已存在的镜像 tag
   version   三轨版本/镜像/构建时间一览
   rebuild   无缓存重建并发布（NO_CACHE=1 的 release）
@@ -466,6 +674,8 @@ case "${1:-}" in
   backup    备份生产数据：库 dump（只读、不锁表）+ 成片硬链接快照 + 校验和 + 保留 10 份，
             末尾自动演一次真恢复（灌临时 schema、按业务键与生产对账、当场清理）
   backup:verify [目录]   只对最近一次（或指定）备份做恢复演练，不产生新备份
+  audit     生产数据只读对账（集数断号 / 标记未派生 / 成片缺失 / 孤儿发布记录），零写入
+  gate      只跑 7 步质量门禁（类型/单测/覆盖率/真库不变量/API 契约/E2E/生产对账），不发布
   stop      停生产 backend/frontend + 释放本仓 dev 端口（保留 MySQL）
 
 推荐 pnpm 入口：
