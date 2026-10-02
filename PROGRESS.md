@@ -21,6 +21,14 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 
 ## 二、当前在做
 
+→ ✅ 2026-10-03 **推进生产完成**（用户指令「测试这边没问题可以推进生产，不要我每次手动来」；生产数据已修复 + 代码已发布 `v6561a62`）：
+  **备份先行且真验恢复**——`mysqldump --single-transaction --no-tablespaces`（退出码 0，1,362,207 bytes / 17 表 INSERT / `Dump completed`）→ 灌入测试实例临时库 → **Node 脚本连两个库逐表比 18 张表全部相等**（contents 43/43、cet_words 5999/5999、import_row 185/185…）。备份：`~/language-flow-backup-20261003/prod-before-recover-022743.sql`；回滚：`docker exec -i language-flow-mysql mysql -udev -pdev language_flow < 该文件`
+  **中途两次假通过被我自己的校验抓到并作废**——① shell 循环取 COUNT 因引号问题全部返回空，两份同样残缺的文件 `diff` 显示"一致"，若直接信就等于拿没验过的备份去写生产；补「空值必须报错」检查才暴露问题，改用 Node 后数据才真拿到。② `pnpm -r test` 并行跑时 `file-manager` reveal 用例偶发红（该用例含 3 秒真实超时，前后端并行抢 CPU），单跑 20/20、串行全量连跑 3 次 491 passed —— 判为并行争用的已知偶发，非代码缺陷，但记在这里
+  **生产数据修复（四段脚本 dry-run 先行，输出与演练逐段一致后才 --apply）**——`DB_ALLOW_PROD=1` 显式放行；结果 43/1/43/40/39/42 → **44/0/44/44/44/44**，夹具清零、`shared_video_conflicts` 归零、孤儿成片归零（磁盘 44 = DB 引用 44，无"引用缺文件"）、集数编号 `…37 38 39 40 41…44` **断号闭合**；恢复的两集 `url` 与 `platform_video_id` 均为 NULL（不造假，代价：这两集日后平台导入匹配不上，需人工绑定）
+  **代码发布**——`fix/publish-data-consistency`（ff）+ `feature/sidebar-collapse`（--no-ff）合入 `feature/intro-analytics-closeout`；发布前在合并结果上跑门禁：typecheck 3/3 · lint 237 文件零告警 · backend 491 / frontend 103 / shared 3 · openapi 8/8；`docker:release` 出 **v6561a62**（**工作树净空发布，tag 可由 commit 精确复现**，不同于 v8db33ce 的 FORCE=1 脏发布）；为避开 `stack.sh` 的脏树拒绝，把另两会话留下的未跟踪 `docs/20/21` 临时移出、发布后原样放回，**没有用 FORCE=1**
+  **生产实测（浏览器只读）**——发布管理 44 行、**「未命名」0 个**、第39/40集在列、用户覆盖值「选修课翻车」保留、KPI=44；`/api/analytics/videos` total 44 / unregistered 0；侧边栏折叠按钮在位。回滚入口 `pnpm docker:rollback v8db33ce`
+  ⏳ 剩余：**main 仍落后**（本次只推进到生产构建所在的 feature 分支；把整批 68 提交合入 main 是独立的"定基线"决定，未做）；第39/40集若你手上有抖音链接，给我可回填 `url` 使平台导入能自动匹配
+
 → 🔵 2026-10-02 生产数据不一致诊断 + 发布管理标题修复 + 侧边栏折叠（用户报三问题；两分支待用户验收，**未合入、未发布、生产库零写入**）：
   **先做工作区收口**——BMAD v6 适配层提交 `1eb8aab`，工作区净空
   **诊断（生产库只读审计，会话级 `READ ONLY`）**——六个页面六个数不是显示 bug，是「一集视频」没有唯一定义：磁盘 44 / contents 43 / 标记 42 / 发布记录 40（仅覆盖 39 个内容）/ 分析 39。逐项归因：① **第 39、40 集（09-24《家庭聚餐欢乐夜》29.9s、09-25《通勤中的地铁之旅》35.6s）的 `contents` 整行已丢**——9-28「测试库 16 表灌回生产库」用 9-23 时代快照替换了生产表，这两集创建于该快照之后；成片与配音在宿主机幸存成为孤儿（音长 +1.0s 片头 = 视长，配对关系经 ffprobe 证实），标题/正文/词表可从成片画面完整取回；② 同一批导入把 E2E 夹具 `test0001scene` + 2 条 `testpub*` 带进生产库，夹具还复用第 20 集成片文件名；③ 09-29~10-02 四集有标记无发布记录，被分析页 INNER JOIN 静默吞掉；④ 生产 binlog 起于 9-28（新卷）不含丢失两集，PROGRESS 所称取证盘 `data.img.corrupted-20260928.bak` 本机未找到
