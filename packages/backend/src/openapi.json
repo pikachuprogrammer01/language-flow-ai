@@ -2622,7 +2622,7 @@
         },
         "responses": {
           "200": {
-            "description": "创建成功",
+            "description": "创建成功（并按标记派生发布记录，结果见 publishRecord）",
             "content": {
               "application/json": {
                 "schema": {
@@ -2654,6 +2654,19 @@
                     },
                     "updatedAt": {
                       "type": "string"
+                    },
+                    "publishRecord": {
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "filled",
+                        "unchanged",
+                        "skipped-no-content",
+                        "conflict-work-id-owned"
+                      ]
+                    },
+                    "publishRecordHint": {
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -2664,7 +2677,9 @@
                     "url",
                     "note",
                     "createdAt",
-                    "updatedAt"
+                    "updatedAt",
+                    "publishRecord",
+                    "publishRecordHint"
                   ]
                 }
               }
@@ -2690,6 +2705,24 @@
           },
           "404": {
             "description": "视频文件不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "标记或派生发布记录失败（同事务整体回滚，标记不会单独落库）",
             "content": {
               "application/json": {
                 "schema": {
@@ -2893,7 +2926,7 @@
         },
         "responses": {
           "200": {
-            "description": "更新成功",
+            "description": "更新成功（并按需补派生发布记录）",
             "content": {
               "application/json": {
                 "schema": {
@@ -2901,10 +2934,25 @@
                   "properties": {
                     "success": {
                       "type": "boolean"
+                    },
+                    "publishRecord": {
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "filled",
+                        "unchanged",
+                        "skipped-no-content",
+                        "conflict-work-id-owned"
+                      ]
+                    },
+                    "publishRecordHint": {
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "success"
+                    "success",
+                    "publishRecord",
+                    "publishRecordHint"
                   ]
                 }
               }
@@ -2930,6 +2978,24 @@
           },
           "404": {
             "description": "标记不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "更新或派生发布记录失败（同事务整体回滚）",
             "content": {
               "application/json": {
                 "schema": {

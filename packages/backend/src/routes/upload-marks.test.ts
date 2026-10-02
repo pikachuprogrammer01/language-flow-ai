@@ -6,9 +6,16 @@ import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "../db";
+import { contents, publishRecords, uploadMarks } from "../db/schema";
 import { buildUploadMarksOverview, uploadMarksRoute } from "./upload-marks";
 
-vi.mock("../db", () => ({ db: {} }));
+// 标记与派生发布记录同事务：替身常驻提供 transaction（真实回滚由 MySQL 保证），
+// 单测仍可按需覆盖 db.transaction 来断言撤销语义。
+vi.mock("../db", () => {
+  const mod: { db: Record<string, unknown> } = { db: {} };
+  mod.db.transaction = async (cb: (tx: unknown) => unknown) => cb(mod.db);
+  return mod;
+});
 
 /** 测试替身：mock drizzle 链式调用；update/delete 的 affectedRows 可控 */
 function fakeDb() {
@@ -17,11 +24,16 @@ function fakeDb() {
     // biome-ignore lint/suspicious/noThenProperty: 模拟 drizzle select builder 的 thenable（await 返回行）
     then: async (resolve: (v: unknown) => void) => resolve(r),
   });
-  const mock = {
+  const mock: Record<string, unknown> = {
     select: () => ({
       from: () => ({
-        where: () => ({ orderBy: () => leaf(state.rows), ...leaf(state.rows) }),
+        where: () => ({
+          orderBy: () => leaf(state.rows),
+          limit: () => leaf(state.rows),
+          ...leaf(state.rows),
+        }),
         orderBy: () => leaf(state.rows),
+        limit: () => leaf(state.rows),
         ...leaf(state.rows),
       }),
     }),
@@ -29,6 +41,9 @@ function fakeDb() {
     update: () => ({ set: () => ({ where: async () => [{ affectedRows: state.affectedRows }] }) }),
     delete: () => ({ where: async () => [{ affectedRows: state.affectedRows }] }),
   };
+  // 整套链一次性挂上：标记派生发布记录会走 select/insert/update 三种链，
+  // 只 cherry-pick 其中一两个方法会让替身在新表上缺方法。
+  Object.assign(db, mock);
   return Object.assign(mock, { __state: state }) as unknown as typeof db & {
     __state: typeof state;
   };
@@ -272,6 +287,106 @@ describe("POST /api/upload-marks", () => {
       body: JSON.stringify({ videoFilename: "__mark_tmp.mp4" }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/upload-marks 标记即发布（派生发布记录）", () => {
+  /** 按表分流的替身：records 插入可注入失败，用于验证同事务撤销 */
+  function txFake(failPublishInsert = false) {
+    const inserted: { table: string; row: Record<string, unknown> }[] = [];
+    const tableOf = (t: unknown): string =>
+      t === uploadMarks
+        ? "marks"
+        : t === publishRecords
+          ? "records"
+          : t === contents
+            ? "contents"
+            : "unknown";
+    const chain = (name: string) => {
+      const q: Record<string, unknown> = {};
+      q.where = vi.fn(() => q);
+      q.limit = vi.fn(() => q);
+      q.orderBy = vi.fn(() => q);
+      // biome-ignore lint/suspicious/noThenProperty: 模拟 drizzle 查询链的 thenable
+      q.then = (resolve: (v: unknown) => void) =>
+        resolve(name === "contents" ? [{ title: "线上学习的新支持" }] : []);
+      return q;
+    };
+    const mock = {
+      select: vi.fn(() => ({ from: (t: unknown) => chain(tableOf(t)) })),
+      insert: vi.fn((t: unknown) => ({
+        values: vi.fn((row: Record<string, unknown>) => {
+          const name = tableOf(t);
+          if (name === "records" && failPublishInsert) return Promise.reject(new Error("boom"));
+          inserted.push({ table: name, row });
+          return Promise.resolve();
+        }),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      })),
+    };
+    return Object.assign(mock, { inserted });
+  }
+
+  function install(mock: ReturnType<typeof txFake>): void {
+    vi.mocked(db).select = mock.select as never;
+    vi.mocked(db).insert = mock.insert as never;
+    vi.mocked(db).update = mock.update as never;
+    vi.mocked(db).transaction = (async (cb: (tx: typeof db) => unknown) => {
+      const snapshot = [...mock.inserted];
+      try {
+        return await cb(db);
+      } catch (e) {
+        // 替身版回滚：真实语义由 MySQL 事务承担
+        mock.inserted.length = 0;
+        mock.inserted.push(...snapshot);
+        throw e;
+      }
+    }) as never;
+  }
+
+  const post = (body: Record<string, unknown>) =>
+    app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("标记落库的同时派生发布记录，结果在响应里可见", async () => {
+    const mock = txFake();
+    install(mock);
+    const res = await post({
+      videoFilename: "__mark_tmp.mp4",
+      platform: "抖音",
+      url: "https://www.douyin.com/video/7412345678901234567",
+      taskId: "cnt_20261002_469bc3",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { publishRecord: string; publishRecordHint: string };
+    expect(body.publishRecord).toBe("created");
+    expect(body.publishRecordHint).toContain("发布记录");
+    expect(mock.inserted.find((x) => x.table === "records")?.row).toMatchObject({
+      contentId: "cnt_20261002_469bc3",
+      platform: "抖音",
+      platformVideoId: "7412345678901234567",
+      publishTitle: "线上学习的新支持",
+      publishStatus: "published",
+    });
+  });
+
+  it("派生失败时标记一起撤销并回 500，不留「标记成功但分析里没有」", async () => {
+    const mock = txFake(true);
+    install(mock);
+    const res = await post({
+      videoFilename: "__mark_tmp.mp4",
+      platform: "抖音",
+      url: "https://www.douyin.com/video/7412345678901234567",
+      taskId: "cnt_20261002_469bc3",
+    });
+    expect(res.status).toBe(500);
+    expect(mock.inserted).toHaveLength(0);
+    await expect(res.json()).resolves.toMatchObject({ error: expect.any(String) });
   });
 });
 

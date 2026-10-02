@@ -14,6 +14,7 @@ import {
  */
 import { computed, onMounted, ref, watch } from "vue";
 import {
+  type MarkDeriveOutcome,
   type UploadMark,
   addUploadMark,
   deleteUploadMark,
@@ -171,17 +172,18 @@ async function save(): Promise<void> {
   }
   saving.value = true;
   try {
-    await addUploadMark({
+    const created = await addUploadMark({
       videoFilename: activeFilename.value,
       platform,
       url: addUrl.value.trim() || undefined,
       note: addNote.value.trim() || undefined,
       taskId: props.taskId,
     });
+    announceDerive(created.publishRecord, created.publishRecordHint);
     addUrl.value = "";
     addNote.value = "";
     addCustomPlatform.value = "";
-    // 成功不弹 toast：弹窗内列表立即出现新标记，父页面「已标记」徽章随 change 刷新
+    // 列表立即出现新标记，父页面「已标记」徽章随 change 刷新；派生结果单独播报（见 announceDerive）
     emit("change");
     await load();
   } catch (err) {
@@ -189,6 +191,13 @@ async function save(): Promise<void> {
   } finally {
     saving.value = false;
   }
+}
+
+/** 派生结果可见化：新登记的发布记录要播报，异常要点破；filled/unchanged 无新信息不打扰 */
+function announceDerive(outcome: MarkDeriveOutcome, hint: string): void {
+  if (outcome === "created") toast.success("已按标记登记发布记录，这一集在数据分析可见");
+  else if (outcome === "skipped-no-content" || outcome === "conflict-work-id-owned")
+    toast.warning(hint);
 }
 
 function startEdit(m: UploadMark): void {
@@ -208,13 +217,14 @@ async function saveEdit(m: UploadMark): Promise<void> {
   }
   saving.value = true;
   try {
-    await updateUploadMark(m.id, {
+    const edited = await updateUploadMark(m.id, {
       platform,
       url: editUrl.value.trim() || null,
       note: editNote.value.trim() || null,
     });
+    announceDerive(edited.publishRecord, edited.publishRecordHint);
     editingId.value = null;
-    // 成功不弹 toast：编辑结果直接显示在弹窗列表中
+    // 编辑结果直接显示在弹窗列表中；换平台等新发布事实由 announceDerive 播报
     emit("change");
     await load();
   } catch (err) {

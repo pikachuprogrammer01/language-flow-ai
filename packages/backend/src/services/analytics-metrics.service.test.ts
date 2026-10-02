@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { db } from "../db";
+import { type PublishRecordIntent, derivePublishIntent } from "../lib/publish-derivation";
 import {
   coerceMetricValue,
   computeDerivedMetrics,
@@ -14,6 +15,7 @@ import {
   importMetrics,
   mapCreatorDailyRow,
   mapImportRow,
+  upsertPublishRecordFromMark,
 } from "./analytics-metrics.service";
 
 // 纯函数用例不连库；服务模块导入时的池初始化按现有惯例 mock
@@ -433,4 +435,116 @@ describe("importMetrics / importCreatorDaily 事务边界（审查批次 3）", 
         expect(results[0]?.videoDerived).toEqual(["like_rate"]);
       },
     ));
+});
+
+/** 标记 ⇒ 发布记录派生（2026-10-02 需求：标记即发布，未登记的集不再从数据分析里静默消失） */
+describe("upsertPublishRecordFromMark", () => {
+  type TxArg = Parameters<typeof upsertPublishRecordFromMark>[0];
+  const markedAt = new Date("2026-10-02T03:20:00.000Z");
+  const intent = derivePublishIntent({
+    contentId: "cnt_20261002_469bc3",
+    platform: "抖音",
+    url: "https://www.douyin.com/video/7412345678901234567",
+    videoFilename: "c29565d8.mp4",
+    markedAt,
+    contentTitle: "线上学习的新支持",
+  }) as PublishRecordIntent;
+
+  function fakeExecutor(selectResults: unknown[][], insertReject?: unknown) {
+    const queue = [...selectResults];
+    const inserted: Record<string, unknown>[] = [];
+    return {
+      inserted,
+      select: vi.fn(() => thenableChain(queue.shift() ?? [])),
+      insert: vi.fn(() => ({
+        values: vi.fn((row: Record<string, unknown>) => {
+          inserted.push(row);
+          return insertReject ? Promise.reject(insertReject) : Promise.resolve();
+        }),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      })),
+    };
+  }
+
+  it("未绑定生成记录的标记不查库、不写入", async () => {
+    const ex = fakeExecutor([]);
+    await expect(upsertPublishRecordFromMark(ex as unknown as TxArg, null)).resolves.toBe(
+      "skipped-no-content",
+    );
+    expect(ex.select).not.toHaveBeenCalled();
+    expect(ex.insert).not.toHaveBeenCalled();
+  });
+
+  it("同目标无记录时新建，并带上标记时间作为发布证据（不猜平台真实发布时间）", async () => {
+    const ex = fakeExecutor([[], []]);
+    await expect(upsertPublishRecordFromMark(ex as unknown as TxArg, intent)).resolves.toBe(
+      "created",
+    );
+    expect(ex.insert).toHaveBeenCalledTimes(1);
+    expect(ex.inserted[0]).toMatchObject({
+      contentId: "cnt_20261002_469bc3",
+      platform: "抖音",
+      platformVideoId: "7412345678901234567",
+      publishTime: markedAt,
+      publishStatus: "published",
+    });
+  });
+
+  it("已有记录有空位时只补空位", async () => {
+    const ex = fakeExecutor([
+      [{ id: "pub_1" }],
+      [
+        {
+          id: "pub_1",
+          platformVideoId: null,
+          videoAssetId: null,
+          publishTitle: null,
+          publishTime: null,
+        },
+      ],
+    ]);
+    await expect(upsertPublishRecordFromMark(ex as unknown as TxArg, intent)).resolves.toBe(
+      "filled",
+    );
+    expect(ex.update).toHaveBeenCalledTimes(1);
+    expect(ex.insert).not.toHaveBeenCalled();
+  });
+
+  it("字段齐备时幂等：unchanged 且不产生写入", async () => {
+    const ex = fakeExecutor([
+      [{ id: "pub_1" }],
+      [
+        {
+          id: "pub_1",
+          platformVideoId: "7412345678901234567",
+          videoAssetId: "c29565d8.mp4",
+          publishTitle: "线上学习的新支持",
+          publishTime: markedAt,
+        },
+      ],
+    ]);
+    await expect(upsertPublishRecordFromMark(ex as unknown as TxArg, intent)).resolves.toBe(
+      "unchanged",
+    );
+    expect(ex.update).not.toHaveBeenCalled();
+    expect(ex.insert).not.toHaveBeenCalled();
+  });
+
+  it("作品 ID 已被另一内容占用时不抢、不插入", async () => {
+    const ex = fakeExecutor([[], [{ id: "pub_other" }]]);
+    await expect(upsertPublishRecordFromMark(ex as unknown as TxArg, intent)).resolves.toBe(
+      "conflict-work-id-owned",
+    );
+    expect(ex.insert).not.toHaveBeenCalled();
+  });
+
+  it("并发双标记撞唯一键时视为已派生，不让标记整体失败", async () => {
+    const dupErr = Object.assign(new Error("Duplicate entry"), { code: "ER_DUP_ENTRY" });
+    const ex = fakeExecutor([[], []], dupErr);
+    await expect(upsertPublishRecordFromMark(ex as unknown as TxArg, intent)).resolves.toBe(
+      "unchanged",
+    );
+  });
 });

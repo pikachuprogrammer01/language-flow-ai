@@ -380,6 +380,14 @@ export async function listUploadMarksOverview(
   return data as { marks: UploadMarkOverview[]; platforms: string[] };
 }
 
+/** 标记派生发布记录的结果（与后端 MarkDeriveOutcome 同枚举） */
+export type MarkDeriveOutcome =
+  | "created"
+  | "filled"
+  | "unchanged"
+  | "skipped-no-content"
+  | "conflict-work-id-owned";
+
 /** 新增上传标记（videoFilename + platform 必填，url/note/taskId 可选） */
 export async function addUploadMark(input: {
   videoFilename: string;
@@ -391,7 +399,7 @@ export async function addUploadMark(input: {
   const { data, error, response } = await client.POST("/api/upload-marks", { body: input });
   if (error || !response.ok) throw new Error(`新增上传标记失败：${apiError(error, response)}`);
   if (!data) throw new Error("新增上传标记失败：空响应");
-  return data as UploadMark;
+  return data as UploadMark & { publishRecord: MarkDeriveOutcome; publishRecordHint: string };
 }
 
 /** 更新上传标记（url/note 传 null 表示清空） */

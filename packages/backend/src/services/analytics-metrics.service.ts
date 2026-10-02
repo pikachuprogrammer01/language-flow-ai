@@ -25,6 +25,7 @@ import {
   isCreatorDailyField,
   isImportableMetric,
 } from "../lib/analytics-taxonomy";
+import { type PublishRecordIntent, publishRecordFillPatch } from "../lib/publish-derivation";
 
 type Db = typeof db;
 /** 可执行器：连接池或事务内 tx（与现有服务同一事务透传惯例） */
@@ -336,6 +337,81 @@ export async function createPublishRecord(
     throw e;
   }
   return { kind: "created", id };
+}
+
+/** 标记派生发布记录的结果（可观测：调用方据此告知用户，不静默吞掉任何一种） */
+export type MarkDeriveOutcome =
+  | "created"
+  | "filled"
+  | "unchanged"
+  | "skipped-no-content"
+  | "conflict-work-id-owned";
+
+/**
+ * 由上传标记派生发布记录（幂等，按 contentId + platform 归并）。
+ *
+ * 必须在标记写入的同一事务内调用：派生失败一起回滚，
+ * 不出现「标记成功但数据分析里没有这一集」这种新裂缝。
+ */
+export async function upsertPublishRecordFromMark(
+  executor: Executor,
+  intent: PublishRecordIntent | null,
+): Promise<MarkDeriveOutcome> {
+  if (!intent) return "skipped-no-content";
+  const sameTarget = await executor
+    .select({ id: publishRecords.id })
+    .from(publishRecords)
+    .where(
+      and(
+        eq(publishRecords.contentId, intent.contentId),
+        eq(publishRecords.platform, intent.platform),
+      ),
+    )
+    .limit(1);
+  const owned = sameTarget[0];
+  if (owned) {
+    const [row] = await executor
+      .select()
+      .from(publishRecords)
+      .where(eq(publishRecords.id, owned.id))
+      .limit(1);
+    const patch = publishRecordFillPatch(row, intent);
+    if (!patch) return "unchanged";
+    await executor.update(publishRecords).set(patch).where(eq(publishRecords.id, owned.id));
+    return "filled";
+  }
+  if (intent.platformVideoId) {
+    // 同一平台作品 ID 已被别的内容占用：不抢，交回调用方显式提示（匹配引擎依赖该唯一性）
+    const taken = await executor
+      .select({ id: publishRecords.id })
+      .from(publishRecords)
+      .where(
+        and(
+          eq(publishRecords.platform, intent.platform),
+          eq(publishRecords.platformVideoId, intent.platformVideoId),
+        ),
+      )
+      .limit(1);
+    if (taken.length > 0) return "conflict-work-id-owned";
+  }
+  try {
+    await executor.insert(publishRecords).values({
+      id: makePublishId(),
+      contentId: intent.contentId,
+      videoAssetId: intent.videoAssetId,
+      platform: intent.platform,
+      platformVideoId: intent.platformVideoId,
+      publishTitle: intent.publishTitle,
+      publishTime: intent.publishTime,
+      coverUrl: null,
+      publishStatus: intent.publishStatus,
+    });
+  } catch (e) {
+    // 先查后插非原子：并发双标记撞唯一键时视为已派生，不让标记整体失败
+    if (isDupKeyError(e)) return "unchanged";
+    throw e;
+  }
+  return "created";
 }
 
 export interface PublishRecordListItem {

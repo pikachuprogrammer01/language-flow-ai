@@ -14,8 +14,23 @@ import { db } from "../db";
 import { contents, uploadMarks } from "../db/schema";
 import { resolveTaskIdByVideoFilename } from "../db/upload-marks-helper";
 import { API_TAGS } from "../lib/api-convention";
+import { logger } from "../lib/logger";
+import { derivePublishIntent } from "../lib/publish-derivation";
+import {
+  type MarkDeriveOutcome,
+  upsertPublishRecordFromMark,
+} from "../services/analytics-metrics.service";
 
 import { UPLOADS_DIR } from "../lib/uploads-path";
+
+/** 标记派生发布记录的结果说明（响应可见，不静默） */
+const PUBLISH_OUTCOME_HINT: Record<MarkDeriveOutcome, string> = {
+  created: "已按标记登记发布记录",
+  filled: "已补齐既有发布记录的空位字段",
+  unchanged: "既有发布记录无需变更",
+  "skipped-no-content": "该标记未绑定生成记录，无法登记发布记录",
+  "conflict-work-id-owned": "该作品链接已被另一条记录占用，未覆盖",
+};
 
 const markSchema = z.object({
   videoFilename: z.string().min(1).max(100),
@@ -56,6 +71,18 @@ const overviewMarkSchema = z.object({
 /** 校验文件名：只允许 video 目录下的常规文件名（防路径穿越） */
 function isValidVideoFilename(filename: string): boolean {
   return !filename.includes("..") && basename(filename) === filename;
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** 派生发布记录用的生成标题（读不到内容时返回 null，不造标题） */
+async function readContentTitle(tx: Tx, contentId: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ title: contents.title })
+    .from(contents)
+    .where(eq(contents.id, contentId))
+    .limit(1);
+  return row?.title ?? null;
 }
 
 /** 从 contents.video JSON 提取文件名 */
@@ -272,7 +299,7 @@ const createRouteDef = createRoute({
   },
   responses: {
     200: {
-      description: "创建成功",
+      description: "创建成功（并按标记派生发布记录，结果见 publishRecord）",
       content: {
         "application/json": {
           schema: z.object({
@@ -284,6 +311,14 @@ const createRouteDef = createRoute({
             note: z.string().nullable(),
             createdAt: z.string(),
             updatedAt: z.string(),
+            publishRecord: z.enum([
+              "created",
+              "filled",
+              "unchanged",
+              "skipped-no-content",
+              "conflict-work-id-owned",
+            ]),
+            publishRecordHint: z.string(),
           }),
         },
       },
@@ -294,6 +329,10 @@ const createRouteDef = createRoute({
     },
     404: {
       description: "视频文件不存在",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
+    500: {
+      description: "标记或派生发布记录失败（同事务整体回滚，标记不会单独落库）",
       content: { "application/json": { schema: z.object({ error: z.string() }) } },
     },
   },
@@ -322,14 +361,29 @@ uploadMarksRoute.openapi(createRouteDef, async (c) => {
     taskId = await resolveTaskIdByVideoFilename(videoFilename);
   }
   const id = randomUUID().replaceAll("-", "");
-  await db.insert(uploadMarks).values({
-    id,
-    taskId,
-    videoFilename,
-    platform,
-    url: url ?? null,
-    note: note ?? null,
-  });
+  const now = new Date();
+  let outcome: MarkDeriveOutcome = "skipped-no-content";
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(uploadMarks)
+        .values({ id, taskId, videoFilename, platform, url: url ?? null, note: note ?? null });
+      outcome = await upsertPublishRecordFromMark(
+        tx,
+        derivePublishIntent({
+          contentId: taskId,
+          platform,
+          url: url ?? null,
+          videoFilename,
+          markedAt: now,
+          contentTitle: taskId ? await readContentTitle(tx, taskId) : null,
+        }),
+      );
+    });
+  } catch (e) {
+    logger.error({ err: e }, "上传标记或派生发布记录失败");
+    return c.json({ error: "标记失败，未保存" }, 500);
+  }
   return c.json(
     {
       id,
@@ -338,8 +392,10 @@ uploadMarksRoute.openapi(createRouteDef, async (c) => {
       platform,
       url: url ?? null,
       note: note ?? null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      publishRecord: outcome,
+      publishRecordHint: PUBLISH_OUTCOME_HINT[outcome],
     },
     200,
   );
@@ -359,11 +415,19 @@ const patchRouteDef = createRoute({
   },
   responses: {
     200: {
-      description: "更新成功",
+      description: "更新成功（并按需补派生发布记录）",
       content: {
         "application/json": {
           schema: z.object({
             success: z.boolean(),
+            publishRecord: z.enum([
+              "created",
+              "filled",
+              "unchanged",
+              "skipped-no-content",
+              "conflict-work-id-owned",
+            ]),
+            publishRecordHint: z.string(),
           }),
         },
       },
@@ -374,6 +438,10 @@ const patchRouteDef = createRoute({
     },
     404: {
       description: "标记不存在",
+      content: { "application/json": { schema: z.object({ error: z.string() }) } },
+    },
+    500: {
+      description: "更新或派生发布记录失败（同事务整体回滚）",
       content: { "application/json": { schema: z.object({ error: z.string() }) } },
     },
   },
@@ -390,8 +458,34 @@ uploadMarksRoute.openapi(patchRouteDef, async (c) => {
   // 先确认存在：MySQL affectedRows 在值未变化时为 0，不能作为 404 判据（幂等更新）
   const existing = await db.select().from(uploadMarks).where(eq(uploadMarks.id, id));
   if (existing.length === 0) return c.json({ error: "标记不存在" }, 404);
-  await db.update(uploadMarks).set(values).where(eq(uploadMarks.id, id));
-  return c.json({ success: true }, 200);
+  const mark = existing[0];
+  // 改平台/改链接可能引入新的发布事实（如抖音→快手）：同规则再派生一次，幂等；
+  // 旧平台的既有记录保留为历史，不级联删（指标挂在发布记录上，删了会连带毁掉已导入数据）
+  let outcome: MarkDeriveOutcome = "skipped-no-content";
+  try {
+    await db.transaction(async (tx) => {
+      await tx.update(uploadMarks).set(values).where(eq(uploadMarks.id, id));
+      const contentId = mark.taskId;
+      outcome = await upsertPublishRecordFromMark(
+        tx,
+        derivePublishIntent({
+          contentId,
+          platform: values.platform ?? mark.platform,
+          url: values.url !== undefined ? values.url : mark.url,
+          videoFilename: mark.videoFilename,
+          markedAt: new Date(),
+          contentTitle: contentId ? await readContentTitle(tx, contentId) : null,
+        }),
+      );
+    });
+  } catch (e) {
+    logger.error({ err: e }, "更新上传标记或派生发布记录失败");
+    return c.json({ error: "更新失败，未保存" }, 500);
+  }
+  return c.json(
+    { success: true, publishRecord: outcome, publishRecordHint: PUBLISH_OUTCOME_HINT[outcome] },
+    200,
+  );
 });
 
 const deleteRouteDef = createRoute({
