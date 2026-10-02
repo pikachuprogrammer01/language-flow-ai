@@ -1,7 +1,8 @@
 /**
  * 发布数据一致性修复脚本（docs/18 §四.2 / docs/19 M5）
  *
- * 三段幂等修复：清测试夹具 → 按上传标记回填发布记录 → 恢复 09-24/09-25 两集。
+ * 四段幂等修复：清测试夹具 → 恢复 09-24/09-25 两集 contents → 恢复这两集的上传标记
+ * （即用户的「第39集/第40集」编号）→ 按全部标记回填发布记录。
  * 默认 dry-run，`--apply` 才写库；目标是生产库时由 requireSafeWriteTarget 拦截，
  * 必须显式 DB_ALLOW_PROD=1（本次交付不代跑生产）。
  *
@@ -9,6 +10,7 @@
  *   pnpm --filter @ai-english/backend exec tsx scripts/recover-publish-data.ts
  *   pnpm --filter @ai-english/backend exec tsx scripts/recover-publish-data.ts --apply
  */
+import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { type SQL, asc, count, countDistinct, eq, inArray, isNotNull, sql } from "drizzle-orm";
@@ -23,7 +25,11 @@ type Level = "CET4" | "CET6";
 type WordInfo = { word: string; meaning: string; level: Level };
 type Segment = { text: string; words: string[] };
 
-/** 一条待恢复的集：文案与词表取自成片截帧，时长/尺寸取自 ffprobe，时间取自配音文件 mtime */
+/**
+ * 一条待恢复的集：文案与词表取自成片截帧，时长/尺寸取自 ffprobe，时间取自配音文件 mtime。
+ * markNote：用户自己的集数编号（写在标记备注里，是他找一集视频的主要方式）。
+ * 编号依据 = 生产库现存标记的断号（…36 37 38 →缺 39~40→ 41 42 43 44），用户已确认。
+ */
 type RecoveredEpisode = {
   id: string;
   title: string;
@@ -34,6 +40,8 @@ type RecoveredEpisode = {
   words: { word: string; meaning: string }[];
   audio: { url: string; duration: number; format: string; file: string };
   video: { url: string; duration: number; file: string };
+  /** 恢复的上传标记备注（平台沿用该账号实际使用的抖音；链接不造假，留 NULL） */
+  markNote: string;
 };
 
 /**
@@ -82,6 +90,7 @@ const RECOVERED: RecoveredEpisode[] = [
       file: "video/93c90a30-7d53-4b10-8930-a8b5699b04b2.mp4",
       duration: 29.909,
     },
+    markNote: "情景英语四级词汇-第39集",
   },
   {
     id: "cnt_20260925_rec040",
@@ -123,6 +132,7 @@ const RECOVERED: RecoveredEpisode[] = [
       file: "video/ab682d56-2164-4872-9937-eab274ff5500.mp4",
       duration: 35.627,
     },
+    markNote: "情景英语四级词汇-第40集",
   },
 ];
 
@@ -374,14 +384,48 @@ async function recoverEpisodes(apply: boolean): Promise<void> {
   }
 }
 
+/**
+ * [D] 恢复两集的上传标记 —— 备注就是用户的集数编号（生产现存标记断号 …37 38 →缺 39~40→ 41…）。
+ * 只恢复 contents 而不恢复标记，这两集在 /marks 与数据分析里仍然「看不见」，等于没恢复完。
+ * 链接一律留 NULL：真实抖音作品 ID 已随 9-28 覆盖丢失，不造假（该标记仍会派生发布记录，
+ * 只是作品 ID 为空、平台导入的指标匹配不上——这是诚实状态）。
+ */
+async function restoreMarks(apply: boolean): Promise<void> {
+  for (const ep of RECOVERED) {
+    const existing = await db
+      .select({ id: uploadMarks.id })
+      .from(uploadMarks)
+      .where(sql`${uploadMarks.taskId} = ${ep.id} and ${uploadMarks.platform} = '抖音'`)
+      .limit(1);
+    if (existing.length > 0) {
+      console.log(`[D] ${ep.id} 已有抖音标记，跳过`);
+      continue;
+    }
+    console.log(`[D] 恢复标记 ${ep.id} ←「${ep.markNote}」（链接留 NULL，不造假作品 ID）`);
+    if (!apply) continue;
+    await db.insert(uploadMarks).values({
+      id: randomUUID().replaceAll("-", ""),
+      taskId: ep.id,
+      videoFilename: ep.video.file.split("/").pop() ?? ep.video.file,
+      platform: "抖音",
+      url: null,
+      note: ep.markNote,
+      createdAt: ep.createdAt,
+      updatedAt: ep.createdAt,
+    });
+  }
+}
+
 export async function main(apply: boolean): Promise<void> {
   console.log(apply ? "== APPLY 模式 ==" : "== DRY-RUN（加 --apply 才写库）==");
   if (apply) requireSafeWriteTarget("recover-publish-data");
   console.log(`UPLOADS_DIR=${UPLOADS_DIR}`);
   await report("修复前");
+  // 顺序有意为之：先清夹具（避免它占用文件名/记录干扰）→ 恢复 contents → 恢复标记 → 最后统一回填发布记录
   await purgeFixtures(apply);
-  await backfillPublishRecords(apply);
   await recoverEpisodes(apply);
+  await restoreMarks(apply);
+  await backfillPublishRecords(apply);
   if (apply) await report("修复后");
 }
 
