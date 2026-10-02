@@ -3,6 +3,7 @@
  * 用法：pnpm gen-api 重新生成（后端启动时 openapi.json 已刷新）
  */
 import createClient from "openapi-fetch";
+import { fetchAllPages } from "../lib/paging";
 import type { paths } from "./schema.d.ts";
 
 /**
@@ -162,6 +163,23 @@ export async function listTasks(
   if (error || !response.ok) throw new Error(`查询任务失败（HTTP ${response.status}）`);
   if (!data) throw new Error("查询任务失败：空响应");
   return data;
+}
+
+/** 服务端单页上限（tasks.ts pageSize.max(100)）；超过必须翻页，否则最旧的行整页消失 */
+const TASKS_PAGE_SIZE = 100;
+
+/**
+ * 全量拉取生成记录：调用方需要「每一集都在」的视图（发布管理逐集编辑元数据、
+ * 生成记录批量选择），只拉第一页会让第 101 条起静默不可见。
+ */
+export async function listAllTasks(
+  params: Omit<Parameters<typeof listTasks>[0], "page" | "pageSize"> = {},
+) {
+  const { rows, total } = await fetchAllPages(async (page, pageSize) => {
+    const data = await listTasks({ ...params, page, pageSize });
+    return { rows: data.tasks, total: data.total };
+  }, TASKS_PAGE_SIZE);
+  return { tasks: rows, total };
 }
 
 export type VideoAnalytics = {

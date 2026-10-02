@@ -6,7 +6,7 @@ import { Check, Copy, FolderOpen, Play, Plus, Tag } from "lucide-vue-next";
  */
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { batchDeleteTasks, deleteTask, listTasks, revealVideoInFinder } from "../api/client";
+import { batchDeleteTasks, deleteTask, listAllTasks, revealVideoInFinder } from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 import DataTable from "../components/ui/data-table.vue";
 import Spinner from "../components/ui/spinner.vue";
@@ -184,7 +184,7 @@ async function load(): Promise<void> {
   loading.value = true;
   errorMsg.value = "";
   try {
-    const data = await listTasks({ pageSize: 100 });
+    const data = await listAllTasks();
     tasks.value = data.tasks;
     total.value = data.total;
   } catch (err) {

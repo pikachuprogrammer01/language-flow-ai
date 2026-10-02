@@ -2,7 +2,7 @@
 import { Play, Tag } from "lucide-vue-next";
 // 视频资产页（PRD 10.1.5）：已有成片的记录列表 / 播放 / 重命名 / 删除
 import { computed, onMounted, ref } from "vue";
-import { deleteTask, listTasks } from "../api/client";
+import { deleteTask, listAllTasks, type listTasks } from "../api/client";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 // biome-ignore lint/style/useImportType: 组件在 Vue 模板中使用（biome 不感知模板标签）
 import UploadMarkManager from "../components/upload-mark-manager.vue";
@@ -88,7 +88,7 @@ async function load(): Promise<void> {
   loading.value = true;
   errorMsg.value = "";
   try {
-    const data = await listTasks({ hasVideo: "true", pageSize: 100 });
+    const data = await listAllTasks({ hasVideo: "true" });
     assets.value = data.tasks ?? [];
   } catch (err) {
     errorMsg.value = err instanceof Error ? err.message : String(err);

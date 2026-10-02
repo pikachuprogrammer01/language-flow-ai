@@ -5,8 +5,9 @@ import {
   getTask,
   getVideoAnalytics,
   getVideoAnalyticsBatch,
+  listAllTasks,
   listFiles,
-  listTasks,
+  type listTasks,
   listVoices,
   updateVideoAnalytics,
 } from "../api/client";
@@ -33,6 +34,8 @@ const loading = ref(true);
 const detailLoading = ref(false);
 const errorMsg = ref("");
 const tasks = ref<Task[]>([]);
+/** 服务端总行数：KPI 用它而非已加载条数，否则列表被截断时数字仍然「看起来正常」 */
+const serverTotal = ref(0);
 const selectedId = ref("");
 const metadata = ref<Record<string, AnalyticsMeta>>({});
 const hydratedIds = ref(new Set<string>());
@@ -258,9 +261,10 @@ async function load(): Promise<void> {
   loading.value = true;
   errorMsg.value = "";
   try {
-    const result = await listTasks({ pageSize: 100 });
+    const result = await listAllTasks();
     if (version !== loadVersion.value) return;
     tasks.value = result.tasks;
+    serverTotal.value = result.total;
     hydratedIds.value = new Set();
     selectedId.value = reconcileSelectedId(
       tasks.value.map((task) => task.id),
@@ -345,7 +349,10 @@ watch(selectedId, (nextId, previousId) => {
     <div class="mb-[22px] grid grid-cols-3 gap-3.5">
       <div class="rounded-2xl border border-hairline bg-panel p-[18px]">
         <p class="text-[13px] text-subtle">视频总数</p>
-        <p class="mt-2 text-[30px] leading-none font-extrabold">{{ loading ? "—" : tasks.length }}</p>
+        <p class="mt-2 text-[30px] leading-none font-extrabold">{{ loading ? "—" : serverTotal }}</p>
+        <p v-if="!loading && serverTotal !== tasks.length" class="mt-1 text-xs text-red-600">
+          仅装载 {{ tasks.length }} 条，列表不完整
+        </p>
       </div>
       <div class="rounded-2xl border border-hairline bg-panel p-[18px]">
         <p class="text-[13px] text-subtle">总时长</p>

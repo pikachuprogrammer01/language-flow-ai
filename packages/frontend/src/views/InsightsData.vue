@@ -13,8 +13,8 @@ import {
   type PublishRecordView,
   createAnalyticsPublishRecord,
   deleteAnalyticsPublishRecord,
+  listAllTasks,
   listAnalyticsPublishRecords,
-  listTasks,
   updateAnalyticsPublishRecord,
 } from "../api/client";
 import Button from "../components/ui/button.vue";
@@ -77,7 +77,7 @@ async function loadRecords(): Promise<void> {
 
 async function loadVideoOptions(): Promise<void> {
   try {
-    const data = await listTasks({ hasVideo: "true", pageSize: 100 });
+    const data = await listAllTasks({ hasVideo: "true" });
     videoOptions.value = data.tasks.map((t) => ({ value: t.id, label: t.title || t.id }));
   } catch {
     videoOptions.value = [];
