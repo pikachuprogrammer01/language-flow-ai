@@ -52,3 +52,11 @@ playwright-report/
 
 # 临时研究/验证产物（下载的 tarball 与解包内容，非项目代码；其中的第三方 js 会污染全仓 lint）
 .tmp-research/
+
+# BMAD v6 第三方运行时（owner：PROJECT；官方 installer 产物，重装/更新可复原，不入库）
+# 定制层反向豁免：_bmad/custom/ 入库（含 bmad-build.toml 桥覆盖，installer 永不触碰）
+# 注：_bmad/config.toml 为 installer 再生成的只读派生文件（文件头明示），按方案豁免清单收紧为不入库
+_bmad/*
+!_bmad/custom/
+bmad-output/
+.qoder/

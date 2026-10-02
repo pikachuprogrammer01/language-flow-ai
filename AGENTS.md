@@ -375,3 +375,13 @@ Entry 的语义必须来自模型对真实证据的理解。不得仅依据路�
 
 不预加载、不猜测，也不自行重建这些专项流程。平台调用方式、请求格式、批次上限、审批规则、索引格式细节和恢复步骤由对应Guide、工具说明、模型Prompt和CLI帮助按需提供。
 <!-- aoci:end -->
+
+<!-- bmad-aoci:start -->
+## BMAD + AOCI 适配层（owner：ADAPTER）
+
+- 本仓已安装 BMAD v6（可选能力，官方 installer，平台 Qoder → `.qoder/skills/`，运行时 `_bmad/`）；协调规则唯一真相源：`docs/ai-adapters/bmad-aoci-protocol.md`。
+- 按该协议执行 S0–S4 任务路由与生命周期门禁（BMAD Planning → Coding Agent → AOCI Context → Implementation → Verification → AOCI Alignment → BMAD Review）。
+- 定制只允许进 `_bmad/custom/` 与 `docs/ai-adapters/`；第三方 runtime 文件（`_bmad/` 模块区、`.qoder/skills/`）禁止直接修改。
+- 本区块与上方 `aoci:begin` 区块相互独立；PROGRESS.md 进度职责与 AGENTS.md 既有治理规则不变，优先级高于适配协议。
+- AOCI 不可用时按协议 §四 fallback（repo search / 直读源码），不阻塞任务；BMAD 缺失时按 AGENTS.md 原流程正常开发。
+<!-- bmad-aoci:end -->

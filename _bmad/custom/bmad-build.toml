@@ -1,0 +1,14 @@
+# Team override for bmad-build — never touched by the BMAD installer.
+# owner: ADAPTER（见 docs/ai-adapters/bmad-aoci-protocol.md §三/§四）
+# Merge rules: strings replace; lists append; tables merge by key.
+# 本文件只注入 AOCI 认知前置与 fallback 事实，不改动 bmad-build 其他默认行为。
+
+[workflow]
+
+# Facts kept in context for the whole bmad-build run (append to default []).
+persistent_facts = [
+  "实现前先取 AOCI 仓库认知：先 aoci_rules，需要全貌时 aoci_overview（按 AGENTS.md 的 aoci:begin 合同执行）。",
+  "AOCI 认知不可用（MCP 未注册/调用失败/索引不可靠）时不得阻塞：fallback 到 repo search（SearchCodebase/Grep）与直读源码、docs/ 设计文档，并在交付说明中声明未使用 AOCI 认知。",
+  "业务代码修改边界、命名与提交规范一律以仓库 AGENTS.md 为最高优先级；BMAD 产物不得接管 PROGRESS.md。",
+  "file:docs/ai-adapters/bmad-aoci-protocol.md",
+]
