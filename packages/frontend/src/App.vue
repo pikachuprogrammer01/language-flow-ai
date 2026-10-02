@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // LanguageFlow AI — 入口组件（深色侧边栏 + 顶栏布局，1:1 还原后台原型）
-// 响应式：≥lg 常驻侧边栏；小屏隐藏，顶栏汉堡按钮开合抽屉 + 遮罩关闭
+// 响应式：≥lg 常驻侧边栏（可折叠成只剩图标，状态入 localStorage）；小屏隐藏，顶栏汉堡按钮开合抽屉 + 遮罩关闭
 import {
   Activity,
   ArrowLeft,
@@ -9,6 +9,8 @@ import {
   History,
   LayoutDashboard,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Plus,
   SquareCheck,
@@ -21,7 +23,7 @@ import LlmStatus from "./components/llm-status.vue";
 import AppToaster from "./components/ui/app-toaster.vue";
 import ConfirmDialog from "./components/ui/confirm-dialog.vue";
 import { confirmAbandonCreate, goCreate, useCreateSession } from "./lib/create-session";
-
+import { useSidebarCollapse } from "./lib/sidebar-collapse";
 const route = useRoute();
 const router = useRouter();
 
@@ -43,6 +45,8 @@ const { abandonConfirmOpen } = useCreateSession();
 
 /** 小屏导航抽屉开关 */
 const drawerOpen = ref(false);
+/** 侧边栏折叠（仅 lg 以上生效；图标态 + 悬停浮出名称 + localStorage 记住） */
+const { collapsed, toggle } = useSidebarCollapse();
 /** 路由变化（含抽屉内跳转）后自动收起抽屉 */
 watch(
   () => route.fullPath,
@@ -115,12 +119,33 @@ const crumb = computed(() => String(route.meta.title ?? "工作台"));
       @click="drawerOpen = false"
     />
 
-    <!-- 侧边栏（原型 .sidebar：238px 深色；小屏变体：fixed 抽屉滑入滑出） -->
+    <!-- 侧边栏（原型 .sidebar：238px 深色；小屏变体：fixed 抽屉滑入滑出；lg 以上可折叠成 64px 图标栏） -->
     <aside
-      class="fixed inset-y-0 left-0 z-50 flex h-screen w-[238px] shrink-0 flex-col bg-sidebar px-3.5 py-[18px] transition-transform duration-200 lg:sticky lg:top-0 lg:translate-x-0"
-      :class="drawerOpen ? 'translate-x-0' : '-translate-x-full'"
+      class="group/sidebar fixed inset-y-0 left-0 z-50 flex h-screen w-[238px] shrink-0 flex-col bg-sidebar px-3.5 py-[18px] transition-all duration-200 lg:sticky lg:top-0 lg:translate-x-0"
+      :class="[
+        drawerOpen ? 'translate-x-0' : '-translate-x-full',
+        collapsed ? 'lg:w-[64px] lg:px-2' : '',
+      ]"
+      :data-collapsed="collapsed ? 'true' : 'false'"
     >
-      <RouterLink to="/" class="flex items-center gap-2.5 px-2.5 pb-[18px] pt-1.5 text-white">
+      <!-- 折叠开关：压在侧边栏右缘，只作用于 lg 以上（小屏是抽屉，折叠无意义） -->
+      <button
+        type="button"
+        class="absolute -right-3 top-[30px] z-50 hidden h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-hairline bg-white text-subtle shadow-sm hover:text-ink lg:flex"
+        :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        :aria-expanded="!collapsed"
+        :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        data-testid="sidebar-toggle"
+        @click="toggle"
+      >
+        <component :is="collapsed ? PanelLeftOpen : PanelLeftClose" :size="14" aria-hidden="true" />
+      </button>
+      <RouterLink
+        to="/"
+        class="flex items-center gap-2.5 px-2.5 pb-[18px] pt-1.5 text-white"
+        :class="collapsed ? 'lg:justify-center lg:gap-0 lg:px-0' : ''"
+        :title="collapsed ? 'LanguageFlow AI' : undefined"
+      >
         <!-- 品牌图标（public/languageflow_ai_logo_assets 官方 logo，透明底裁切版） -->
         <img
           src="/logo-icon.png"
@@ -129,7 +154,7 @@ const crumb = computed(() => String(route.meta.title ?? "工作台"));
           height="32"
           class="h-8 w-8 shrink-0"
         />
-        <span class="text-[17px] leading-tight font-extrabold"
+        <span class="text-[17px] leading-tight font-extrabold lg:group-data-[collapsed=true]/sidebar:hidden"
           >LanguageFlow
           <span
             class="bg-gradient-to-r from-[#2b7bff] to-[#6a5cff] bg-clip-text text-transparent"
@@ -139,22 +164,31 @@ const crumb = computed(() => String(route.meta.title ?? "工作台"));
       </RouterLink>
       <nav class="flex-1 overflow-y-auto">
         <div v-for="group in NAV_GROUPS" :key="group.label" class="mt-3.5">
-          <p class="px-3 pb-2 text-[11px] text-sidebar-label uppercase">{{ group.label }}</p>
+          <p class="px-3 pb-2 text-[11px] text-sidebar-label uppercase lg:group-data-[collapsed=true]/sidebar:hidden">
+            {{ group.label }}
+          </p>
+          <div
+            class="mx-auto my-2 hidden h-px w-6 bg-white/10 lg:group-data-[collapsed=true]/sidebar:block"
+            aria-hidden="true"
+          />
           <div>
             <RouterLink
               v-for="item in group.items"
               :key="item.path"
               :to="item.path"
               class="my-[3px] flex items-center gap-[11px] rounded-[10px] px-3 py-2.5 text-sm no-underline transition-colors"
-              :class="
+              :class="[
+                collapsed ? 'lg:justify-center lg:gap-0 lg:px-0' : '',
                 isActive(item)
                   ? 'bg-sidebar-item text-white shadow-[inset_3px_0_0_var(--color-brand-2)]'
-                  : 'text-sidebar-text hover:bg-sidebar-item hover:text-white'
-              "
+                  : 'text-sidebar-text hover:bg-sidebar-item hover:text-white',
+              ]"
+              :aria-label="item.label"
+              :title="item.label"
               @click="onNavClick($event, item.path)"
             >
               <component :is="item.icon" :size="16" class="shrink-0" />
-              {{ item.label }}
+              <span class="lg:group-data-[collapsed=true]/sidebar:hidden">{{ item.label }}</span>
             </RouterLink>
           </div>
         </div>
