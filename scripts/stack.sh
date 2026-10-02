@@ -174,6 +174,178 @@ cmd_dev() {
     "pnpm --filter frontend dev"
 }
 
+# ── 生产数据备份（docs/21 决策 1-4）────────────────────────────────
+# 备份范围必须同时含「库」和「成片」：publish_records.video_asset_id 只存文件名，
+# 成片丢了光恢复 DB 救不回来（2026-09-28 那次只能靠读成片截帧反推文案）。
+BACKUP_DIR="${BACKUP_DIR:-${HOME}/language-flow-backups}"
+BACKUP_KEEP="${BACKUP_KEEP:-10}"
+PROD_UPLOADS_DIR="${HOME}/language-flow-uploads"
+# 恢复演练专用 schema：建它 → 灌 dump → 与生产比对 → 当场删掉，不留残留；
+# 永不等于 language_flow（下方有断言），也不触碰测试栈的业务库。
+VERIFY_SCHEMA="lf_infra_verify"
+
+# 对指定实例的指定库跑一条 SQL（-N -B：无表头、tab 分隔，便于机器比对）
+# 失败不静默：错误原文要落到日志——否则比对拿到空值会被当成「一致」蒙过去（实测假通过过一次）
+sql_on() {
+  local container="$1" db="$2" query="$3" err
+  err="$(mktemp)"
+  if ! docker exec "${container}" mysql -udev -pdev -N -B -D "${db}" -e "${query}" 2>"${err}"; then
+    log "  SQL 执行失败（库 ${db}）: $(grep -v 'Using a password' "${err}" | head -2 | tr '\n' ' ')" >&2
+    rm -f "${err}"
+    return 1
+  fi
+  rm -f "${err}"
+}
+
+# macOS 默认没有 sha256sum，只有 shasum -a 256
+sha_tool() {
+  if command -v sha256sum >/dev/null 2>&1; then echo "sha256sum"; else echo "shasum -a 256"; fi
+}
+
+# 表 -> 业务键表达式。**一律不用自增 id**：重灌夹具后自增 id 整段漂移，
+# 按 id 比对会报出「指标全丢」的假警报（2026-10-03 实测踩过）。
+backup_key_expr() {
+  case "$1" in
+    contents) echo "id" ;;
+    publish_records) echo "CONCAT_WS('|',platform,IFNULL(platform_video_id,id))" ;;
+    upload_marks) echo "CONCAT_WS('|',IFNULL(task_id,'-'),video_filename,platform)" ;;
+    video_analytics) echo "content_id" ;;
+    video_metrics) echo "CONCAT_WS('|',publish_record_id,metric_name)" ;;
+    import_batch) echo "id" ;;
+    # row_number 是 MySQL 8 保留字（窗口函数），不加反引号整条 SQL 报 1064
+    import_row) echo "CONCAT_WS('|',batch_id,\`row_number\`)" ;;
+    cet_words) echo "CONCAT_WS('|',word,level)" ;;
+    *) echo "" ;;
+  esac
+}
+
+BACKUP_CHECK_TABLES=(contents publish_records upload_marks video_analytics video_metrics import_batch import_row cet_words)
+
+# 备份必须演一次真恢复：不看文件大小、不看「dump 退出码 0」就宣称备份成功不算数
+cmd_backup_verify() {
+  local src_dir="${1:-}" dump rc=0
+  if [[ -z "${src_dir}" ]]; then
+    src_dir="$(find "${BACKUP_DIR}" -maxdepth 1 -type d -name '2*' 2>/dev/null | sort | tail -1)"
+  fi
+  src_dir="${src_dir%/}"
+  if [[ -z "${src_dir}" || ! -d "${src_dir}" ]]; then
+    log "错误: 没有找到备份目录（先 pnpm docker:backup）"
+    return 1
+  fi
+  dump="${src_dir}/language_flow.sql.gz"
+  [[ -f "${dump}" ]] || { log "错误: 缺 dump 文件 ${dump}"; return 1; }
+  [[ "${VERIFY_SCHEMA}" == "language_flow" || "${VERIFY_SCHEMA}" == "" ]] && {
+    log "错误: VERIFY_SCHEMA 不能是业务库，拒绝执行"; return 1; }
+
+  log "恢复演练对象: ${src_dir}"
+  if ( cd "${src_dir}" && $(sha_tool) -c "$(basename "${dump}").sha256" ) >/dev/null 2>&1; then
+    log "  完整性校验: OK（$(du -h "${dump}" | cut -f1)）"
+  else
+    log "  错误: 备份包 sha256 校验不通过，文件可能已损坏或被截断"
+    return 1
+  fi
+
+  log "  灌入测试实例的临时 schema \`${VERIFY_SCHEMA}\`（不触碰 language_flow）"
+  docker exec "${TEST_MYSQL_NAME}" mysql -uroot -proot -e \
+    "DROP DATABASE IF EXISTS \`${VERIFY_SCHEMA}\`; CREATE DATABASE \`${VERIFY_SCHEMA}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`${VERIFY_SCHEMA}\`.* TO 'dev'@'%'; FLUSH PRIVILEGES;" 2>/dev/null \
+    || { log "  错误: 临时 schema 创建失败"; return 1; }
+  if ! gunzip -c "${dump}" | docker exec -i "${TEST_MYSQL_NAME}" mysql -udev -pdev "${VERIFY_SCHEMA}" 2>/tmp/lf_restore_err.txt; then
+    log "  错误: dump 回放失败"
+    sed 's/^/      /' /tmp/lf_restore_err.txt | head -10 || true
+    docker exec "${TEST_MYSQL_NAME}" mysql -uroot -proot -e "DROP DATABASE IF EXISTS \`${VERIFY_SCHEMA}\`;" 2>/dev/null || true
+    return 1
+  fi
+
+  log "  与生产逐表按业务键对账（生产只读）"
+  printf '  %-20s %10s %10s %-14s %s\n' "表" "生产行数" "恢复行数" "键校验和" "判定"
+  local t expr pc psum bc bsum verdict q p_out b_out
+  for t in "${BACKUP_CHECK_TABLES[@]}"; do
+    expr="$(backup_key_expr "${t}")"
+    [[ -z "${expr}" ]] && { log "  跳过 ${t}（未登记业务键）"; continue; }
+    q="SELECT COUNT(*), COALESCE(SUM(CRC32(${expr})),0) FROM \`${t}\`"
+    verdict="一致"
+    p_out="$(sql_on "${MYSQL_NAME}" language_flow "${q}")" || { verdict="生产侧查询失败"; rc=1; }
+    b_out="$(sql_on "${TEST_MYSQL_NAME}" "${VERIFY_SCHEMA}" "${q}")" || { verdict="恢复侧查询失败"; rc=1; }
+    read -r pc psum <<<"${p_out}"
+    read -r bc bsum <<<"${b_out}"
+    # 空值/非数字必须算红灯：上一版假通过就是「SQL 报错 → 拿到空 → 空==空 → 判一致」
+    if [[ "${verdict}" == "一致" && ( ! "${pc:-}" =~ ^[0-9]+$ || ! "${bc:-}" =~ ^[0-9]+$ ) ]]; then
+      verdict="结果不可解析"; rc=1
+    elif [[ "${verdict}" == "一致" && "${pc}" != "${bc}" ]]; then
+      verdict="行数差异（差 $(( bc - pc )) 行）"; rc=1
+    elif [[ "${verdict}" == "一致" && "${psum}" != "${bsum}" ]]; then
+      verdict="键集合差异"; rc=1
+    fi
+    printf '  %-20s %10s %10s %-14s %s\n' "${t}" "${pc:-?}" "${bc:-?}" "${psum:-?}/${bsum:-?}" "${verdict}"
+  done
+
+  docker exec "${TEST_MYSQL_NAME}" mysql -uroot -proot -e "DROP DATABASE IF EXISTS \`${VERIFY_SCHEMA}\`;" 2>/dev/null || true
+  if [[ "${rc}" -eq 0 ]]; then
+    log "  清理完成: 临时 schema 已 DROP，全部表可对账且键集合一致 → 这份备份确实能恢复回去"
+  else
+    log "  清理完成: 临时 schema 已 DROP，但存在差异 —— 备份不可信，禁止在其上发布"
+  fi
+  return "${rc}"
+}
+
+cmd_backup() {
+  local ts sha dir rc=0
+  ensure_mysql
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"
+  sha="$(git -C "${ROOT}" rev-parse --short=7 HEAD 2>/dev/null || echo nogit)"
+  dir="${BACKUP_DIR}/${ts}-${sha}"
+  mkdir -p "${dir}"
+  log "备份目录 ${dir}"
+
+  log "① 导出生产库（只读；--single-transaction 不锁表，生产容器不停）"
+  # --no-tablespaces 必需：MySQL 8.0.21+ 默认导出表空间信息，而 dev 用户无 PROCESS 权限，
+  # 会报 Access denied 且退出码非 0（数据段其实已写完，别以为成功了）
+  if docker exec "${MYSQL_NAME}" mysqldump -udev -pdev --single-transaction --no-tablespaces \
+      --set-gtid-purged=OFF --routines --triggers --default-character-set=utf8mb4 language_flow \
+      | gzip > "${dir}/language_flow.sql.gz"; then
+    log "  dump 完成: $(du -h "${dir}/language_flow.sql.gz" | cut -f1)"
+  else
+    rc=$?
+    log "  错误: mysqldump 失败（退出码 ${rc}），备份中止 —— 不带成功的备份不许发布"
+    return 1
+  fi
+  ( cd "${dir}" && $(sha_tool) "language_flow.sql.gz" > "language_flow.sql.gz.sha256" )
+
+  log "② 成片目录快照（rsync --link-dest 硬链接增量：10 份实际占用 ≈ 1 份 + 变更量）"
+  if [[ -d "${PROD_UPLOADS_DIR}" ]]; then
+    local latest="" linkargs=() before="" after=""
+    # `|| true` 必需：首份备份时 grep 无匹配返回 1，pipefail + set -e 会在这里静默中止整个脚本
+    latest="$( { find "${BACKUP_DIR}" -maxdepth 1 -type d -name '2*' 2>/dev/null | grep -v -F "${dir}" | sort | tail -1; } || true )"
+    [[ -n "${latest}" && -d "${latest}/uploads" ]] && linkargs=(--link-dest="${latest}/uploads")
+    before="$(du -sh "${BACKUP_DIR}" | cut -f1)"
+    # 成片按相对路径被 DB 引用，保留目录结构与权限；不跟随外部软链
+    rsync -a ${linkargs[@]+"${linkargs[@]}"} "${PROD_UPLOADS_DIR}/" "${dir}/uploads/" >/dev/null \
+      || { log "  错误: 成片快照失败"; return 1; }
+    after="$(du -sh "${BACKUP_DIR}" | cut -f1)"
+    log "  成片快照完成（硬链接参照: ${latest:-无，本次为首份全量}）；备份根目录占用 ${before} → ${after}"
+  else
+    log "  警告: 未找到 ${PROD_UPLOADS_DIR}，本次只备份了库（成片未备份）"
+  fi
+
+  log "③ 保留策略：只留最近 ${BACKUP_KEEP} 份"
+  local snaps=() line="" i=0
+  while IFS= read -r line; do [[ -n "${line}" ]] && snaps+=("${line}"); done \
+    < <(find "${BACKUP_DIR}" -maxdepth 1 -type d -name '2*' 2>/dev/null | sort -r)
+  if [[ ${#snaps[@]} -gt ${BACKUP_KEEP} ]]; then
+    for (( i = BACKUP_KEEP; i < ${#snaps[@]}; i++ )); do
+      # 只删本命令自产、命名形如 <UTC时间戳>-<git sha> 的目录；不做任何全局 prune
+      log "  删除超期备份: ${snaps[$i]}（$(du -sh "${snaps[$i]}" | cut -f1)）"
+      rm -rf "${snaps[$i]}"
+    done
+  else
+    log "  未超出保留数（当前 ${#snaps[@]} 份），无需裁剪"
+  fi
+
+  log "④ 恢复演练（备份不演一次恢复不算备份）"
+  cmd_backup_verify "${dir}" || { log "  错误: 恢复演练未通过"; return 1; }
+  log "备份完成 → ${dir}（库 $(du -h "${dir}/language_flow.sql.gz" | cut -f1) + 成片快照）"
+}
+
 # 构建生产镜像并打版本 tag（不启动）：context = 仓根，与原 compose build 语义一致
 cmd_release() {
   local sha ver nocache=() tag
@@ -276,6 +448,8 @@ case "${1:-}" in
   rebuild) cmd_rebuild "${2:-}" ;;
   build) cmd_build "${2:-}" ;;
   mysql) cmd_mysql ;;
+  backup) cmd_backup ;;
+  backup:verify) cmd_backup_verify "${2:-}" ;;
   stop) cmd_stop ;;
   *)
     cat <<'EOF'
@@ -289,6 +463,9 @@ case "${1:-}" in
   rebuild   无缓存重建并发布（NO_CACHE=1 的 release）
   build     仅构建并打 tag（不切版本、不启动）
   mysql     仅校准生产 MySQL（健康 + 接入 compose 网络）
+  backup    备份生产数据：库 dump（只读、不锁表）+ 成片硬链接快照 + 校验和 + 保留 10 份，
+            末尾自动演一次真恢复（灌临时 schema、按业务键与生产对账、当场清理）
+  backup:verify [目录]   只对最近一次（或指定）备份做恢复演练，不产生新备份
   stop      停生产 backend/frontend + 释放本仓 dev 端口（保留 MySQL）
 
 推荐 pnpm 入口：

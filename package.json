@@ -22,6 +22,8 @@
     "docker:rebuild": "bash scripts/stack.sh rebuild",
     "docker:stop": "bash scripts/stack.sh stop",
     "docker:mysql": "bash scripts/stack.sh mysql",
+    "docker:backup": "bash scripts/stack.sh backup",
+    "docker:backup:verify": "bash scripts/stack.sh backup:verify",
     "docker:test": "docker compose -f docker-compose.test.yml up -d --build",
     "docker:test:seed": "docker compose -f docker-compose.test.yml --profile seed run seeder",
     "docker:test:stop": "docker compose -f docker-compose.test.yml down",
