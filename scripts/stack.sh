@@ -488,13 +488,15 @@ gate_run() {
   local label="$1"; shift
   local out="" rc=0 attempt
   for attempt in 1 2; do
-    if out="$("$@" 2>&1)"; then
+    # 必须分开取命令状态：`if out=$(cmd)` 走失败分支后 `$?` 是 if 构造的 0，不是 cmd 的退出码
+    # —— 上一版因此把「E2E 1 failed」记成通过，门禁整个变成假绿灯
+    out="$("$@" 2>&1)"
+    rc=$?
+    if [[ "${rc}" -eq 0 ]]; then
       log "${label} … 通过"
       return 0
     fi
-    rc=$?
-    # 并行会话抢 CPU 时含真实超时的用例（如文件管理 reveal）会偶发红：重试一次，仍红才算红
-    [[ "${attempt}" == "1" ]] && log "${label} … 第 1 次失败，重试一次（并行会话偶发抢 CPU）"
+    [[ "${attempt}" -eq 1 ]] && log "${label} … 第 1 次失败（退出码 ${rc}），重试一次（并行会话抢 CPU 时含真实超时的用例偶发红）"
   done
   log "${label} … 失败（退出码 ${rc}）"
   printf '%s\n' "${out}" | tail -15 | sed 's/^/      /'
@@ -510,14 +512,25 @@ gate_e2e() {
   E2E_BASE_URL="http://127.0.0.1:5174" pnpm e2e
 }
 
+# 真库不变量必须**真的跑过**：这条命令只跑那一个文件，出现 skipped 就说明库没连上或 env 没给，
+# 此时套件全绿也是假绿灯（它一条都没验），一律判红。
+gate_invariants() {
+  local out=""
+  out="$(pnpm --filter @ai-english/backend test:invariants 2>&1)" || { printf '%s\n' "${out}"; return 1; }
+  if printf '%s' "${out}" | grep -qE "Tests +[0-9]+ skipped"; then
+    log "  真库不变量整组被 skip（测试库不可达或 DATABASE_URL 未给）—— 一条都没验，不算通过"
+    return 1
+  fi
+  printf '%s\n' "${out}"
+}
+
 cmd_gate() {
   local fails=()
   log "质量门禁（7 步；任一步红则 cmd_release 不切 APP_VERSION）"
   gate_run "1/7 全仓类型检查" pnpm typecheck || fails+=("类型检查")
   gate_run "2/7 单元测试" pnpm -r test || fails+=("单元测试")
   gate_run "3/7 覆盖率水位" pnpm coverage || fails+=("覆盖率")
-  gate_run "4/7 真库不变量（测试库 :3307）" pnpm --filter @ai-english/backend test:invariants \
-    || fails+=("真库不变量")
+  gate_run "4/7 真库不变量（测试库 :3307）" gate_invariants || fails+=("真库不变量")
   gate_run "5/7 API 契约与文档覆盖" pnpm openapi:check || fails+=("API 契约")
   gate_run "6/7 E2E（重建测试栈 + 重灌夹具后整套默认套件）" gate_e2e || fails+=("E2E")
   gate_run "7/7 生产只读对账" cmd_audit || fails+=("生产只读对账")
