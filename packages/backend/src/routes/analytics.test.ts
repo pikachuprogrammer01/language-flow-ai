@@ -5,6 +5,7 @@
  * 服务层用 mock 隔离（DB 行为在 *-service.test.ts 与本模块纯函数用例覆盖）
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { analyticsRoute } from "./analytics";
 
 vi.mock("../db", () => ({ db: {} }));
@@ -25,6 +26,11 @@ vi.mock("../services/analytics-dashboard.service", () => ({
   getBenchmark: vi.fn(),
   getDailyTrend: vi.fn(),
 }));
+vi.mock("../services/analytics-content-video.service", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../services/analytics-content-video.service")>();
+  return { ...actual, listContentVideos: vi.fn() };
+});
 vi.mock("../services/analytics-factors.service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/analytics-factors.service")>();
   return { ...actual, getFactorAnalysis: vi.fn(), persistFactorAnalysis: vi.fn() };
@@ -39,6 +45,11 @@ vi.mock("../services/analytics-recommend.service", () => ({
   decideRecommendation: vi.fn(),
   getVideoStructure: vi.fn(),
 }));
+vi.mock("../services/analytics-recommend-evidence.service", () => ({
+  getRecommendationEvidence: vi.fn(),
+  recordRecommendationApplication: vi.fn(),
+  bindRecommendationApplication: vi.fn(),
+}));
 vi.mock("../services/analytics-experiment.service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/analytics-experiment.service")>();
   return {
@@ -47,6 +58,17 @@ vi.mock("../services/analytics-experiment.service", async (importOriginal) => {
     listExperiments: vi.fn(),
     evaluateExperimentById: vi.fn(),
     updateExperimentStatus: vi.fn(),
+  };
+});
+vi.mock("../services/analytics-experiment-assignment.service", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../services/analytics-experiment-assignment.service")>();
+  return {
+    ...actual,
+    createExperimentAssignment: vi.fn(),
+    bindExperimentAssignment: vi.fn(),
+    listExperimentAssignments: vi.fn(),
+    experimentExists: vi.fn(),
   };
 });
 vi.mock("../services/analytics-feature.service", async (importOriginal) => {
@@ -59,12 +81,19 @@ vi.mock("../services/analytics-feature.service", async (importOriginal) => {
   };
 });
 
+import { listContentVideos } from "../services/analytics-content-video.service";
 import {
   getAnalyticsOverview,
   getBenchmark,
   getDailyTrend,
   listAnalyticsVideos,
 } from "../services/analytics-dashboard.service";
+import {
+  bindExperimentAssignment,
+  createExperimentAssignment,
+  experimentExists,
+  listExperimentAssignments,
+} from "../services/analytics-experiment-assignment.service";
 import {
   createExperiment,
   evaluateExperimentById,
@@ -88,6 +117,11 @@ import {
   updatePublishRecord,
   upsertCreatorDaily,
 } from "../services/analytics-metrics.service";
+import {
+  bindRecommendationApplication,
+  getRecommendationEvidence,
+  recordRecommendationApplication,
+} from "../services/analytics-recommend-evidence.service";
 import {
   decideRecommendation,
   generateRecommendations,
@@ -746,6 +780,178 @@ describe("GET /api/analytics/videos（Phase 2 表现列表）", () => {
   });
 });
 
+describe("GET /api/analytics/content-videos（批次一 统一内容主视图）", () => {
+  const item = {
+    contentId: "cnt_20260920_abc123",
+    title: "咖啡店英语",
+    template: "scene_word",
+    level: "CET4",
+    localStatus: "completed",
+    generatedAt: "2026-09-20T10:00:00.000Z",
+    videoAssetId: "video-1.mp4",
+    durationSec: 33.5,
+    status: "imported",
+    statuses: ["imported"],
+    platformCount: 1,
+    metricCoverage: { platforms: 1, records: 1, recordsWithMetrics: 1 },
+    platforms: [
+      {
+        recordId: "pub_20260920_abc123",
+        platform: "抖音",
+        platformVideoId: "7432123456789",
+        publishStatus: "published",
+        publishTime: "2026-09-20T10:00:00.000Z",
+        publishTimeSource: "PLATFORM_IMPORTED",
+        metricCount: 1,
+        hasImportConflict: false,
+        metrics: {
+          play_count: {
+            value: 1200,
+            sourceType: "CREATOR_IMPORT",
+            isEstimated: false,
+            dataDate: "2026-09-21",
+          },
+        },
+      },
+    ],
+  } satisfies import("../services/analytics-content-video.service").ContentVideoItem;
+
+  const page = { items: [item], total: 1, page: 1, pageSize: 20 };
+
+  it("默认参数：status=all、按生成时间倒序、第一页 20 条", async () => {
+    vi.mocked(listContentVideos).mockResolvedValue(page);
+    const res = await app.request("/content-videos");
+    expect(res.status).toBe(200);
+    expect(listContentVideos).toHaveBeenCalledWith({
+      status: "all",
+      platform: undefined,
+      sort: "created_time",
+      order: "desc",
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it("一内容一行 + 平台明细原样透出（响应里不做任何跨平台合计）", async () => {
+    vi.mocked(listContentVideos).mockResolvedValue(page);
+    const body = await (await app.request("/content-videos?status=imported&sort=play")).json();
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].platforms).toHaveLength(1);
+    // 主行没有 play/total/sum 之类的合计字段：指标只在 platforms[].metrics 里按平台读
+    expect(Object.keys(body.items[0])).not.toContain("totalPlays");
+    expect(listContentVideos).toHaveBeenLastCalledWith({
+      status: "imported",
+      platform: undefined,
+      sort: "play",
+      order: "desc",
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it("非白名单 status / sort 与越界分页 → 400（拒绝任意列排序与状态值）", async () => {
+    expect((await app.request("/content-videos?status=whatever")).status).toBe(400);
+    expect((await app.request("/content-videos?sort=title")).status).toBe(400);
+    expect((await app.request("/content-videos?page=0")).status).toBe(400);
+    expect((await app.request("/content-videos?pageSize=101")).status).toBe(400);
+  });
+
+  it("服务抛错 → 500（不把查询失败渲染成空列表）", async () => {
+    vi.mocked(listContentVideos).mockRejectedValue(new Error("conn lost"));
+    const res = await app.request("/content-videos");
+    expect(res.status).toBe(500);
+  });
+});
+
+describe("已发布契约冻结（批次一：统一视图走新路径，旧接口逐字不变）", () => {
+  /** 内层 .strict() 解析：多一个字段就红——防止「顺手往旧响应里加字段」破坏已发布契约 */
+  const oldVideosItem = z
+    .object({
+      recordId: z.string(),
+      contentId: z.string(),
+      platform: z.string(),
+      platformVideoId: z.string().nullable(),
+      title: z.string(),
+      template: z.string(),
+      level: z.string(),
+      durationSec: z.number().nullable(),
+      publishTime: z.string().nullable(),
+      metrics: z.record(z.unknown()),
+    })
+    .strict();
+
+  const oldRecordsItem = z
+    .object({
+      id: z.string(),
+      contentId: z.string(),
+      contentTitle: z.string(),
+      template: z.string(),
+      videoAssetId: z.string().nullable(),
+      platform: z.string(),
+      platformVideoId: z.string().nullable(),
+      publishTitle: z.string().nullable(),
+      publishTime: z.string().nullable(),
+      coverUrl: z.string().nullable(),
+      publishStatus: z.string(),
+      createdAt: z.string(),
+      updatedAt: z.string(),
+    })
+    .strict();
+
+  it("GET /videos 行锚点仍是 publish_records（一记录一行，字段集没被扩写）", async () => {
+    vi.mocked(listAnalyticsVideos).mockResolvedValue({
+      items: [
+        {
+          recordId: recordItem.id,
+          contentId: recordItem.contentId,
+          platform: "抖音",
+          platformVideoId: "7432123456789",
+          title: "咖啡店英语",
+          template: "scene_word",
+          level: "CET4",
+          durationSec: 33.5,
+          publishTime: "2026-09-20T10:00:00.000Z",
+          metrics: {},
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      unregisteredContentCount: 0,
+    });
+    const body = await (await app.request("/videos")).json();
+    expect(oldVideosItem.parse(body.items[0] as object)).toBeTruthy();
+    // 内容级状态/平台明细只属于 /content-videos，旧响应里不得出现
+    expect(Object.keys(body.items[0] as object)).not.toContain("platforms");
+    expect(Object.keys(body.items[0] as object)).not.toContain("status");
+  });
+
+  it("GET /videos 响应多一个字段即红（strict 守卫：加字段必须走新路径）", () => {
+    expect(() =>
+      oldVideosItem.parse({
+        recordId: "pub_1",
+        contentId: "cnt_1",
+        platform: "抖音",
+        platformVideoId: null,
+        title: "t",
+        template: "scene_word",
+        level: "CET4",
+        durationSec: null,
+        publishTime: null,
+        metrics: {},
+        publishTimeSource: "LOCAL_GENERATED",
+      }),
+    ).toThrow();
+  });
+
+  it("GET /publish-records 响应字段集不变（内部列 publish_time_source 不外泄）", async () => {
+    vi.mocked(listPublishRecords).mockResolvedValue({ items: [recordItem], total: 1 });
+    const body = await (await app.request("/publish-records")).json();
+    expect(oldRecordsItem.parse(body.items[0] as object)).toBeTruthy();
+    expect(Object.keys(body.items[0] as object)).not.toContain("publishTimeSource");
+  });
+});
+
 describe("GET /api/analytics/videos/{contentId}/benchmark（Phase 2 同类基准）", () => {
   it("返回分组/样本数/lowSample（必须可呈现样本量，防小样本误判）", async () => {
     vi.mocked(getBenchmark).mockResolvedValue({
@@ -824,6 +1030,10 @@ describe("GET /api/analytics/factors（Phase 3 因子分析）", () => {
       metric: "completion_rate",
       accountMedian: 0.2,
       accountSampleCount: 3,
+      accountRealSampleCount: 3,
+      scope: { platform: null, windowDays: null },
+      mixedPlatform: false,
+      platforms: [],
       dimensions: [
         {
           dimension: "hook",
@@ -831,10 +1041,12 @@ describe("GET /api/analytics/factors（Phase 3 因子分析）", () => {
             {
               value: "mistake",
               sampleCount: 2,
+              realSampleCount: 2,
               median: 0.3,
               mean: 0.3,
               diff: 0.1,
               lowSample: true,
+              recordIds: ["pub_1"],
             },
           ],
         },
@@ -849,6 +1061,8 @@ describe("GET /api/analytics/factors（Phase 3 因子分析）", () => {
     expect(getFactorAnalysis).toHaveBeenCalledWith({
       metric: "completion_rate",
       dimensions: ["hook", "scene", "durationBand", "template"],
+      // 批次二：未传 platform/days 时保持既有全平台全历史口径（不隐含收窄样本）
+      scope: { platform: null, windowDays: null },
     });
   });
 
@@ -857,6 +1071,10 @@ describe("GET /api/analytics/factors（Phase 3 因子分析）", () => {
       metric: "like_rate",
       accountMedian: null,
       accountSampleCount: 0,
+      accountRealSampleCount: 0,
+      scope: { platform: null, windowDays: null },
+      mixedPlatform: false,
+      platforms: [],
       dimensions: [],
       note: "",
       computedAt: "2026-09-24T00:00:00.000Z",
@@ -866,6 +1084,7 @@ describe("GET /api/analytics/factors（Phase 3 因子分析）", () => {
     expect(getFactorAnalysis).toHaveBeenLastCalledWith({
       metric: "like_rate",
       dimensions: ["voice", "promptVersion"],
+      scope: { platform: null, windowDays: null },
     });
     expect((await app.request("/factors?metric=budget")).status).toBe(400);
     expect((await app.request("/factors?dimensions=nickname")).status).toBe(400);
@@ -876,6 +1095,10 @@ describe("GET /api/analytics/factors（Phase 3 因子分析）", () => {
       metric: "completion_rate",
       accountMedian: null,
       accountSampleCount: 0,
+      accountRealSampleCount: 0,
+      scope: { platform: null, windowDays: null },
+      mixedPlatform: false,
+      platforms: [],
       dimensions: [],
       note: "",
       computedAt: "2026-09-26T00:00:00.000Z",
@@ -891,9 +1114,14 @@ describe("POST /api/analytics/factors（批次 5B 显式重算留档）", () => 
       metric: "completion_rate",
       accountMedian: 0.2,
       accountSampleCount: 3,
+      accountRealSampleCount: 3,
+      scope: { platform: null, windowDays: null },
+      mixedPlatform: false,
+      platforms: [],
       dimensions: [{ dimension: "hook", groups: [] }],
       note: "相关性非因果",
       computedAt: "2026-09-26T00:00:00.000Z",
+      analysisResultId: 77,
     });
     const res = await app.request("/factors", {
       method: "POST",
@@ -991,6 +1219,206 @@ describe("Phase 4 建议与结构复用端点", () => {
     const res = await app.request("/recommendations/generate", { method: "POST" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ created: 3 });
+  });
+
+  it("POST /recommendations/{id}/applications 登记采纳：只上交预填值，建议值由服务端读", async () => {
+    vi.mocked(recordRecommendationApplication).mockResolvedValue({
+      kind: "created",
+      id: "recapp_1",
+      targetMetric: "completion_rate",
+      analysisResultId: 77,
+    });
+    const res = await app.request("/recommendations/rec_test001/applications", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prefillParams: { rate: 0.85 } }),
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      id: "recapp_1",
+      targetMetric: "completion_rate",
+      analysisResultId: 77,
+    });
+    expect(recordRecommendationApplication).toHaveBeenCalledWith({
+      recommendationId: "rec_test001",
+      prefillParams: { rate: 0.85 },
+    });
+  });
+
+  it("POST /recommendations/{id}/applications：建议不存在 → 404（不给幽灵建议记采纳）", async () => {
+    vi.mocked(recordRecommendationApplication).mockResolvedValue({
+      kind: "recommendation-not-found",
+    });
+    const res = await app.request("/recommendations/rec_none/applications", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prefillParams: {} }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("POST /recommendation-applications/{id}/bind 写入用户最终参数；409 拒绝二次覆盖", async () => {
+    vi.mocked(bindRecommendationApplication).mockResolvedValue("bound");
+    const ok = await app.request("/recommendation-applications/recapp_1/bind", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ contentId: "cnt_x", finalParams: { media: { rate: 1.05 } } }),
+    });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ id: "recapp_1", bound: true });
+    expect(bindRecommendationApplication).toHaveBeenCalledWith("recapp_1", {
+      contentId: "cnt_x",
+      finalParams: { media: { rate: 1.05 } },
+    });
+
+    vi.mocked(bindRecommendationApplication).mockResolvedValue("already-bound");
+    expect(
+      (
+        await app.request("/recommendation-applications/recapp_1/bind", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ contentId: "cnt_y", finalParams: {} }),
+        })
+      ).status,
+    ).toBe(409);
+
+    vi.mocked(bindRecommendationApplication).mockResolvedValue("content-not-found");
+    const missing = await app.request("/recommendation-applications/recapp_1/bind", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ contentId: "cnt_none", finalParams: {} }),
+    });
+    expect(missing.status).toBe(404);
+  });
+
+  it("bind 缺 contentId 或非法 applicationId → 400（不接空绑定）", async () => {
+    const res = await app.request("/recommendation-applications/recapp_1/bind", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ finalParams: {} }),
+    });
+    expect(res.status).toBe(400);
+    expect(
+      (
+        await app.request("/recommendation-applications//bind", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ contentId: "c", finalParams: {} }),
+        })
+      ).status,
+    ).not.toBe(200);
+  });
+
+  it("GET /recommendations/{id}/evidence 透出快照口径、参与视频与导入原始行", async () => {
+    vi.mocked(getRecommendationEvidence).mockResolvedValue({
+      recommendationId: "rec_test001",
+      recommendationType: "hook",
+      recommendation: { value: "mistake", label: "错误示范", kindLabel: "推荐 Hook" },
+      reason: "抖音 · 近 90 天",
+      targetMetric: "completion_rate",
+      sourceSampleCount: 9,
+      analysisResultId: 77,
+      status: "traceable",
+      unavailableReasons: [],
+      snapshot: {
+        analysisType: "factors:completion_rate",
+        modelVersion: "group-stats-v1",
+        computedAt: "2026-10-04T00:00:00.000Z",
+        scope: { platform: "抖音", windowDays: 90 },
+        accountMedian: 0.3,
+        accountSampleCount: 12,
+        accountRealSampleCount: 9,
+      },
+      groups: [
+        {
+          dimension: "hook",
+          value: "mistake",
+          sampleCount: 9,
+          realSampleCount: 9,
+          median: 0.45,
+          mean: 0.45,
+          recordIds: ["pub_1"],
+        },
+      ],
+      videos: [
+        {
+          recordId: "pub_1",
+          contentId: "cnt_1",
+          title: "机场英语",
+          platform: "抖音",
+          platformVideoId: "7432",
+          publishStatus: "published",
+          publishTime: "2026-10-01T00:00:00.000Z",
+          publishTimeSource: "PLATFORM_IMPORTED",
+          videoAssetId: "a.mp4",
+          metrics: {
+            completion_rate: {
+              value: 0.45,
+              sourceType: "CREATOR_IMPORT",
+              sourceField: "完播率",
+              dataDate: "2026-10-02",
+              isEstimated: false,
+              batchId: "imp_1",
+              importRowNumber: 3,
+              matchedBy: "operator_confirm",
+            },
+          },
+          features: { hook: "mistake" },
+          fieldSources: { hook: "USER_INPUT" },
+          auditAvailable: true,
+          auditInputKeys: ["topic", "level"],
+        },
+      ],
+      importRows: [
+        {
+          batchId: "imp_1",
+          rowNumber: 3,
+          filename: "抖音导出.csv",
+          batchPlatform: "抖音",
+          batchStatus: "committed",
+          rawData: { 完播率: "45%" },
+          matchStatus: "confirmed",
+          decisionType: "operator_confirm",
+        },
+      ],
+    });
+    const res = await app.request("/recommendations/rec_test001/evidence");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("traceable");
+    // 端到端可追溯：字段名 + 批次 + 原始行号 + 原始整行都在响应里
+    expect(body.videos[0].metrics.completion_rate).toMatchObject({
+      sourceField: "完播率",
+      batchId: "imp_1",
+      importRowNumber: 3,
+    });
+    expect(body.importRows[0].rawData).toMatchObject({ 完播率: "45%" });
+  });
+
+  it("GET evidence：建议不存在 404；缺快照 200 + evidence_unavailable（不拼猜测证据）", async () => {
+    vi.mocked(getRecommendationEvidence).mockResolvedValue(null);
+    expect((await app.request("/recommendations/rec_none/evidence")).status).toBe(404);
+
+    vi.mocked(getRecommendationEvidence).mockResolvedValue({
+      recommendationId: "rec_old",
+      recommendationType: "hook",
+      recommendation: { value: "mistake", label: "错误示范", kindLabel: "推荐 Hook" },
+      reason: "历史建议",
+      targetMetric: "completion_rate",
+      sourceSampleCount: 9,
+      analysisResultId: null,
+      status: "evidence_unavailable",
+      unavailableReasons: ["该建议产出时尚未留档因子快照，无法回放分组统计与参与样本"],
+      snapshot: null,
+      groups: [],
+      videos: [],
+      importRows: [],
+    });
+    const res = await app.request("/recommendations/rec_old/evidence");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("evidence_unavailable");
+    expect(body.videos).toEqual([]);
   });
 
   it("PATCH /recommendations/{id} 采纳/忽略；不存在 → 404", async () => {
@@ -1128,5 +1556,116 @@ describe("Phase 6 内容实验端点", () => {
       body: JSON.stringify({ status: "running" }),
     });
     expect(res.status).toBe(404);
+  });
+
+  const jsonHeaders = { "content-type": "application/json" };
+  const assignmentFixture = {
+    id: "expa_1",
+    experimentId: "exp_test001",
+    contentId: null,
+    variant: "A" as const,
+    assignmentMethod: "operator_selected",
+    assignedParams: { variantLabel: "提问开场" },
+    finalParams: null,
+    assignedAt: "2026-10-04T00:00:00.000Z",
+    boundAt: null,
+  };
+
+  it("POST /experiments/{id}/assignments：201 回读台账；404 / 409 / variant 非 A-B 400", async () => {
+    vi.mocked(createExperimentAssignment).mockResolvedValue({
+      kind: "created",
+      assignment: assignmentFixture,
+    } as never);
+    const ok = await app.request("/experiments/exp_test001/assignments", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ variant: "A", assignedParams: { variantLabel: "提问开场" } }),
+    });
+    expect(ok.status).toBe(201);
+    expect((await ok.json()).id).toBe("expa_1");
+    expect(vi.mocked(createExperimentAssignment)).toHaveBeenCalledWith({
+      experimentId: "exp_test001",
+      variant: "A",
+      assignedParams: { variantLabel: "提问开场" },
+    });
+
+    vi.mocked(createExperimentAssignment).mockResolvedValue({
+      kind: "experiment-not-found",
+    } as never);
+    const missing = await app.request("/experiments/exp_none/assignments", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ variant: "A", assignedParams: {} }),
+    });
+    expect(missing.status).toBe(404);
+
+    vi.mocked(createExperimentAssignment).mockResolvedValue({
+      kind: "not-assignable",
+      status: "completed",
+    } as never);
+    const blocked = await app.request("/experiments/exp_done/assignments", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ variant: "B", assignedParams: {} }),
+    });
+    expect(blocked.status).toBe(409);
+    expect((await blocked.json()).error.code).toBe("EXPERIMENT_NOT_ASSIGNABLE");
+
+    // 变体只有 A/B：第三组不存在，zod 直接拒（不入库）
+    const bad = await app.request("/experiments/exp_test001/assignments", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ variant: "C", assignedParams: {} }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it("POST .../assignments/{id}/bind：200；分配/内容不存在 404；重复绑定与失败内容 409", async () => {
+    const bindBody = JSON.stringify({ contentId: "cnt_1", finalParams: { template: "quiz" } });
+    vi.mocked(bindExperimentAssignment).mockResolvedValue("bound");
+    const ok = await app.request("/experiments/exp_test001/assignments/expa_1/bind", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: bindBody,
+    });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ ok: true });
+    expect(vi.mocked(bindExperimentAssignment)).toHaveBeenCalledWith("exp_test001", "expa_1", {
+      contentId: "cnt_1",
+      finalParams: { template: "quiz" },
+    });
+
+    for (const [outcome, status, code] of [
+      ["not-found", 404, "NOT_FOUND"],
+      ["content-not-found", 404, "CONTENT_NOT_FOUND"],
+      ["already-bound", 409, "ALREADY_BOUND"],
+      ["content-failed", 409, "CONTENT_FAILED"],
+      ["content-already-assigned", 409, "CONTENT_ALREADY_ASSIGNED"],
+    ] as const) {
+      vi.mocked(bindExperimentAssignment).mockResolvedValue(outcome);
+      const res = await app.request("/experiments/exp_test001/assignments/expa_1/bind", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: bindBody,
+      });
+      expect(res.status).toBe(status);
+      expect((await res.json()).error.code).toBe(code);
+    }
+  });
+
+  it("GET /experiments/{id}/assignments 透传台账；实验不存在 404（不拿空列表冒充「还没有分配」）", async () => {
+    vi.mocked(experimentExists).mockResolvedValue(true);
+    vi.mocked(listExperimentAssignments).mockResolvedValue([assignmentFixture]);
+    const res = await app.request("/experiments/exp_test001/assignments");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.items[0]).toMatchObject({ id: "expa_1", variant: "A", contentId: null });
+    expect(vi.mocked(listExperimentAssignments)).toHaveBeenCalledWith("exp_test001");
+
+    vi.mocked(experimentExists).mockResolvedValue(false);
+    const missing = await app.request("/experiments/exp_none/assignments");
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).error.code).toBe("NOT_FOUND");
+    expect(vi.mocked(listExperimentAssignments)).not.toHaveBeenCalledWith("exp_none");
   });
 });

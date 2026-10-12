@@ -126,4 +126,26 @@ describe("建议回填（Phase 4 prefill 回路）", () => {
     });
     expect(consumeCreatePrefill()).toBeNull();
   });
+
+  it("批次二：采纳记录 id 与依据口径随 prefill 传到新建页（生成成功后才拿得到绑定目标）", () => {
+    at("/insights/factors");
+    goCreate({
+      rate: 0.85,
+      recommendationId: "rec_x",
+      applicationId: "recapp_x",
+      adoptionNote: "抖音 · 近 90 天 · 推荐语速",
+    });
+    expect(consumeCreatePrefill()).toMatchObject({
+      applicationId: "recapp_x",
+      adoptionNote: "抖音 · 近 90 天 · 推荐语速",
+    });
+  });
+
+  it("批次二：采纳记录登记失败时不带 applicationId 导航（横幅据此说明不会进入效果回路）", () => {
+    at("/insights/factors");
+    goCreate({ rate: 1, recommendationId: "rec_y", adoptionNote: "建议口径" });
+    const p = consumeCreatePrefill();
+    expect(p?.applicationId).toBeUndefined();
+    expect(p?.adoptionNote).toBe("建议口径");
+  });
 });

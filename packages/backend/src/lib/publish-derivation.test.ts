@@ -1,11 +1,13 @@
 /**
  * 上传标记 ⇒ 发布记录派生规则（纯函数）
- * 覆盖：作品 ID 解析口径 / 不猜 ID / 未绑定内容不派生 / 只补空位不覆盖真实值 / 幂等重放
+ * 覆盖：作品 ID 解析口径 / 不猜 ID / 未绑定内容不派生 / 只补空位不覆盖真实值 / 幂等重放 /
+ *      发布时间来源与导入真实时间的覆盖边界
  */
 import { describe, expect, it } from "vitest";
 import {
   type MarkSnapshot,
   derivePublishIntent,
+  importedPublishTimePatch,
   publishRecordFillPatch,
 } from "./publish-derivation";
 
@@ -32,6 +34,7 @@ describe("derivePublishIntent", () => {
       videoAssetId: "c29565d8-dbe5-4be2-b937-be1c826bf42d.mp4",
       publishTitle: "线上学习的新支持",
       publishTime: markedAt,
+      publishTimeSource: "USER_EDITED",
       publishStatus: "published",
     });
   });
@@ -62,6 +65,7 @@ describe("publishRecordFillPatch", () => {
         videoAssetId: null,
         publishTitle: "人工写的发布标题",
         publishTime: new Date("2026-09-30T02:00:00.000Z"),
+        publishTimeSource: "USER_EDITED",
       },
       intent,
     );
@@ -75,12 +79,14 @@ describe("publishRecordFillPatch", () => {
         videoAssetId: "old.mp4",
         publishTitle: "标题",
         publishTime: null,
+        publishTimeSource: null,
       },
       derivePublishIntent(mark({ url: null })) as NonNullable<
         ReturnType<typeof derivePublishIntent>
       >,
     );
-    expect(patch).toEqual({ publishTime: markedAt });
+    // 补时间必须同时补来源，否则「这个时间从哪来」又变回不可知
+    expect(patch).toEqual({ publishTime: markedAt, publishTimeSource: "USER_EDITED" });
   });
 
   it("字段齐备时返回 null：幂等重放不产生多余 UPDATE", () => {
@@ -90,9 +96,56 @@ describe("publishRecordFillPatch", () => {
         videoAssetId: "c29565d8-dbe5-4be2-b937-be1c826bf42d.mp4",
         publishTitle: "线上学习的新支持",
         publishTime: markedAt,
+        publishTimeSource: "USER_EDITED",
       },
       intent,
     );
     expect(patch).toBeNull();
+  });
+});
+
+describe("importedPublishTimePatch", () => {
+  const imported = new Date("2026-10-01T12:00:00.000Z");
+
+  it("导入行没有发布时间时不动作：缺失不等于已知为空，绝不把已有时间清掉", () => {
+    expect(
+      importedPublishTimePatch(
+        { publishTime: new Date("2026-09-30T02:00:00.000Z"), publishTimeSource: "LOCAL_GENERATED" },
+        null,
+      ),
+    ).toBeNull();
+  });
+
+  it("LOCAL_GENERATED 兜底值可被平台真实时间覆盖", () => {
+    expect(
+      importedPublishTimePatch(
+        { publishTime: markedAt, publishTimeSource: "LOCAL_GENERATED" },
+        imported,
+      ),
+    ).toEqual({ publishTime: imported, publishTimeSource: "PLATFORM_IMPORTED" });
+  });
+
+  it("USER_EDITED 是用户断言，导入不得覆盖", () => {
+    expect(
+      importedPublishTimePatch(
+        { publishTime: markedAt, publishTimeSource: "USER_EDITED" },
+        imported,
+      ),
+    ).toBeNull();
+  });
+
+  it("旧记录来源未知（NULL）时以平台真实时间为准并补上来源", () => {
+    expect(
+      importedPublishTimePatch({ publishTime: markedAt, publishTimeSource: null }, imported),
+    ).toEqual({ publishTime: imported, publishTimeSource: "PLATFORM_IMPORTED" });
+  });
+
+  it("时间相同则零写入（重复提交同一批次幂等）", () => {
+    expect(
+      importedPublishTimePatch(
+        { publishTime: imported, publishTimeSource: "LOCAL_GENERATED" },
+        imported,
+      ),
+    ).toBeNull();
   });
 });

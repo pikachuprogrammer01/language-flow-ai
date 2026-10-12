@@ -31,6 +31,20 @@ export type MetricSourceType = (typeof METRIC_SOURCE_TYPES)[number];
 /** Creator Import / 手动录入允许声明的来源白名单 */
 export const IMPORTABLE_SOURCE_TYPES = ["CREATOR_IMPORT", "USER_INPUT"] as const;
 
+// ── 发布时间来源（publish_records.publish_time_source） ──
+// 一集视频的 publish_time 有三种性质完全不同的来处，混在一起就无法判断
+// 「导入的平台真实时间能不能覆盖它」，数据接入页也只能显示一个没有出处的时间。
+export const PUBLISH_TIME_SOURCES = [
+  /** 平台侧时间未知，用 contents.created_at（本地生成完成事实）兜底 */
+  "LOCAL_GENERATED",
+  /** 创作者后台导出行携带的真实发布时间 */
+  "PLATFORM_IMPORTED",
+  /** 用户在发布记录表单/上传标记里自己填的时间 */
+  "USER_EDITED",
+] as const;
+
+export type PublishTimeSource = (typeof PUBLISH_TIME_SOURCES)[number];
+
 // ── canonical 指标目录 ──
 
 export type MetricAvailability = "AVAILABLE" | "IMPORT_ONLY" | "DERIVED" | "FUTURE";

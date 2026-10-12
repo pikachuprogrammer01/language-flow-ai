@@ -71,6 +71,27 @@
       "when": 1790607977377,
       "tag": "0009_salty_nocturne",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1791048275332,
+      "tag": "0010_green_khan",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1791088637442,
+      "tag": "0011_green_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1791112491798,
+      "tag": "0012_lucky_christian_walker",
+      "breakpoints": true
     }
   ]
 }

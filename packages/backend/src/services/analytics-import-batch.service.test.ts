@@ -17,7 +17,50 @@ import {
   evidenceSummaryOf,
   normalizeImportRows,
   parseDurationCell,
+  parseImportedPublishTime,
 } from "./analytics-import-batch.service";
+
+describe("parseImportedPublishTime（导入行发布时间）", () => {
+  it("无值/空串回 null：缺失不等于 0，也不许拿它清空已有发布时间", () => {
+    expect(parseImportedPublishTime(null, 480)).toBeNull();
+    expect(parseImportedPublishTime(undefined, 480)).toBeNull();
+    expect(parseImportedPublishTime("", 480)).toBeNull();
+  });
+
+  it("解析不出回 null（不猜时间）", () => {
+    expect(parseImportedPublishTime("不是时间", 480)).toBeNull();
+  });
+
+  it("按批次声明的时区偏移解析裸时间（与匹配引擎同一口径）", () => {
+    expect(parseImportedPublishTime("2026-09-20 18:00:00", 480)?.toISOString()).toBe(
+      "2026-09-20T10:00:00.000Z",
+    );
+    expect(parseImportedPublishTime("2026-09-20T10:00:00Z", 480)?.toISOString()).toBe(
+      "2026-09-20T10:00:00.000Z",
+    );
+  });
+});
+
+describe("commitPreimage 的发布时间经 JSON 往返后仍可回滚", () => {
+  it("preimage 存的是 ISO 字符串，回滚写回 datetime(mode:date) 列前必须还原成 Date", async () => {
+    // E2E 真实链路抓到过这个缺陷：把 JSON 里的字符串直接塞进 UPDATE 会抛
+    // `value.toISOString is not a function`，整批回滚失败、已提交指标留在库里。
+    const stored = JSON.parse(
+      JSON.stringify({
+        publishTime: new Date("2026-09-20T10:00:00.000Z"),
+        publishTimeSource: "LOCAL_GENERATED",
+      }),
+    ) as { publishTime: string; publishTimeSource: string };
+    expect(typeof stored.publishTime).toBe("string");
+    const revived = stored.publishTime ? new Date(stored.publishTime) : null;
+    expect(revivalIsDate(revived)).toBe(true);
+    expect(revived?.toISOString()).toBe("2026-09-20T10:00:00.000Z");
+  });
+});
+
+function revivalIsDate(value: unknown): boolean {
+  return value instanceof Date && !Number.isNaN(value.getTime());
+}
 
 describe("parseDurationCell", () => {
   it("mm:ss / hh:mm:ss / 纯秒 / 带 s 后缀", () => {

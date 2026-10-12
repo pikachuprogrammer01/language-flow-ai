@@ -33,6 +33,10 @@ const svc = vi.hoisted(() => ({
 
 vi.mock("../../services/analytics-import-batch.service", () => svc);
 
+/** 提交成功后路由会顺带刷新一次生产建议；这里 mock 掉，专门测「刷新红不影响导入」 */
+const recommendSvc = vi.hoisted(() => ({ generateRecommendations: vi.fn() }));
+vi.mock("../../services/analytics-recommend.service", () => recommendSvc);
+
 const app = analyticsRoute;
 
 const validCreateBody = {
@@ -353,15 +357,36 @@ describe("preflight · commit · rollback", () => {
     expect(body.report.checks[0].rowIds).toEqual([7, 8]);
   });
 
-  it("commit：成功 200 携四类计数", async () => {
+  it("commit：成功 200 携四类计数，并在提交之后刷新一次生产建议", async () => {
     svc.commitBatch.mockResolvedValue({
       kind: "committed",
       summary: { workLevel: 974, accountDayLevel: 18, ignored: 8, external: 2, skippedRows: [] },
     });
+    recommendSvc.generateRecommendations.mockResolvedValue(3);
     const res = await app.request("/import-batches/imp_x/commit", { method: "POST" });
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.summary.workLevel).toBe(974);
+    expect(recommendSvc.generateRecommendations).toHaveBeenCalledTimes(1);
+  });
+
+  it("commit：建议刷新失败不改导入结果（指标已提交，刷新在事务之外，绝不回滚）", async () => {
+    svc.commitBatch.mockResolvedValue({
+      kind: "committed",
+      summary: { workLevel: 5, accountDayLevel: 0, ignored: 0, external: 0, skippedRows: [] },
+    });
+    recommendSvc.generateRecommendations.mockRejectedValue(new Error("snapshot write failed"));
+    const res = await app.request("/import-batches/imp_x/commit", { method: "POST" });
+    // 导入本身成功：200 + 原样 summary；刷新失败只记日志，页面 D 的「按最新数据生成」仍是兜底
+    expect(res.status).toBe(200);
+    expect((await res.json()).summary.workLevel).toBe(5);
+  });
+
+  it("commit：preflight 阻断时不触发建议刷新（没有新数据就不该重算）", async () => {
+    svc.commitBatch.mockResolvedValue({ kind: "preflight_failed", report });
+    const res = await app.request("/import-batches/imp_x/commit", { method: "POST" });
+    expect(res.status).toBe(409);
+    expect(recommendSvc.generateRecommendations).not.toHaveBeenCalled();
   });
 
   it("rollback：未提交 409；成功 200", async () => {

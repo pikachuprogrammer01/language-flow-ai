@@ -12,9 +12,12 @@ import { content } from "./content";
 // content.ts 现在会在生成成功后落库（db.insert），测试环境无 DATABASE_URL
 vi.mock("../db", () => ({ db: { insert: () => ({ values: async () => undefined }) } }));
 
-vi.mock("../services/content.service", () => ({
-  generateSceneWordContent: vi.fn(),
-}));
+// 保留真实导出的 ContentRejectedError：路由用 instanceof 判类型，
+// mock 里少掉这个类会让 `err instanceof undefined` 直接抛 TypeError（比原来的 bug 更糟）
+vi.mock("../services/content.service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/content.service")>();
+  return { ...actual, generateSceneWordContent: vi.fn() };
+});
 
 vi.mock("../services/word-card.service", () => ({
   generateWordCardContent: vi.fn(),
@@ -137,5 +140,21 @@ describe("POST /api/content/generate", () => {
     generateMock.mockRejectedValue(new Error("llm timeout"));
     const res = await postGenerate({ topic: "x", level: "CET4" });
     expect(res.status).toBe(500);
+    // 非验收类异常不外泄细节
+    expect((await res.json()).error).toBe("Content generation failed");
+  });
+
+  it("验收没过时把服务端算出的原因回给前端，而不是压成一句 Content generation failed", async () => {
+    generateMock.mockRejectedValue(
+      new contentService.ContentRejectedError(
+        "内容生成未通过验收：已重试 3 轮仍被拒（有效词不足：仅 5 个（要求至少 8 个））。本地模型偶尔会连续被拒，可直接重试或换个主题再试",
+      ),
+    );
+    const res = await postGenerate({ topic: "x", level: "CET4" });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    // 界面上只有一行错误块：原因不在响应里，用户就只剩「HTTP 500」可看
+    expect(body.error).toContain("有效词不足：仅 5 个");
+    expect(body.error).toContain("可直接重试或换个主题再试");
   });
 });

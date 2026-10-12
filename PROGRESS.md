@@ -1,7 +1,7 @@
 # 项目进度
 
-> 最后更新：2026-10-02
-> 当前阶段：生产数据不一致诊断收口（六页面六个数已逐项归因；第 39/40 集确认为 9-28 灌库覆盖、已从孤儿成片完整恢复）+ 发布管理标题口径修复 + 标记即发布 + 列表 100 条硬顶堵住；**侧边栏折叠第二版已获用户验收**；测试环境已改为「生产数据副本 + 工作树代码」用于真实验收；生产库零写入、未发布、未合任何分支；下一项：用户决定合入目标（feature 还是 main，二者含义不同，见 docs/19 §六）→ 生产执行数据脚本（`scripts/recover-publish-data.ts`，需 `DB_ALLOW_PROD=1`）
+> 最后更新：2026-10-04
+> 当前阶段：**数据分析真实闭环三批全部交付（批次三：实验变体分配与评估来源）**——批次一：`GET /api/analytics/content-videos` 一内容一行、平台指标只在各平台明细里不相加，发布时间有来源且导入可撤销；批次二：建议能逐层回放到自己那次统计的口径、参与样本、导入原始行与字段名，采纳留下**用户实际提交的参数**（行动门槛改为「非估算真实样本 ≥8」并按平台分别出建议）；批次三：A/B 变体在**生成之前**登记为分配记录，评估以分配台账为事实来源，未绑定的分配如实计数而不静默少算。生产库零写入、未发布、未合任何分支
 
 ---
 
@@ -11,9 +11,9 @@
 设计阶段      [████████████] 100%  14 份设计文档 + PRD + SPEC + README
 工程配置      [████████████] 100%  Biome / Lefthook / Commitlint / TSConfig / Vitest / pino（无 CI）· API 文档覆盖度门禁（openapi:check，pre-commit 自动 openapi:gen）
 shared 包     [████████████] 100%  enums + ContentDTO + Request/Response DTO + 类型守卫
-后端 API      [████████████] 100%  三模板生成（scene_word/word_card/quiz）+ 审计档案 + TTS（混合音色+语速）/ 渲染（quiz 音画对齐+提示音，scene_word 片头截帧）/ 任务 CRUD+搜索+批量+render-settings / 发布元数据 video-analytics（白名单）/ 文件管理 / 词库 5999 / **数据分析 Phase 1~4 + 6（MVP 闭环+实验）+ 数据接入向导（xlsx/账号日汇总/人工裁决归属）**（发布记录统一 ID + 指标 provenance + Creator Import 动态映射 + 生产特征落库 + 派生指标 + 漏斗/列表/Benchmark/趋势 + 因子分析/时间轴 + 生产建议/结构复用/prefill 回填 + A/B 内容实验；抖音资质通道已砍除，/api/analytics 22 路径 28 操作，docs/17）
+后端 API      [████████████] 100%  三模板生成（scene_word/word_card/quiz）+ 审计档案 + TTS（混合音色+语速）/ 渲染（quiz 音画对齐+提示音，scene_word 片头截帧）/ 任务 CRUD+搜索+批量+render-settings / 发布元数据 video-analytics（白名单）/ 文件管理 / 词库 5999 / **数据分析 Phase 1~4 + 6（MVP 闭环+实验）+ 数据接入向导（xlsx/账号日汇总/人工裁决归属）**（发布记录统一 ID + 指标 provenance + Creator Import 动态映射 + 生产特征落库 + 派生指标 + 漏斗/列表/Benchmark/趋势 + 因子分析/时间轴 + 生产建议/结构复用/prefill 回填 + A/B 内容实验 + **统一内容主视图（一内容一行，平台指标只在各平台明细里不相加）** + **建议证据链逐层回放到导入原始行 & 采纳最终参数回路（建议值/预填值/用户提交值三者分列）** + **实验变体生成前分配（评估以分配台账为准，未绑定如实计数）**；抖音资质通道已砍除，/api/analytics 40 路径 49 操作，docs/17）
 前端          [████████████]  98%  后台原型 1:1 还原（侧边栏+顶栏+工作台+步进器/手机预览）/ 全站 DataTable 统一表格 / LLM 三级就绪探测+SSE 实时推送+启停按钮全 loading 反馈 / 工作台 500ms 实时轮询+待推进卡点拆解 / 发布元数据回显（保存策略创建/详情/标记/发布四处同源）/ 手机预览等比复刻渲染帧（与成片所见即所得）（待提交）
-测试          [████████████]  98%  Vitest 606 用例（实测 2026-10-03：shared 3 + backend 504（491 通过 · 2 集成测试按 env skip · 11 真库不变量按 env skip）+ frontend 99）· 行覆盖 **实测口径** shared 100% / frontend 99.66% / backend 语句 80.5%·分支 83.7%·函数 72.4%（阈值按实测水位设闸，非 90 目标）· Playwright E2E 22 passed/1 skipped（须重建测试栈+重灌夹具后才可信）· @full 需 Ollama 手动触发
+测试          [████████████]  98%  Vitest 735 用例（实测 2026-10-04：shared 3 + backend 617（590 通过 · 2 集成测试按 env skip · 25 真库不变量按 env skip）+ frontend 112）· 行覆盖 **实测口径** shared 100% / frontend 99.47% / backend 语句 80.55%·分支 84.04%·函数 72.43%（阈值按实测水位设闸，非 90 目标）· Playwright E2E 29 passed/2 skipped（须重建测试栈+重灌夹具后才可信；夹具已含 18 条同平台样本与固定实验台账，采纳入口与分配台账因此真实可点可断言）· @full 需 Ollama 手动触发
 质量与运维门禁 [████████████] 100%  2026-10-03 新增（docs/20-21）：`docker:backup` 库+成片备份并强制演一次真恢复（业务键对账）· `docker:audit` 生产只读对账（集数断号/标记未派生/成片缺失/孤儿记录）· `docker:gate` 七步质量门禁 · `docker:release` 现在必须先过备份+门禁才切 APP_VERSION，发布后跑 /health 复核
 部署          [█████████░░░]  90%  Docker 容器化完成（mysql+backend+frontend，一条 compose 命令）；生产部署（域名/反代）待做
 ```
@@ -21,6 +21,41 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 ---
 
 ## 二、当前在做
+
+→ ✅ 2026-10-04 **数据分析真实闭环 · 批次三：实验变体分配与评估来源**（按 `docs/22` §4.3/§5.3/§7.3 实施；`feature/quality-ops-gates` 工作树，**未 release、生产库零写入**）：
+  **这批修的是「A/B 实验名不副实」**：`experiments.variantA/B.contentIds` 只能事后把已有内容分成两组，回答不了「这条内容在生成之前是不是就被定为 B 组、按什么参数生成」。没有那层事实，A/B 就只是给结果分组，不是实验。
+  **新表 `experiment_assignments`**（migration `0012_lucky_christian_walker`）：`variant` 只有 A/B，`assignment_method` 第一版固定 `operator_selected`——没有随机分流基础设施就假装随机 A/B 是撒谎。分配与绑定分两步：生成**前** `POST /experiments/{id}/assignments` 登记（此时 `content_id` 为 NULL），生成成功后 `POST .../assignments/{aid}/bind` 写内容 + **用户实际提交的** `final_params`（与 `assigned_params` 分列）。生成失败/中断就保持未绑定，评估把它单独数出来：「z 条未绑定（生成失败或未完成，不计入样本）」——不静默少算，也不伪造归属
+  **评估改以分配为事实来源**：有分配就用两组已绑定内容，`result.note` 写明「样本来源：生成前登记的变体分配（共 N 条，A 已绑定 x，B 已绑定 y，z 条未绑定）」；一条分配都没有才回退旧清单，并在同一段里明说是**事后分组、不是真正的实验对照**。旧 `GET /experiments` 响应字段集一个没动（来源走 note 文本 + 新读端点 `GET /experiments/{id}/assignments`）；门槛与结论规则沿用既有 `MIN_EXPERIMENT_SAMPLES=8`，本批只换来源——把「换来源」和「改判据」混做，出问题时分不清哪半
+  **纪律的机器形式**：只有 draft/running 的实验接受分配（completed/cancelled → 409，事后追加等于挑数据）；bind 同时按 `(assignmentId, experimentId)` 定位（防跨实验串台）；内容不存在 404、内容 `failed` 409 拒绑；二次绑定 409 不改写首次事实。新建页选择器只列可分配实验，登记失败不阻断生成但 toast 明说「这条不计入该实验」
+  **第一版迁移实测失败并重做**：给 `experiment_id` 加外键时 MySQL 报 `Referencing column 'experiment_id' and referenced column 'id' ... are incompatible`——两个库里 `experiments.id` 的排序规则不一致（测试库是历史灌库留下的 `utf8mb4_0900_ai_ci`，新建表默认 `utf8mb4_unicode_ci`），FK 能否建起来取决于库的往事，等于给发布日埋彩票。改为裸 varchar + 服务层校验（与批次二 `recommendation_applications` 同一处置），并把这条理由写进 schema 注释与 `docs/22 §13`
+  **夹具与 E2E**：固定一条 draft 实验（1 条已绑定 + 2 条未绑定分配）和一条 cancelled 实验，台账数字可精确断言且 **E2E 自己不发写请求**（不留逐次增长的残留）；cancelled 那条专门钉反例。顺带硬化一处既有断言：reka toast 会在 sr-only 区域放同文案副本，`getByText` 整跑时偶发撞 strict mode 假红，改为钉可见的 toast `listitem`
+  **门禁（当前 tip 实跑）**：typecheck 3/3 · lint 249 文件零告警 · 单测 backend 590（+23）/ frontend 112（+4）/ shared 3 · openapi:check 8/8（`/api/analytics` 现 40 路径 49 操作，全局 70/84）· backend coverage 80.55/84.04/72.43/80.55 过闸 · **真库不变量 25（+1：旧两组清单故意指向不存在的内容，评估仍从分配得到 1/1，未绑定 1 条被说出来，已归档实验拒绝新分配）** · **E2E 29 passed / 2 skipped**（重建镜像 + 重灌夹具后实跑；@full 两条默认跳过）· `db:generate` 复跑「No schema changes」
+  **独立评审抓到四个真问题并全部修掉**：绑定是「先查后写」（重发会静默覆盖首次事实，改条件更新 + 回读）；绑定失败时前端提前清掉分配 id，于是「生成成功但没绑上」被台账解释成「生成失败」（假归因，措辞统一为「生成失败、未完成或绑定未成功」）；分配路径比旧登记路径松（同一内容可进两组、自己跟自己比，改 bind 拒绝重复归属 + 装载去重）；台账是全局单例无请求令牌（先点 A 再点 B 会把 A 的数据标在 B 上）。评审价值成立：这四条都不是我自己能想到的形状
+  **生成失败的原因此前被两层丢弃**（`@full` 跑出来的既有问题，不是本批引入）：service 抛的是「内容生成未通过验收：…有效词不足：仅 5 个（要求至少 8 个）…」并且注释就写着要给 500 响应体展示，但路由固定回 `Content generation failed`，前端又是全文件唯一没用 `apiError()` 的调用，界面上只剩 `内容生成失败：生成失败（HTTP 500）`——用户拿不到任何可执行的下一步。改为新增 `ContentRejectedError` 只放行验收类原因（其它异常不外泄细节）、三轮原因去重列出并附下一步；前端改用 `apiError()`。补路由用例 + 新建 `api/client.test.ts`（stub fetch 固定两种终态，不再等模型恰好失败）
+  **缺口已补**：`@full` 新增一条真实生成回路用例并实跑通过（60s，Ollama qwen2.5:7b）——采纳建议 + 选定 B 组 → 真实生成内容 → 实验台账由「共 3 · 已绑定 1 · 未绑定 2」变「共 4 · 已绑定 2 · 未绑定 2」，建议卡转「已采纳」，汇总「已产出新内容」由 0 变非 0。顺带抓到两个既有问题：`playwright.config.ts` 的 `timeout: 30_000` 压过用例级 details 的 `timeout`，两条 `@full` 用例都在「生成中…」时被 30s 打断（这套全链路用例在该配置下从未跑得完），改为体内 `test.setTimeout()`；冷启动的 Ollama 会在测试栈 nginx 上撞 HTTP 504（模型首次加载超过代理读超时），转暖后同一条用例 50s 通过——跑 `@full` 前得先确认模型已热，否则是假红
+  ⏳ 待用户：① 批次三验收（新建页 step 01 末尾的「参与内容实验」选择器；实验页每张卡的「分配台账」）② 三批全部完成，是否合分支/发布由你决定
+
+→ ✅ 2026-10-04 **数据分析真实闭环 · 批次二：建议证据链 + 采纳最终参数**（按 `docs/22` §4.2/§5.2/§6 实施；`feature/quality-ops-gates` 工作树，**未 release、生产库零写入**）：
+  **这批要解决的**：页面 D 的「依据 n=8、组中位 vs 账号中位」是系统自己算出来的一个说法——用户无法回答「哪一次统计、哪些视频、哪一行的哪个字段」。同时「采纳建议」在页面上只是一个跳转，事后拿不到**用户实际提交的参数**，效果对比就会拿建议值冒充实际值。
+  **证据链**（`GET /api/analytics/recommendations/{id}/evidence`，服务 `analytics-recommend-evidence.service`）：建议 → `analysis_result` 快照（平台/窗口/指标口径 + 分组 + 参与 recordIds）→ `publish_records` → `video_metrics`（sourceType/sourceField/dataDate/isEstimated + `metadata.batch_id/import_row`）→ `import_row.raw_data` 整行原文 + `match_decision.decision_type` → `content_features.field_sources` → `contents.audit`。三种终态都明示：建议不存在 404；有建议没快照（本列引入前的历史行）→ `evidence_unavailable` 并说清缺哪一环；部分指标行没有批次留痕 → 仍 `traceable` 但写明「只能追到字段名层级」，**不拿别的数据拼一份看起来完整的证据**
+  **门槛收紧**（本批唯一的行为变化，方向是变保守）：低样本判据从「组内样本数 <8」改成「组内**非估算**真实样本数 <8」——窗口归因涨粉这类估算值计入覆盖面不计入行动门槛，靠 40 条估算值堆不出建议；建议改为**按平台分别生成**，每条建议继承自己那份快照（`recommendations.analysis_result_id`，migration 0011 同时建 `recommendation_applications`）。跨平台混合的样本集一律只出数据准备建议
+  **采纳回路**：`POST /recommendations/{id}/applications`（`suggestedParams` 由服务端从建议行当场读，前端回传的一律丢弃；`prefillParams` 是页面装入值）→ 生成成功后 `POST /recommendation-applications/{id}/bind` 写 `contentId` + `finalParams`（分 `generation` / `media` 两组，因为语速在配音步骤才生效）。再绑 409 不静默改写、内容不存在 404 且记录保持未绑定、生成失败前端根本不调 bind——「采纳了但没产出」在数据里看得见
+  **旧契约一处没动**：`GET/POST /factors` 响应形状由路由 `toFactorView()` 显式投影回原字段集（服务内部载荷多了真实样本数/recordIds/scope），请求侧只加**可选** `platform`/`days`；导入提交后的建议刷新放在事务之后，失败只记日志、不回滚已提交指标，也不改 commit 响应
+  **夹具补了样本量**（这条是 `docs/22 §9` 要求的「E2E 覆盖推荐采纳」逼出来的）：原测试栈最多 1 条真实样本，采纳入口永远不出现，那条验收在浏览器里走不到。新增 18 条同平台（小红书）样本，8 高 / 10 低，指标按**已提交导入**的形状落库（import_batch + import_row + match_decision + metadata 留痕），时间取 45 天前、内容不放成片产物——页面 A 的窗口合计与页面 B 的行集都不受影响，而「建议 → 原始导入行」这一环是真的能点开的
+  **测出来/看过才看到的三个缺陷**：① `listRecommendations.summary.applied` 历史上写成 `total - applied`，于是一条都没产出的新建议被显示成「已产出新内容 7 条」——这是页面上的假陈述，改为按 `appliedToContentId is not null` 计数并用真库不变量钉住；② 本批新增的两个前端请求把 `body` 塞进了 `params`，openapi-fetch 发出空 body 的 POST → 服务端 500，创建页当时诚实显示「本次采纳未登记成功」。同一次核对发现语速预填值 1.15/0.85 不是创建页能表示的档位（只有 0.8/1/1.2），预填后三个档位都不高亮，改为 1.2/0.8 并以 `aria-pressed` 在 E2E 里钉住；③ 自己打开页面看时发现采纳横幅把 markdown 的 `**…**` 当字面量渲染出来了（改成 `<strong>`），且展开证据卡时左卡变高右卡留白（改成展开时占满整行）
+  **门禁（当前 tip 实跑）**：typecheck 3/3 · lint 246 文件零告警 · 单测 backend 567（+17 证据服务用例，新增服务最初只被 mock 型路由测试覆盖，把整体覆盖率压到 77.44% 破闸，补测抬回 80.25%，**没有下调阈值**）/ frontend 108 / shared 3 · openapi:check 8/8 · **真库不变量 24（+1：8 条同平台样本出 actionable、3 条的组不出、跨平台高值不混入、证据追到 8 条参与样本）** · **E2E 27 passed / 1 skipped**（重建镜像 + 重灌夹具后实跑，含「采纳登记 → 预填 → 来源横幅」与「证据链追到导入原始行」两条）。偏差全部写回 `docs/22 §12`
+  ⏳ 待用户：① 批次二验收（页面 D 的卡片按平台分张、多平台账号会看到多张；达门槛才有「使用推荐参数创建」入口）② 批次三（实验分配与评估）待指令 ③ 生成成功后 bind 的完整链路需真实 Ollama 生成，属 `e2e:full` 手动档，未进常规门禁
+
+→ ✅ 2026-10-04 **数据分析真实闭环 · 批次一：统一内容主视图 + 发布时间来源**（按 `docs/22` 已确认规格实施，未做产品决策再发明；`feature/quality-ops-gates` 工作树，**未 release、生产库零写入**）：
+  **为什么先做这批**：`/insights/videos` 的行锚点是 `publish_records`，本地有成片但没登记发布的集只能靠一句「另有 N 集未登记」点破；发布记录的 `publish_time` 建出来是 NULL，数据接入页因此成片显示「-」。这两件事让「生产了什么 / 发到了哪 / 表现如何」在界面上无法同一行对齐。
+  **新接口 `GET /api/analytics/content-videos`**（服务 `analytics-content-video.service`）：一内容一行，发布记录与指标作为 `platforms[]` 明细；`status=all|unpublished|published_unimported|imported|import_conflict|failed|deleted` 筛选 + 分页 + 排序白名单。**旧 `GET /videos` 契约逐字不变**，并用 zod `.strict()` 写了契约冻结用例——将来往旧响应加字段会直接红。
+  **不相加是可证的，不是口号**：多平台内容的主行整段合并为一句展开引导、不显示任何数值；排序 `play/completion/engagement` 取该内容各平台的 max 只用于排序。E2E 钉「展开后抖音 12,000 与快手 3,000 各自独立、行内不出现 15,000」。
+  **发布时间来源**（`publish_records.publish_time_source`，migration `0010_green_khan` 纯增量单列）：新建未填时间 → `contents.created_at` + `LOCAL_GENERATED`；表单填 → `USER_EDITED`；导入行自带真实时间才写回，可覆盖 `LOCAL_GENERATED`、**不覆盖 `USER_EDITED`**、没时间时不清空已有值（判据是纯函数 `importedPublishTimePatch`）。历史空值回填 `pnpm --filter @ai-english/backend db:backfill:publish-time`（默认 dry-run，`-- --apply` 才写；只碰 `publish_time IS NULL`）。
+  **实跑抓到并修掉一个真缺陷（自己的改动引入的）**：把发布时间纳入提交写入面后，`commit_preimage` 落 JSON 列里时间是 ISO 字符串，回滚把它直接塞进 `datetime(mode:"date")` 列 → drizzle 在 UPDATE 路径抛 `value.toISOString is not a function`，**整批回滚失败并把已提交指标留在库里**；连锁打红页面 A/C（合计少 3,000）与导入用例。改为 preimage 显式存 ISO 字符串、回滚前还原成 `Date`；用修好的代码对遗留 committed 批次真实执行一次回滚验证：`{"ok":true,"records":2}`，指标回到 12,000/480/0.36。教训入档：**动到「提交-回滚」这类成对语义时，只测新写入路径不够，必须让真实回滚用例过一遍**
+  **测试库演练（只打 :3307，生产 :3306 全程未碰）**：回填 dry-run `1/1/0` 零写入 → apply 更新 1 条并自动复跑得 `0`（幂等）→ 夹具状态复原。回填实现放在 service 而非进 migration：容器启动即 migrate，把数据回填塞进迁移等于每次发布都重写历史且无法先 dry-run
+  **诚实性取舍**：`publish_time_source` **不**进 `GET /publish-records` 响应（已发布契约不许加字段），来源只在 `/content-videos` 平台明细里给；标记派生的发布时间判给 `USER_EDITED`（规格表未覆盖该路径，理由与偏差全部写回 `docs/22 §11`，未另起第 5 份文档）
+  **门禁**：typecheck 3/3 · lint 243 文件零告警 · 单测 backend 529（+38）/ frontend 106（+3）/ shared 3 · openapi:check 8/8（`/api/analytics` 现 35 路径 43 操作）· **真库不变量 20（+9）**：默认时间取自 `contents.created_at`、导入覆盖兜底不覆盖人工、回填只补空值且二次零变更（整段在回滚事务里跑，不给测试库留副作用）、有成片无记录仍一行 `platforms=[]`、一内容两平台只一行且各自读数、缺指标不补 0、`status=failed` 可扩大行集、`total` 与库内口径对账 · **E2E 23 passed / 1 skipped**（重建镜像 + 重灌夹具后实跑；另用真实浏览器看过页面渲染与控制台，零报错）
+  ⏳ 待用户：① 批次一验收（页面 B 交互形态改了：一行一集，平台数据要点「明细」展开）② 历史空发布时间在生产库的执行由你决定（命令与代价见 `docs/22 §4.4` + `docs/18 §5.2` 的备份纪律）③ 批次二已交付（见上一条），批次三（实验分配）待指令
 
 → ✅ 2026-10-03 **推进生产完成**（用户指令「测试这边没问题可以推进生产，不要我每次手动来」；生产数据已修复 + 代码已发布 `v6561a62`）：
   **备份先行且真验恢复**——`mysqldump --single-transaction --no-tablespaces`（退出码 0，1,362,207 bytes / 17 表 INSERT / `Dump completed`）→ 灌入测试实例临时库 → **Node 脚本连两个库逐表比 18 张表全部相等**（contents 43/43、cet_words 5999/5999、import_row 185/185…）。备份：`~/language-flow-backup-20261003/prod-before-recover-022743.sql`；回滚：`docker exec -i language-flow-mysql mysql -udev -pdev language_flow < 该文件`
@@ -298,6 +333,11 @@ shared 包     [████████████] 100%  enums + ContentDTO +
 
 | 日期 | 决策 | 理由 |
 |------|------|------|
+| 2026-10-04 | 统一内容主视图走**新路径** `GET /api/analytics/content-videos`，旧 `GET /videos` 响应结构逐字冻结（并写 zod `.strict()` 契约用例） | 换行锚点（publish_records → contents）等于改响应结构；已发布契约不可改是 AGENTS.md 硬边界。代价是两个列表并存，收益是旧调用方与 E2E 零回归，且「加字段」将来会被用例拦住而不是悄悄发生 |
+| 2026-10-04 | 多平台内容的主行**不显示任何指标数值**，指标只在 `platforms[]` 里按平台读；排序用各平台该指标的 max | 平台口径不可比，相加/取平均会造出一个任何平台都没有的数；而把「暂无数据」铺满 9 列又是噪音。合并成一句展开引导是同时守住「不相加」和可读性的解 |
+| 2026-10-04 | `publish_time_source` 三值（LOCAL_GENERATED / PLATFORM_IMPORTED / USER_EDITED），NULL 表示「旧记录判不出」；上传标记派生的记录判给 USER_EDITED | 有了来源才能安全定义「导入的真实时间可以覆盖谁」——没有这列，覆盖兜底值和覆盖人工断言无法区分。规格未写标记派生这一路；判给 LOCAL_GENERATED 会谎称时间来自生成，判给 NULL 又让新记录一出生就来源不明 |
+| 2026-10-04 | 历史空发布时间回填放在**脚本 + service 函数**，不放进 migration | 容器启动即执行 up-only 迁移；把数据回填塞进迁移＝每次发布都重写历史数据，且没有 dry-run 看数的机会。默认 dry-run、`-- --apply` 才写、只碰 `publish_time IS NULL` |
+| 2026-10-04 | 批次一不新增「有成片但无发布记录」的测试夹具内容 | 测试栈 uploads 的 44 个成片已被现有内容全部引用，新增该行要么指向不存在的文件（制造「记录在、文件不在」），要么复用别的内容的文件名（9-28 事故成因之一）。该场景改由真库不变量 + 真实 HTTP 路由覆盖 |
 | 2026-10-03 | 发布前强制备份 + 七步质量门禁（内置于 `docker:release`，可 `docker:gate` 单独跑） | 风险发生在切生产版本那一刻，不在提交那一刻；pre-push 保持秒级。备份段不可跳（代码能回滚、数据不能），质量段允许 `GATE_SKIP=1` 显式跳过并留痕 |
 | 2026-10-03 | 覆盖率阈值从 90 改为实测水位 78/82/70/78，并接入门禁执行 | 原 90 从未被执行（`test` 脚本不带 `--coverage`）属假承诺；宁可要会拦人的低门槛，也不要好看的空数字 |
 | 2026-10-03 | 备份范围含成片目录 `~/language-flow-uploads`（rsync 硬链接增量） | `publish_records.video_asset_id` 只存文件名；09-28 丢集后只能靠读成片截帧反推文案，只 dump 库救不回来 |

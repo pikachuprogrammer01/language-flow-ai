@@ -1,15 +1,10 @@
-import { type Page, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { generateAndWait, trackPageErrors } from "./helpers";
 /**
  * 数据分析 E2E（Phase 2 看板）— 真实测试栈 5174 + seed fixture（test0001scene 双平台发布记录与指标）
  * 断言口径来自 docker/test-fixtures/test-data.sql：播放合计 12000+3000、2秒折算、快手无完播显示「—」、
  * 样本不足提示与「秒级留存不造假」诚实声明；非破坏性（只读 + 标签保存不在此覆盖）
  */
-
-function trackPageErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on("pageerror", (err) => errors.push(String(err)));
-  return errors;
-}
 
 test.describe("数据分析看板", () => {
   test.beforeEach(async ({ page }) => {
@@ -52,26 +47,62 @@ test.describe("数据分析看板", () => {
     expect(errors).toEqual([]);
   });
 
-  test("页面 B：视频表现列表（多平台逐行；缺失指标「—」；排序 button + aria-sort；行真链接）", async ({
+  test("页面 B：统一内容主视图（一内容一行；平台指标只在各平台明细里；不相加、缺值不补 0）", async ({
     page,
   }) => {
     const errors = trackPageErrors(page);
     await page.goto("/insights/videos");
     await expect(page.getByRole("heading", { name: "视频表现" })).toBeVisible();
     await expect(page.getByText(/机场英语/).first()).toBeVisible();
-    await expect(page.getByText("抖音").first()).toBeVisible();
-    await expect(page.getByText("快手").first()).toBeVisible();
-    // 批次 4A：可排序表头是真 button，键盘可达；aria-sort 播报排序状态
+    // fixture 的 test0001scene 有抖音+快手两条发布记录：新口径必须只占一行（一内容一行）
+    const sceneRow = page.locator("tbody tr").filter({
+      has: page.locator("a[href*='/insights/videos/test0001scene']"),
+    });
+    await expect(sceneRow).toHaveCount(1);
+    // 多平台内容的主行不显示任何指标数值：整段合并成一句引导展开（相加就是假数据）
+    await expect(sceneRow.getByTestId("multi-platform-guard")).toBeVisible();
+    // 12,000（抖音）+ 3,000（快手）= 15,000 这种跨平台合计不得出现在这一行
+    await expect(sceneRow.getByText("15,000")).toHaveCount(0);
+    // 平台名只在展开后的明细里出现：收起时不应在行集里看到快手
+    await expect(page.getByText("快手")).toHaveCount(0);
+    await page.getByRole("button", { name: "展开 测试：机场英语 错过登机 的平台明细" }).click();
+    const detail = page.getByTestId("platform-detail");
+    await expect(detail).toHaveCount(2);
+    const douyin = detail.filter({ hasText: "抖音" }).first();
+    const kuaishou = detail.filter({ hasText: "快手" }).first();
+    await expect(douyin).toBeVisible();
+    await expect(kuaishou).toBeVisible();
+    // 各平台各自读数：抖音 12,000 / 快手 3,000 分别在自己的明细里，没有合并
+    await expect(douyin.getByText("12,000")).toBeVisible();
+    await expect(kuaishou.getByText("3,000")).toBeVisible();
+    await expect(douyin.getByText("3,000")).toHaveCount(0);
+    // 快手只导入了播放量：其余指标显示「—」（缺失），绝不折算成 0.0%
+    await expect(kuaishou.getByText("0.0%")).toHaveCount(0);
+    await expect(kuaishou.getByText("—").first()).toBeVisible();
+    // 发布时间来源如实标注（fixture 未回填来源 → 判不出就说「来源未知」，不假称人工填写）
+    await expect(douyin.getByText(/来源未知|兜底|人工填写|平台导入/)).toBeVisible();
+    // 批次 4A：可排序表头仍是真 button + aria-sort，键盘可达
     const completionTh = page.getByRole("columnheader").filter({ hasText: "完播" });
     await expect(completionTh).toHaveAttribute("aria-sort", "none");
     await completionTh.getByRole("button", { name: /完播/ }).click();
     await expect(completionTh).toHaveAttribute("aria-sort", "descending");
-    // 键盘：Tab 能聚焦到排序按钮并回车触发
     await completionTh.getByRole("button", { name: /完播/ }).focus();
     await page.keyboard.press("Enter");
     await expect(completionTh).toHaveAttribute("aria-sort", "ascending");
-    // 行标题是真链接（可聚焦/可中键新开）
-    await expect(page.locator("tbody a[href*='/insights/videos/']").first()).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("页面 B：状态筛选可扩大行集（失败/未发布的集也在内容视图里可见）", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await page.goto("/insights/videos");
+    // 默认口径=已完成且有成片；fixture 的 failed 内容不在默认行集里
+    await expect(page.getByRole("button", { name: "生成失败" })).toBeVisible();
+    await page.getByRole("button", { name: "生成失败" }).click();
+    await expect(
+      page.getByTestId("content-status").filter({ hasText: "生成失败" }).first(),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "全部" }).click();
+    await expect(page.getByRole("heading", { name: "视频表现" })).toBeVisible();
     expect(errors).toEqual([]);
   });
 
@@ -129,10 +160,109 @@ test.describe("数据分析看板", () => {
     const errors = trackPageErrors(page);
     await page.goto("/insights/factors");
     // 生成建议仅写 recommendations 派生表（测试栈隔离环境，幂等重建，非破坏性）
-    await page.getByRole("button", { name: "按最新数据生成" }).click();
-    await expect(page.getByText("继续导入创作者数据并标注场景/Hook")).toBeVisible();
+    await generateAndWait(page);
+    // 建议按平台分别生成（跨平台样本不可比），每张卡点名自己的平台与窗口
+    await expect(page.getByText(/继续导入创作者数据并标注场景\/Hook/).first()).toBeVisible();
     // 样本不足纪律（措辞随数据形态，只钉语义：无达门槛分组→不出参数建议）
-    await expect(page.getByText(/无分组达到最小样本量 8|总样本不足 8 条/).first()).toBeVisible();
+    await expect(page.getByText(/无分组达到最小真实样本量 8|不计入行动门槛/).first()).toBeVisible();
+    await expect(page.getByText(/(抖音|快手) · (近 \d+ 天|全部历史)/).first()).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("页面 D 建议证据链：展开可追到快照口径与参与样本（追不到就明说，不拼假证据）", async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page);
+    await page.goto("/insights/factors");
+    await generateAndWait(page);
+    const firstEvidence = page.getByRole("button", { name: "查看证据" }).first();
+    await expect(firstEvidence).toBeVisible();
+    await firstEvidence.click();
+    const panel = page.getByTestId("evidence-panel");
+    await expect(panel).toBeVisible();
+    // 两种合法终态：追到快照（含平台/窗口口径）或如实说明缺哪一环
+    await expect(
+      panel
+        .getByText(/快照 #factors:|近 \d+ 天|全部历史/)
+        .or(panel.getByText(/证据不完整|未留档|不存在/))
+        .first(),
+    ).toBeVisible();
+    // 门槛纪律的可证形式：样本不足的那张卡上不得出现任何「使用推荐参数创建」入口
+    const lowSampleCard = page
+      .getByTestId("rec-card")
+      .filter({ hasText: /无分组达到最小真实样本量 8/ })
+      .first();
+    await expect(lowSampleCard).toBeVisible();
+    await expect(lowSampleCard.getByRole("button", { name: "使用推荐参数创建" })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("页面 D 达门槛建议的证据链能追到导入原始行（不是只停在字段名）", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await page.goto("/insights/factors");
+    await generateAndWait(page);
+    const card = page.getByTestId("rec-card").filter({ hasText: "推荐语速" }).first();
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: "查看证据" }).click();
+    const panel = page.getByTestId("evidence-panel");
+    await expect(panel.getByTestId("evidence-import-row").first()).toBeVisible();
+    // 批次文件 + 行号 + 裁决方式：这一环成立才说明「建议 → 原始数据」真的接上了
+    await expect(panel).toContainText("小红书创作者后台_导入夹具.csv");
+    await expect(panel).toContainText("裁决 operator_confirm");
+    await expect(panel).toContainText("参与样本 8 条");
+    expect(errors).toEqual([]);
+  });
+
+  test("页面 D 采纳参数建议：先登记采纳再预填，创建页点名来源与口径（docs/22 §4.2 / §7.2）", async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page);
+    await page.goto("/insights/factors");
+    await generateAndWait(page);
+    // 夹具里 8 条同平台样本的语速组达门槛 → 这张卡应当可以给参数；
+    // 预填值必须是创建页能表示的档位（快 = 1.2）
+    const card = page.getByTestId("rec-card").filter({ hasText: "推荐语速" }).first();
+    await expect(card).toBeVisible();
+    const adopted = page.waitForResponse(
+      (res) =>
+        res.request().method() === "POST" &&
+        /\/recommendations\/[^/]+\/applications$/.test(res.url()),
+      { timeout: 30000 },
+    );
+    await card.getByRole("button", { name: "使用推荐参数创建" }).click();
+    const record = await (await adopted).json();
+    expect(record.id).toMatch(/^recapp_/);
+    expect(record.targetMetric).toBe("completion_rate");
+    await expect(page).toHaveURL(/\/create/);
+    const banner = page.getByTestId("adoption-source");
+    await expect(banner).toBeVisible();
+    // 来源可回放：点名平台/窗口/样本量，并保留「不是因果结论」的原始措辞
+    await expect(banner).toContainText("小红书 · 近 90 天");
+    await expect(banner).toContainText("真实样本 n=8");
+    await expect(banner).toContainText("不是因果结论");
+    await expect(banner).toContainText("你实际提交的参数");
+    // 预填真的装进了表单：语速档位高亮的是「快」（控件在第二步，DOM 里始终存在）
+    const pressedRate = page.locator('[aria-pressed="true"]').filter({ hasText: /^(慢|正常|快)$/ });
+    await expect(pressedRate).toHaveText("快");
+    expect(errors).toEqual([]);
+  });
+
+  test("页面 D：完播率无导入数据时提示可换 2 秒有效播放率，但不自动换", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await page.goto("/insights/factors");
+    await expect(page.getByRole("heading", { name: "因子分析" })).toBeVisible();
+    const hint = page.getByTestId("metric-switch-hint");
+    // 该提示只在完播率零样本时出现；有数据时钉另一侧：默认指标就是完播率
+    if (await hint.count()) {
+      await expect(hint.getByText(/2 秒有效播放率|effective_play_rate_2s/)).toBeVisible();
+      await expect(hint.getByText("系统不会自动替你换指标")).toBeVisible();
+      const active = page
+        .getByRole("button", { name: "完播率" })
+        .or(page.getByRole("button", { name: /完播/ }));
+      await expect(active.first()).toHaveClass(/bg-brand-soft/);
+    } else {
+      await expect(page.getByText("账号整体基准")).toBeVisible();
+    }
     expect(errors).toEqual([]);
   });
 
@@ -163,6 +293,43 @@ test.describe("数据分析看板", () => {
     await expect(
       page.getByText("不足只给描述统计").or(page.getByText("样本不足")).first(),
     ).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("内容实验台账：分配与未绑定条数如实呈现（评估以它为准，不是登记清单）", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await page.goto("/insights/experiments");
+    const card = page.locator("section").filter({ hasText: "提问 vs 平铺" }).first();
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: "分配台账" }).click();
+    const ledger = card.getByTestId("assignment-ledger");
+    await expect(ledger).toBeVisible();
+    await expect(ledger).toContainText("共 3 条分配 · 已绑定 1 条 · 未绑定 2 条");
+    await expect(ledger.getByTestId("assignment-row")).toHaveCount(3);
+    await expect(ledger.getByText("test0001scene")).toBeVisible();
+    await expect(ledger.getByText(/未绑定内容/).first()).toBeVisible();
+    await expect(ledger.getByText(/不计入样本/).first()).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("新建页参与实验：只列可分配的实验，选定后点名变体与登记时机", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await page.goto("/create");
+    const picker = page.getByTestId("experiment-picker");
+    await expect(picker).toBeVisible();
+    const select = page.getByTestId("experiment-select");
+    // 折叠的原生 select 里 option 不可见，钉存在与文案而不是可见性
+    await expect(select.locator("option", { hasText: "提问 vs 平铺" })).toHaveCount(1);
+    // 已取消的实验不在可参与列表里（服务端也只接受 draft/running 的分配）
+    await expect(select.locator("option", { hasText: "情景背词 vs 单词卡片" })).toHaveCount(0);
+    await select.selectOption("testexpdraft1");
+    const variantB = picker.getByRole("button", { name: /B 组/ });
+    await expect(variantB).toHaveAttribute("aria-pressed", "false");
+    await variantB.click();
+    await expect(variantB).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("experiment-note")).toContainText(
+      "生成开始时登记为 B 组（平铺）",
+    );
     expect(errors).toEqual([]);
   });
 

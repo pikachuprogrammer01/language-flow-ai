@@ -108,4 +108,74 @@ describe("computeFactorGroups", () => {
     expect(out.dimensions.map((d) => d.dimension)).toEqual(dims);
     expect(out.dimensions[2]?.groups[0]?.value).toBe("scene_word");
   });
+
+  it("每组带 recordIds：推荐证据要能回连到具体发布记录与导入行", () => {
+    const out = computeFactorGroups(rows, "completion_rate", ["hook"]);
+    const mistake = out.dimensions[0]?.groups.find((g) => g.value === "mistake");
+    expect(mistake?.recordIds).toEqual(["r1", "r2"]);
+  });
+
+  it("估算值计入覆盖面样本，但不计入行动门槛的真实样本", () => {
+    const estimated = (value: number) => ({
+      value,
+      sourceType: "CREATOR_IMPORT" as const,
+      isEstimated: true,
+      dataDate: null,
+    });
+    const many = Array.from({ length: 10 }, (_, i) =>
+      row({
+        recordId: `e${i}`,
+        hook: "mistake",
+        cells: { completion_rate: i < 3 ? estimated(0.9) : cell(0.1) },
+      }),
+    );
+    const out = computeFactorGroups(many, "completion_rate", ["hook"], {
+      platform: "抖音",
+      windowDays: 30,
+    });
+    const mistake = out.dimensions[0]?.groups.find((g) => g.value === "mistake");
+    // 10 条都有值 → 覆盖面 10；其中 3 条是估算 → 真实样本只有 7，不足 8
+    expect(mistake?.sampleCount).toBe(10);
+    expect(mistake?.realSampleCount).toBe(7);
+    expect(mistake?.lowSample).toBe(true);
+    expect(out.accountRealSampleCount).toBe(7);
+  });
+
+  it("7 个真实样本仍是低样本（门槛按非估算值数，四舍五入不算过关）", () => {
+    const seven = Array.from({ length: 7 }, (_, i) =>
+      row({ recordId: `s${i}`, hook: "mistake", cells: { completion_rate: cell(0.3) } }),
+    );
+    const out = computeFactorGroups(seven, "completion_rate", ["hook"]);
+    expect(out.dimensions[0]?.groups[0]?.lowSample).toBe(true);
+  });
+
+  it("8 个真实样本达到门槛 → 不再标 lowSample", () => {
+    const eight = Array.from({ length: 8 }, (_, i) =>
+      row({ recordId: `g${i}`, hook: "mistake", cells: { completion_rate: cell(0.3) } }),
+    );
+    const out = computeFactorGroups(eight, "completion_rate", ["hook"]);
+    expect(out.dimensions[0]?.groups[0]?.lowSample).toBe(false);
+  });
+
+  it("样本跨平台时 note 明示不可比（这是拒绝出参数建议的依据）", () => {
+    const mixed = [
+      row({ recordId: "d1", platform: "抖音", cells: { completion_rate: cell(0.4) } }),
+      row({ recordId: "k1", platform: "快手", cells: { completion_rate: cell(0.2) } }),
+    ];
+    const out = computeFactorGroups(mixed, "completion_rate", ["hook"]);
+    expect(out.mixedPlatform).toBe(true);
+    expect(out.note).toContain("口径不可比");
+    expect(out.note).toContain("不作为参数改动依据");
+  });
+
+  it("响应自述统计范围：平台与窗口原样回显，不隐含收窄也不假装全量", () => {
+    const out = computeFactorGroups(rows, "completion_rate", ["hook"], {
+      platform: "抖音",
+      windowDays: 30,
+    });
+    expect(out.scope).toEqual({ platform: "抖音", windowDays: 30 });
+    expect(out.mixedPlatform).toBe(false);
+    const unspecified = computeFactorGroups(rows, "completion_rate", ["hook"]);
+    expect(unspecified.scope).toEqual({ platform: null, windowDays: null });
+  });
 });

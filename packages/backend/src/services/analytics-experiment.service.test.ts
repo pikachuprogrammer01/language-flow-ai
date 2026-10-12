@@ -82,6 +82,17 @@ describe("evaluateExperiment", () => {
     expect(out.verdict).toContain(String(MIN_EXPERIMENT_SAMPLES));
   });
 
+  it("只有一组缺样本时不写「两组均无」：那是把另一组的真实数据说没了", () => {
+    const out = evaluateExperiment(rows, {
+      variantA: { label: "A", contentIds: rows.slice(0, 8).map((r) => r.contentId) },
+      variantB: { label: "B", contentIds: ["ghost"] },
+      targetMetric: "completion_rate",
+    });
+    expect(out.sampleA).toBe(8);
+    expect(out.verdict).toContain("B 组没有可用指标样本");
+    expect(out.verdict).not.toContain("两组都");
+  });
+
   it("两组均无指标 → 无法评估（不伪造 0 对比）", () => {
     const out = evaluateExperiment(rows, {
       variantA: { label: "A", contentIds: ["ghost1"] },
@@ -117,5 +128,49 @@ describe("validateExperimentInput", () => {
       variantB: { label: "x", contentIds: ["c1", "c2"] },
     });
     expect(overlap[0]).toContain("不能同时属于");
+  });
+});
+
+describe("evaluateExperiment 的样本来源声明（批次三 §4.3）", () => {
+  const aIds = rows.slice(0, 8).map((r) => r.contentId);
+  const bIds = rows.slice(8, 16).map((r) => r.contentId);
+
+  it("有分配记录：note 说明取自生成前分配，并把未绑定条数说出来", () => {
+    const out = evaluateExperiment(rows, {
+      variantA: { label: "A", contentIds: aIds },
+      variantB: { label: "B", contentIds: bIds },
+      targetMetric: "completion_rate",
+      source: {
+        kind: "assignments",
+        detail:
+          "共 10 条、A 已绑定 8 条、B 已绑定 8 条、2 条未绑定（生成失败或未完成，不计入样本）",
+      },
+    });
+    expect(out.note).toContain("生成前登记的变体分配");
+    expect(out.note).toContain("2 条未绑定");
+    // 两份数字并存时必须说清哪一份没被使用
+    expect(out.note).toContain("登记清单里的两组内容不参与本次统计");
+    // 原有的非因果声明不能被挤掉
+    expect(out.note).toContain("不构成因果");
+  });
+
+  it("没有分配记录：如实说是事后分组，不假装成实验对照", () => {
+    const out = evaluateExperiment(rows, {
+      variantA: { label: "A", contentIds: aIds },
+      variantB: { label: "B", contentIds: bIds },
+      targetMetric: "completion_rate",
+      source: { kind: "legacy_variants" },
+    });
+    expect(out.note).toContain("事后分组");
+    expect(out.note).toContain("实验登记的两组内容清单");
+  });
+
+  it("不传来源时措辞与旧行为一致（不凭空多出「样本来源」一段）", () => {
+    const out = evaluateExperiment(rows, {
+      variantA: { label: "A", contentIds: aIds },
+      variantB: { label: "B", contentIds: bIds },
+      targetMetric: "completion_rate",
+    });
+    expect(out.note).not.toContain("样本来源");
   });
 });

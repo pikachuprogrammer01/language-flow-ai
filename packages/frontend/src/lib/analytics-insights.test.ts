@@ -4,7 +4,10 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  EXPERIMENT_VARIABLE_OPTIONS,
+  contentCoverageText,
   emptyReasonLabel,
+  experimentVariableLabel,
   formatByKind,
   formatChange,
   formatCount,
@@ -14,6 +17,8 @@ import {
   funnelCoverageText,
   funnelStepHint,
   funnelStepRateText,
+  platformMetricText,
+  publishTimeSourceLabel,
   sourceLabel,
   trendGeometry,
 } from "./analytics-insights";
@@ -161,5 +166,47 @@ describe("漏斗逐级转化可比性（审查批次 1B：不可比绝不截断�
     expect(funnelCoverageText({ ...base, kind: "count", coverageCount: 2, basisPlays: 3474 })).toBe(
       "覆盖 2/2 条记录",
     );
+  });
+});
+
+describe("统一内容主视图展示口径（批次一）", () => {
+  it("缺失指标回「—」不补 0；真实导入的 0 照实显示（0 是值，缺失不是）", () => {
+    expect(platformMetricText(undefined, "count")).toBe("—");
+    expect(platformMetricText(undefined, "rate")).toBe("—");
+    expect(
+      platformMetricText(
+        { value: 0, sourceType: "CREATOR_IMPORT", isEstimated: false, dataDate: null },
+        "count",
+      ),
+    ).toBe("0");
+  });
+
+  it("发布时间来源如实标注：兜底/导入/人工三者不混，判不出就说来源未知", () => {
+    expect(publishTimeSourceLabel("LOCAL_GENERATED")).toBe("本地生成时间兜底");
+    expect(publishTimeSourceLabel("PLATFORM_IMPORTED")).toBe("平台导入的真实发布时间");
+    expect(publishTimeSourceLabel("USER_EDITED")).toBe("人工填写");
+    expect(publishTimeSourceLabel(null)).toBe("来源未知");
+  });
+
+  it("覆盖摘要只报条数与覆盖，不产出任何合计指标", () => {
+    expect(contentCoverageText({ platforms: 1, records: 1, recordsWithMetrics: 1 })).toBe(
+      "1 个平台 · 1/1 有指标",
+    );
+    expect(contentCoverageText({ platforms: 2, records: 3, recordsWithMetrics: 0 })).toBe(
+      "2 个平台 · 3 条登记 · 0/3 有指标",
+    );
+    expect(contentCoverageText({ platforms: 0, records: 0, recordsWithMetrics: 0 })).toBe("未发布");
+  });
+});
+
+describe("experimentVariableLabel（实验变量中文名，批次三）", () => {
+  it("已知变量给中文名，选项集合与后端白名单同数量", () => {
+    expect(experimentVariableLabel("hook")).toBe("Hook");
+    expect(experimentVariableLabel("prompt_version")).toBe("Prompt 版本");
+    expect(EXPERIMENT_VARIABLE_OPTIONS).toHaveLength(7);
+  });
+
+  it("未知变量回原值：不印 undefined，也不假装认识", () => {
+    expect(experimentVariableLabel("future_dimension")).toBe("future_dimension");
   });
 });

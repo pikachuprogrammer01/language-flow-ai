@@ -1,0 +1,1 @@
+ALTER TABLE `publish_records` ADD `publish_time_source` enum('LOCAL_GENERATED','PLATFORM_IMPORTED','USER_EDITED');

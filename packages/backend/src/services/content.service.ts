@@ -15,6 +15,21 @@ import { logger } from "../lib/logger";
 import { randomWords, validateWords } from "./cet.service";
 import { chatCompletion, extractJson } from "./llm.service";
 
+/**
+ * 「模型输出没通过验收」这类失败：原因本身就是给操作者看的可执行提示
+ * （有效词不足、JSON 被截断…），不是内部错误。路由据此把原因原样回给前端，
+ * 而不是压成一句 "Content generation failed" 让人对着 HTTP 500 猜。
+ * 其它异常仍走通用消息，避免把堆栈/上游细节漏到界面上。
+ */
+const GENERATE_ATTEMPTS = 3;
+
+export class ContentRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ContentRejectedError";
+  }
+}
+
 export interface GenerateSceneWordInput {
   topic: string;
   level: "CET4" | "CET6";
@@ -393,6 +408,9 @@ export async function generateSceneWordContent(
   input: GenerateSceneWordInput,
 ): Promise<ContentDTO & { audit: GenerationAudit }> {
   let lastFeedback = "（未生成）";
+  // 三轮的原因可能各不相同（第 1 轮 JSON 被截断、第 2 轮有效词不足…）：
+  // 只报最后一条会让人以为「和刚才那次一样」，把可执行的提示丢了
+  const feedbacks: string[] = [];
   const attempts: GenerationAudit["process"]["attempts"] = [];
   const { words: wordList, sources } = await buildWordList(input);
   const targetCount = resolveTargetWordCount(input.wordCount);
@@ -406,7 +424,7 @@ export async function generateSceneWordContent(
   const mustUseSenses = picked
     .map((w) => splitMeanings(w.meaning)[0])
     .filter((s): s is string => Boolean(s));
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < GENERATE_ATTEMPTS; attempt++) {
     const prompt = buildPrompt(
       input,
       wordList,
@@ -482,10 +500,16 @@ export async function generateSceneWordContent(
       };
     } catch (err) {
       lastFeedback = err instanceof Error ? err.message : "生成失败";
+      if (!feedbacks.includes(lastFeedback)) feedbacks.push(lastFeedback);
       attempts.push({ prompt, result: "rejected", reason: lastFeedback, injectedWords: [] });
       logger.warn({ attempt: attempt + 1 }, "content generate retry");
     }
   }
   // 3 次仍失败：抛出可读原因（500 响应体展示给用户/人工审核）
-  throw new Error(`内容生成未通过验收：${lastFeedback}`);
+  const reasons = (feedbacks.length > 0 ? feedbacks : [lastFeedback])
+    .map((r) => r.replace(/[。.]$/u, ""))
+    .join("；");
+  throw new ContentRejectedError(
+    `内容生成未通过验收：已重试 ${GENERATE_ATTEMPTS} 轮仍被拒（${reasons}）。本地模型偶尔会连续被拒，可直接重试或换个主题再试`,
+  );
 }

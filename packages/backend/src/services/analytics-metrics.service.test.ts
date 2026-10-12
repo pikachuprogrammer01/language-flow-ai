@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { db } from "../db";
 import { type PublishRecordIntent, derivePublishIntent } from "../lib/publish-derivation";
 import {
+  backfillMissingPublishTime,
   coerceMetricValue,
   computeDerivedMetrics,
   createPublishRecord,
@@ -15,6 +16,7 @@ import {
   importMetrics,
   mapCreatorDailyRow,
   mapImportRow,
+  updatePublishRecord,
   upsertPublishRecordFromMark,
 } from "./analytics-metrics.service";
 
@@ -325,6 +327,184 @@ describe("createPublishRecord 并发竞态兑底（审查批次 3）", () => {
   });
 });
 
+// ── 发布时间与来源（docs/22 §4.1）：默认取生成时间、导入覆盖兜底、人工不被覆盖 ──
+
+describe("createPublishRecord 发布时间默认值", () => {
+  const contentCreatedAt = new Date("2026-10-01T00:00:00.000Z");
+
+  function captureInsert() {
+    const inserted: Record<string, unknown>[] = [];
+    return {
+      inserted,
+      fake: {
+        select: vi.fn(() =>
+          thenableChain([{ id: "c1", video: null, createdAt: contentCreatedAt }]),
+        ),
+        insert: vi.fn(() => ({
+          values: vi.fn((row: Record<string, unknown>) => {
+            inserted.push(row);
+            return Promise.resolve();
+          }),
+        })),
+      },
+    };
+  }
+
+  it("表单未填发布时间时用 contents.created_at 兜底并标 LOCAL_GENERATED（不再留 NULL 让页面显示 -）", async () => {
+    const { inserted, fake } = captureInsert();
+    await withFakeDb(fake, async () => {
+      await createPublishRecord({ contentId: "c1", platform: "抖音" });
+    });
+    expect(inserted[0]).toMatchObject({
+      publishTime: contentCreatedAt,
+      publishTimeSource: "LOCAL_GENERATED",
+    });
+  });
+
+  it("表单填了发布时间 = 用户断言，标 USER_EDITED（导入不得覆盖它）", async () => {
+    const { inserted, fake } = captureInsert();
+    await withFakeDb(fake, async () => {
+      await createPublishRecord({
+        contentId: "c1",
+        platform: "抖音",
+        publishTime: "2026-09-30T02:00:00.000Z",
+      });
+    });
+    expect(inserted[0]).toMatchObject({
+      publishTime: new Date("2026-09-30T02:00:00.000Z"),
+      publishTimeSource: "USER_EDITED",
+    });
+  });
+
+  it("解析不出的表单时间不落 Invalid Date，也不拿生成时间冒充用户填的时间", async () => {
+    const { inserted, fake } = captureInsert();
+    await withFakeDb(fake, async () => {
+      await createPublishRecord({ contentId: "c1", platform: "抖音", publishTime: "昨天下午" });
+    });
+    expect(inserted[0]).toMatchObject({ publishTime: null, publishTimeSource: null });
+  });
+});
+
+describe("updatePublishRecord 发布时间来源", () => {
+  function captureUpdate(selectRows: unknown[]) {
+    const sets: Record<string, unknown>[] = [];
+    return {
+      sets,
+      fake: {
+        select: vi.fn(() => thenableChain(selectRows)),
+        update: vi.fn(() => ({
+          set: vi.fn((patch: Record<string, unknown>) => {
+            sets.push(patch);
+            return { where: vi.fn(async () => undefined) };
+          }),
+        })),
+      },
+    };
+  }
+
+  const existing = [
+    {
+      id: "pub_1",
+      platform: "抖音",
+      platformVideoId: "v-1",
+      contentId: "c1",
+      publishTime: new Date("2026-10-01T00:00:00.000Z"),
+      publishTimeSource: "LOCAL_GENERATED",
+    },
+  ];
+
+  it("人工改发布时间 → 同步写 USER_EDITED", async () => {
+    const { sets, fake } = captureUpdate(existing);
+    await withFakeDb(fake, async () => {
+      await updatePublishRecord("pub_1", { publishTime: "2026-09-29T08:00:00.000Z" });
+    });
+    expect(sets[0]).toMatchObject({
+      publishTime: new Date("2026-09-29T08:00:00.000Z"),
+      publishTimeSource: "USER_EDITED",
+    });
+  });
+
+  it("清空发布时间 → 来源一并清空（不给一个没有时间的时间来源）", async () => {
+    const { sets, fake } = captureUpdate(existing);
+    await withFakeDb(fake, async () => {
+      await updatePublishRecord("pub_1", { publishTime: null });
+    });
+    expect(sets[0]).toMatchObject({ publishTime: null, publishTimeSource: null });
+  });
+
+  it("未触碰发布时间的补丁不得顺手改写来源", async () => {
+    const { sets, fake } = captureUpdate(existing);
+    await withFakeDb(fake, async () => {
+      await updatePublishRecord("pub_1", { publishTitle: "改了标题" });
+    });
+    expect(sets[0]).not.toHaveProperty("publishTimeSource");
+    expect(sets[0]).not.toHaveProperty("publishTime");
+  });
+});
+
+describe("backfillMissingPublishTime（只补历史空值，幂等）", () => {
+  const createdAt = new Date("2026-09-20T00:00:00.000Z");
+
+  function fakeBackfill(rows: unknown[]) {
+    const sets: Record<string, unknown>[] = [];
+    const q: Record<string, unknown> = {};
+    q.from = vi.fn(() => q);
+    q.leftJoin = vi.fn(() => q);
+    q.where = vi.fn(() => q);
+    // biome-ignore lint/suspicious/noThenProperty: 模拟 Drizzle 查询链的 thenable
+    q.then = (resolve: (v: unknown) => void) => resolve(rows);
+    return {
+      sets,
+      fake: {
+        select: vi.fn(() => q),
+        update: vi.fn(() => ({
+          set: vi.fn((patch: Record<string, unknown>) => {
+            sets.push(patch);
+            return { where: vi.fn(async () => undefined) };
+          }),
+        })),
+      },
+    };
+  }
+
+  it("dry-run：报告空值数与可回填数，零写入", async () => {
+    const { sets, fake } = fakeBackfill([
+      { recordId: "pub_1", contentCreatedAt: createdAt },
+      { recordId: "pub_2", contentCreatedAt: createdAt },
+    ]);
+    const report = await withFakeDb(fake, () => backfillMissingPublishTime(false));
+    expect(report).toEqual({
+      nullTimeRecords: 2,
+      backfillable: 2,
+      conflicts: 0,
+      applied: false,
+      updated: 0,
+    });
+    expect(sets).toHaveLength(0);
+  });
+
+  it("apply：逐条写 contents.created_at + LOCAL_GENERATED", async () => {
+    const { sets, fake } = fakeBackfill([{ recordId: "pub_1", contentCreatedAt: createdAt }]);
+    const report = await withFakeDb(fake, () => backfillMissingPublishTime(true));
+    expect(report.updated).toBe(1);
+    expect(sets[0]).toMatchObject({ publishTime: createdAt, publishTimeSource: "LOCAL_GENERATED" });
+  });
+
+  it("查不到空值时第二次执行零变更（幂等：回填后不再满足 IS NULL）", async () => {
+    const { sets, fake } = fakeBackfill([]);
+    const report = await withFakeDb(fake, () => backfillMissingPublishTime(true));
+    expect(report).toMatchObject({ nullTimeRecords: 0, backfillable: 0, updated: 0 });
+    expect(sets).toHaveLength(0);
+  });
+
+  it("关联不到内容时计入 conflicts 且不写（不把时间挂在猜测值上）", async () => {
+    const { sets, fake } = fakeBackfill([{ recordId: "pub_9", contentCreatedAt: null }]);
+    const report = await withFakeDb(fake, () => backfillMissingPublishTime(true));
+    expect(report).toMatchObject({ nullTimeRecords: 1, backfillable: 0, conflicts: 1, updated: 0 });
+    expect(sets).toHaveLength(0);
+  });
+});
+
 describe("deletePublishRecord 存在性语义（审查批次 3）", () => {
   it("记录存在 → true 且执行删除", () =>
     withFakeDb(
@@ -488,6 +668,8 @@ describe("upsertPublishRecordFromMark", () => {
       platform: "抖音",
       platformVideoId: "7412345678901234567",
       publishTime: markedAt,
+      // 标记动作是用户断言的发布时间，不是本地生成兜底，也不是平台导入
+      publishTimeSource: "USER_EDITED",
       publishStatus: "published",
     });
   });

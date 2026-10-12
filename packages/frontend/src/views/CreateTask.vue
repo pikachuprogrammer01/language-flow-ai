@@ -18,12 +18,17 @@ import {
 } from "lucide-vue-next";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
+  type ExperimentView,
   type GenerateInput,
   type RenderInput,
   type RenderVideoInput,
+  bindAnalyticsExperimentAssignment,
+  bindAnalyticsRecommendationApplication,
+  createAnalyticsExperimentAssignment,
   decideAnalyticsRecommendation,
   generateContent,
   isAbortError,
+  listAnalyticsExperiments,
   listFiles,
   listVoices,
   patchAnalyticsFeature,
@@ -42,6 +47,7 @@ import WordChips from "../components/editors/word-chips.vue";
 import ConfirmDialog from "../components/ui/confirm-dialog.vue";
 import Spinner from "../components/ui/spinner.vue";
 import { useAudioPreview } from "../composables/use-audio-preview";
+import { experimentVariableLabel } from "../lib/analytics-insights";
 import {
   type CreatePrefill,
   consumeCreatePrefill,
@@ -226,6 +232,8 @@ function resetForNewVideo(): void {
   videoUrl.value = "";
   introStatus.value = "";
   pendingAdoption.value = null;
+  // 分配 id 属于「这一次生成」：不重置的话，新建下一条时提示条还写着「本次已登记」
+  assignmentId.value = null;
   reuseStructure.value = [];
   reuseSourceId.value = "";
   cancelEdit();
@@ -236,9 +244,112 @@ const pendingAdoption = ref<{
   recommendationId?: string;
   scene?: string | null;
   hook?: string | null;
+  /** 批次二：采纳记录 id，生成成功后要拿它绑定最终参数 */
+  applicationId?: string;
+  /** 批次二：这条建议的依据口径（原样展示在横幅里，不让用户猜建议从哪来） */
+  adoptionNote?: string;
 } | null>(null);
 const reuseStructure = ref<NonNullable<CreatePrefill["structure"]>>([]);
 const reuseSourceId = ref("");
+
+/**
+ * 用户最终提交给生成链路的参数。
+ *
+ * 分两组如实存：generation 是本次生成实际收到的三个入参；media 是提交时表单上的
+ * 配音/渲染设置（它们在后续步骤才生效）。不写成一组，是为了不把「建议值」和
+ * 「用户到底提交了什么」混成一个无法解释的对象。
+ */
+function finalParamsOfSubmit(): Record<string, unknown> {
+  return {
+    generation: {
+      topic: topic.value,
+      level: level.value,
+      template: template.value,
+    },
+    media: {
+      voice: voice.value,
+      rate: rate.value,
+      bgm: bgm.value,
+      introEffect: introEffect.value,
+    },
+  };
+}
+
+/**
+ * 可选实验（docs/22 §7.3，批次三）：变体必须在生成**之前**选定并登记，
+ * 评估以分配台账为事实来源。生成失败时这条分配保持未绑定——「分配了但没产出」是可见事实。
+ */
+const EXPERIMENT_VARIANTS = ["A", "B"] as const;
+const experiments = ref<ExperimentView[]>([]);
+const experimentsError = ref("");
+const experimentsLoading = ref(false);
+const experimentId = ref("");
+const experimentVariant = ref<"A" | "B">("A");
+/** 本次生成已登记的分配 id；null = 尚未登记（或登记失败） */
+const assignmentId = ref<string | null>(null);
+
+/** 只有 draft/running 的实验可分配；已归档的列出来也不给选 */
+const assignableExperiments = computed(() =>
+  experiments.value.filter((e) => e.status === "draft" || e.status === "running"),
+);
+const chosenExperiment = computed(
+  () => assignableExperiments.value.find((e) => e.id === experimentId.value) ?? null,
+);
+
+function variantLabelOf(v: "A" | "B"): string {
+  const e = chosenExperiment.value;
+  if (!e) return v;
+  return v === "A" ? e.variantA.label || "A" : e.variantB.label || "B";
+}
+
+async function loadExperiments(): Promise<void> {
+  experimentsError.value = "";
+  experimentsLoading.value = true;
+  try {
+    experiments.value = await listAnalyticsExperiments();
+  } catch (err) {
+    experimentsError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    experimentsLoading.value = false;
+  }
+}
+
+/** 生成前登记分配；登记失败就明说这次不计入实验，绝不假装已计入 */
+async function registerExperimentAssignment(): Promise<void> {
+  assignmentId.value = null;
+  const e = chosenExperiment.value;
+  if (!e) return;
+  try {
+    const created = await createAnalyticsExperimentAssignment(e.id, experimentVariant.value, {
+      variable: e.variable,
+      variantLabel: variantLabelOf(experimentVariant.value),
+    });
+    assignmentId.value = created.id;
+  } catch (err) {
+    toast.warning(
+      `实验分配登记失败（${err instanceof Error ? err.message : "未知错误"}）：这条内容不会计入「${experimentVariableLabel(e.variable)}」实验`,
+    );
+  }
+}
+
+/** 生成成功后把内容与用户实际提交的参数绑到这次分配上 */
+async function applyExperimentSideEffects(contentId: string): Promise<void> {
+  const e = chosenExperiment.value;
+  const id = assignmentId.value;
+  if (!e || !id) return;
+  try {
+    await bindAnalyticsExperimentAssignment(e.id, id, contentId, finalParamsOfSubmit());
+    // 只有绑定成功才交还这个 id：失败时留着它，台账与重试才知道是哪一条分配
+    assignmentId.value = null;
+    toast.success(
+      `已计入实验「${experimentVariableLabel(e.variable)}」${experimentVariant.value} 组（${variantLabelOf(experimentVariant.value)}）`,
+    );
+  } catch (err) {
+    toast.warning(
+      `实验绑定失败（${err instanceof Error ? err.message : "未知错误"}）：这条内容没有计入「${experimentVariableLabel(e.variable)}」实验，台账会把它列为未绑定`,
+    );
+  }
+}
 
 /** 应用待回填（goCreate 携建议/结构或本页挂载时消费） */
 function applyPrefill(): void {
@@ -252,20 +363,23 @@ function applyPrefill(): void {
     recommendationId: p.recommendationId,
     scene: p.labelScene,
     hook: p.labelHook,
+    applicationId: p.applicationId,
+    adoptionNote: p.adoptionNote,
   };
   reuseStructure.value = p.structure ?? [];
   reuseSourceId.value = p.structureSourceContentId ?? "";
   toast.info("已应用推荐参数", {
-    description: "模板/主题/语速已预填；生成后自动写入采纳回路与标签",
+    description: "模板/主题/语速已预填，可继续修改；生成后按你实际提交的参数记录采纳结果",
     duration: 6000,
   });
 }
 
-/** 生成成功后：采纳回路回写 + 标签写入新内容特征（失败不阻断主流程） */
+/** 生成成功后：采纳回路回写 + 标签写入新内容特征 + 绑定最终参数（失败不阻断主流程） */
 async function applyAdoptionSideEffects(contentId: string): Promise<void> {
   const adoption = pendingAdoption.value;
   if (!adoption) return;
   pendingAdoption.value = null;
+  const failures: string[] = [];
   try {
     if (adoption.scene !== undefined || adoption.hook !== undefined) {
       await syncAnalyticsFeature(contentId);
@@ -274,6 +388,10 @@ async function applyAdoptionSideEffects(contentId: string): Promise<void> {
         ...(adoption.hook !== undefined ? { hook: adoption.hook } : {}),
       });
     }
+  } catch (err) {
+    failures.push(`标签写入特征（${err instanceof Error ? err.message : "未知错误"}）`);
+  }
+  try {
     if (adoption.recommendationId) {
       await decideAnalyticsRecommendation(adoption.recommendationId, {
         accepted: true,
@@ -281,9 +399,21 @@ async function applyAdoptionSideEffects(contentId: string): Promise<void> {
       });
     }
   } catch (err) {
-    toast.warning(
-      `采纳回路回写失败（${err instanceof Error ? err.message : "未知错误"}），可在因子分析页重试`,
-    );
+    failures.push(`建议采纳状态回写（${err instanceof Error ? err.message : "未知错误"}）`);
+  }
+  // 最终参数绑定：记的是**用户提交的值**，不是建议值；没登记成采纳记录时跳过（不误绑）
+  try {
+    if (adoption.applicationId) {
+      await bindAnalyticsRecommendationApplication(adoption.applicationId, {
+        contentId,
+        finalParams: finalParamsOfSubmit(),
+      });
+    }
+  } catch (err) {
+    failures.push(`最终参数绑定（${err instanceof Error ? err.message : "未知错误"}）`);
+  }
+  if (failures.length > 0) {
+    toast.warning(`采纳回路部分回写失败：${failures.join("、")}，可在因子分析页重试`);
   }
 }
 // 创建阶段同步到会话单例：供全站「新建视频」入口判断 busy（放弃确认）/ done（重新创建）
@@ -304,6 +434,7 @@ onMounted(() => {
   });
   // 其页携回填跳转：本页刚挂载时消费一次
   if (peekCreatePrefill()) applyPrefill();
+  void loadExperiments();
 });
 onUnmounted(unregisterCreateSession);
 /** 停止后的磁盘回收引导：服务端可能已落盘音频/视频产物 → 文件管理「清理无引用文件」一键回收 */
@@ -722,6 +853,7 @@ async function generateStep(): Promise<boolean> {
   step.value = "generating";
   errorMsg.value = "";
   const opts = beginAbort();
+  await registerExperimentAssignment();
   try {
     const dto = await generateContent(
       {
@@ -765,6 +897,7 @@ async function generateStep(): Promise<boolean> {
     videoUrl.value = "";
     step.value = "generated";
     void applyAdoptionSideEffects(dto.id);
+    void applyExperimentSideEffects(dto.id);
     return true;
   } catch (err) {
     if (isAbortError(err)) {
@@ -917,6 +1050,21 @@ async function renderStep(): Promise<boolean> {
       <div class="rounded-2xl border border-hairline bg-panel p-[18px]">
         <!-- 01 内容设置：模板 / 主题 / 等级 -->
         <div v-show="activeStep === 0">
+        <!-- 采纳来源（批次二 §7.2）：明说这条预填是哪条建议、依据什么口径，用户可改 -->
+        <div
+          v-if="pendingAdoption?.adoptionNote"
+          class="mb-4 rounded-xl border border-hairline bg-white p-3"
+          data-testid="adoption-source"
+        >
+          <p class="text-[13px] font-semibold">已按推荐参数预填（可修改）</p>
+          <p class="mt-1 text-xs leading-relaxed text-subtle">{{ pendingAdoption.adoptionNote }}</p>
+          <p class="mt-1 text-[11px] text-subtle">
+            生成成功后会记录<strong class="font-semibold text-gray-700">你实际提交的参数</strong>（不是建议值）；改或不改都会照实留痕。
+            <span v-if="!pendingAdoption.applicationId" class="text-amber-700">
+              本次采纳未登记成功，不会进入效果回路。
+            </span>
+          </p>
+        </div>
         <!-- 复用成功结构（§十七）：只读骨架参考，不假装生成器能按骨架执行 -->
         <div
           v-if="reuseStructure.length > 0"
@@ -1054,6 +1202,68 @@ async function renderStep(): Promise<boolean> {
             <option value="CET6">CET6 六级</option>
           </select>
         </div>
+
+        <!-- 参与实验（可选，批次三 §7.3）：变体在生成前选定，评估以分配台账为准 -->
+        <div
+          class="mb-4 rounded-xl border border-hairline bg-shell/70 p-3"
+          data-testid="experiment-picker"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <label class="text-[13px] font-bold" for="experiment">参与内容实验（可选）</label>
+            <button
+              type="button"
+              class="cursor-pointer rounded px-1.5 py-0.5 text-xs text-gray-500 hover:bg-white disabled:opacity-50"
+              :disabled="experimentsLoading"
+              @click="loadExperiments"
+            >
+              {{ experimentsLoading ? "加载中…" : "刷新列表" }}
+            </button>
+          </div>
+          <p class="mt-0.5 text-[11px] leading-relaxed text-subtle">
+            选定后这次生成会先登记为该实验的 A/B 变体，评估只统计登记过的内容；生成失败会留下「已分配未绑定」记录。
+          </p>
+          <select
+            id="experiment"
+            v-model="experimentId"
+            class="mt-2 w-full cursor-pointer rounded-[10px] border border-hairline bg-white px-[11px] py-2 text-sm focus:border-brand focus:outline-none"
+            data-testid="experiment-select"
+          >
+            <option value="">不参与实验</option>
+            <option v-for="e in assignableExperiments" :key="e.id" :value="e.id">
+              {{ experimentVariableLabel(e.variable) }} · {{ e.variantA.label || "A" }} vs
+              {{ e.variantB.label || "B" }}（{{ e.status }}）
+            </option>
+          </select>
+          <div v-if="experimentId" class="mt-2 flex flex-wrap gap-2">
+            <button
+              v-for="v in EXPERIMENT_VARIANTS"
+              :key="v"
+              type="button"
+              class="cursor-pointer rounded-full border px-3 py-0.5 text-xs"
+              :class="
+                experimentVariant === v
+                  ? 'border-brand bg-brand-soft text-brand font-medium'
+                  : 'border-hairline text-gray-600 hover:bg-gray-50'
+              "
+              :aria-pressed="experimentVariant === v"
+              @click="experimentVariant = v"
+            >
+              {{ v }} 组 · {{ variantLabelOf(v) }}
+            </button>
+          </div>
+          <p v-if="experimentsError" role="alert" class="mt-1.5 text-xs text-red-600">
+            实验列表加载失败：{{ experimentsError }}
+          </p>
+          <p
+            v-else-if="experimentId"
+            class="mt-1.5 text-[11px] text-subtle"
+            data-testid="experiment-note"
+          >
+            生成开始时登记为 {{ experimentVariant }} 组（{{ variantLabelOf(experimentVariant) }}）{{
+              assignmentId ? "· 本次已登记" : ""
+            }}
+          </p>
+        </div>
         <div class="flex items-center justify-between">
           <span class="text-xs text-subtle">模板、主题与等级在此设置</span>
           <button
@@ -1144,6 +1354,7 @@ async function renderStep(): Promise<boolean> {
                 v-for="r in RATE_OPTIONS"
                 :key="r.value"
                 type="button"
+                :aria-pressed="rate === r.value"
                 class="cursor-pointer rounded-full border px-3 py-0.5 text-xs"
                 :class="
                   rate === r.value
@@ -1373,7 +1584,11 @@ async function renderStep(): Promise<boolean> {
     </div>
 
     <!-- 错误（常驻回显：不绑 step 状态，配音/渲染失败回退中间态时也能看到；即时播报走 toast） -->
-    <div v-if="errorMsg" class="mb-6 mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+    <div
+      v-if="errorMsg"
+      class="mb-6 mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+      data-testid="create-error"
+    >
       {{ errorMsg }}
     </div>
 
