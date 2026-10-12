@@ -8,25 +8,20 @@ import { computed, onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
   type AnalyticsVideoRow,
+  type ExperimentAssignmentView,
   type ExperimentView,
   createAnalyticsExperiment,
   evaluateAnalyticsExperiment,
+  listAnalyticsExperimentAssignments,
   listAnalyticsExperiments,
   listAnalyticsVideos,
   updateAnalyticsExperimentStatus,
 } from "../api/client";
 import Spinner from "../components/ui/spinner.vue";
+import { EXPERIMENT_VARIABLE_OPTIONS, experimentVariableLabel } from "../lib/analytics-insights";
 import { toast } from "../lib/toast";
 
-const VARIABLES = [
-  { value: "hook", label: "Hook" },
-  { value: "template", label: "模板" },
-  { value: "duration", label: "时长" },
-  { value: "structure", label: "脚本结构" },
-  { value: "prompt_version", label: "Prompt 版本" },
-  { value: "cta", label: "CTA" },
-  { value: "voice", label: "配音音色" },
-];
+// 变量选项来自 lib/analytics-insights（与新建页选择器同源）
 const METRICS = [
   { value: "completion_rate", label: "完播率" },
   { value: "effective_play_rate_2s", label: "2秒有效播放率" },
@@ -141,6 +136,41 @@ async function cancel(exp: ExperimentView): Promise<void> {
   }
 }
 
+/** 分配台账（批次三）：评估以它为准；旧的两组清单只是事后登记 */
+const ledgerOpen = ref<string | null>(null);
+/** 请求令牌：先点 A 再点 B 时，A 的迟到响应不得写进 B 的台账 */
+const ledgerToken = ref(0);
+const ledger = ref<ExperimentAssignmentView[]>([]);
+const ledgerLoading = ref(false);
+const ledgerError = ref("");
+
+const ledgerUnbound = computed(() => ledger.value.filter((a) => a.contentId === null).length);
+
+async function toggleLedger(exp: ExperimentView): Promise<void> {
+  if (ledgerOpen.value === exp.id) {
+    ledgerOpen.value = null;
+    ledger.value = [];
+    ledgerToken.value += 1;
+    return;
+  }
+  const token = ++ledgerToken.value;
+  ledgerOpen.value = exp.id;
+  ledger.value = [];
+  ledgerError.value = "";
+  ledgerLoading.value = true;
+  try {
+    const rows = await listAnalyticsExperimentAssignments(exp.id);
+    // 迟到的响应只允许写回它自己那次点击展开的卡片
+    if (token !== ledgerToken.value) return;
+    ledger.value = rows;
+  } catch (err) {
+    if (token !== ledgerToken.value) return;
+    ledgerError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    if (token === ledgerToken.value) ledgerLoading.value = false;
+  }
+}
+
 function fmt(value: number | null, metric: string): string {
   if (value === null) return "—";
   return metric.includes("rate")
@@ -181,7 +211,7 @@ onMounted(load);
       <div class="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
         <label class="text-[13px] text-subtle">实验变量
           <select v-model="form.variable" class="mt-1 w-full cursor-pointer rounded-[10px] border border-hairline bg-white px-2 py-2 text-sm text-ink focus:border-brand focus:outline-none">
-            <option v-for="v in VARIABLES" :key="v.value" :value="v.value">{{ v.label }}</option>
+            <option v-for="v in EXPERIMENT_VARIABLE_OPTIONS" :key="v.value" :value="v.value">{{ v.label }}</option>
           </select>
         </label>
         <label class="text-[13px] text-subtle">目标指标
@@ -232,18 +262,21 @@ onMounted(load);
       <section v-for="exp in experiments" :key="exp.id" class="rounded-2xl border border-hairline bg-panel p-4">
         <div class="mb-1 flex items-center justify-between gap-3">
           <h3 class="font-bold">
-            {{ VARIABLES.find((v) => v.value === exp.variable)?.label ?? exp.variable }}实验：{{ exp.variantA.label || "A" }} vs {{ exp.variantB.label || "B" }}
+            {{ experimentVariableLabel(exp.variable) }}实验：{{ exp.variantA.label || "A" }} vs {{ exp.variantB.label || "B" }}
             <span class="ml-2 rounded-full bg-gray-100 px-2 py-0.5 align-middle text-[10px] font-normal text-gray-600">{{ STATUS_LABEL[exp.status] ?? exp.status }}</span>
           </h3>
           <div class="flex shrink-0 gap-2">
             <button v-if="exp.status !== 'cancelled'" class="cursor-pointer rounded-[10px] border border-brand bg-brand px-3 py-1.5 text-xs text-white hover:opacity-90" @click="evaluate(exp)">
               {{ exp.result ? "重新评估" : "评估" }}
             </button>
+            <button class="cursor-pointer rounded-[10px] border border-hairline bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50" :aria-expanded="ledgerOpen === exp.id" @click="toggleLedger(exp)">
+              {{ ledgerOpen === exp.id ? "收起台账" : "分配台账" }}
+            </button>
             <button v-if="exp.status === 'draft' || exp.status === 'running'" class="cursor-pointer rounded-[10px] border border-hairline bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50" @click="cancel(exp)">取消</button>
           </div>
         </div>
         <p class="mb-2 text-xs text-subtle">
-          A：{{ exp.variantA.contentIds.length }} 条 · B：{{ exp.variantB.contentIds.length }} 条 · 目标指标 {{ exp.targetMetric }}
+          登记清单 A：{{ exp.variantA.contentIds.length }} 条 · B：{{ exp.variantB.contentIds.length }} 条 · 目标指标 {{ exp.targetMetric }}
           <template v-if="controlNote(exp)"> · 控制变量：{{ controlNote(exp) }}</template>
         </p>
         <div v-if="exp.result" class="rounded-xl bg-shell p-3 text-[13px]">
@@ -255,6 +288,37 @@ onMounted(load);
             <span v-if="exp.result.lowSample" class="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">样本不足，仅供参考</span>
           </p>
           <p class="mt-1 text-[10px] text-subtle">{{ exp.result.note }}（{{ exp.result.modelVersion }} · {{ exp.result.evaluatedAt.slice(0, 16).replace("T", " ") }}）</p>
+        </div>
+        <!-- 分配台账：谁在生成前被定为哪一组、是否已绑定内容 -->
+        <div
+          v-if="ledgerOpen === exp.id"
+          class="mt-2 rounded-xl border border-hairline bg-[#fafbfc] p-3 text-xs"
+          data-testid="assignment-ledger"
+        >
+          <p v-if="ledgerLoading" class="text-subtle">台账加载中…</p>
+          <p v-else-if="ledgerError" role="alert" class="text-red-600">{{ ledgerError }}</p>
+          <template v-else>
+            <p class="text-subtle">
+              共 {{ ledger.length }} 条分配 · 已绑定 {{ ledger.length - ledgerUnbound }} 条 · 未绑定
+              {{ ledgerUnbound }} 条（生成失败、未完成或绑定未成功，不计入样本）
+            </p>
+            <p v-if="ledger.length === 0" class="mt-1 text-subtle">
+              还没有生成前的变体分配：这条实验只能按登记清单做事后分组。在新建页选它并选 A/B 后，
+              每次生成都会先登记一条分配。
+            </p>
+            <ul v-else class="mt-1.5 space-y-1">
+              <li v-for="a in ledger" :key="a.id" data-testid="assignment-row">
+                {{ a.variant }} 组 ·
+                {{ a.contentId ?? "未绑定内容" }} · 分配于
+                {{ a.assignedAt.slice(0, 16).replace("T", " ") }} ·
+                {{
+                  a.boundAt
+                    ? `绑定于 ${a.boundAt.slice(0, 16).replace("T", " ")}`
+                    : "尚未绑定内容（生成失败、未完成或绑定未成功）"
+                }}
+              </li>
+            </ul>
+          </template>
         </div>
       </section>
     </div>

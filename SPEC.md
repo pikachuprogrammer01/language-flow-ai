@@ -427,8 +427,13 @@ POST /api/cet/random-words
 
 ### 5.2 TTS 服务
 
-TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-content`（ContentArray 拼接合成，场景内容用）。
-`GET /api/tts/voices` 返回混合音色列表（Edge 8 + Mac 本地 3：婷婷/阿欣/美佳）与默认音色；词性缩写不朗读（释义前缀剥离，2026-08-18 用户确认）。
+TTS 提供两个合成端点：`generate`（底层，已发布契约）与 `from-content`（ContentArray 拼接合成，场景内容用）。
+`GET /api/tts/voices` 返回当前环境**可选**音色与默认音色，并附全量目录（含已下架项与最近实测结论）。
+音色目录是数据库表 `tts_voices`（docs/24），上下架在「配音音色」页完成，不需要改代码或发版。
+词性缩写不朗读（释义前缀剥离，2026-08-18 用户确认）。
+
+已下架或本环境用不了的音色在合成入口就被拒：**400 + `code: VOICE_UNAVAILABLE`**，不打远端——
+这类失败是参数不合法，不是服务坏了，返回 500 会让重试与告警都指错方向。
 
 #### 5.2.1 POST /api/tts/generate — 底层文本合成
 
@@ -508,6 +513,21 @@ TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-conte
 
 > 注：后端不校验 voice 是否为合法 Edge 音色名（仅校验类型），
 > 非法音色名由 Edge TTS 服务端拒绝时返回 500。
+
+#### 5.2.3 音色目录管理（docs/24）
+
+| 方法 | 路径 | 契约 |
+|---|---|---|
+| GET | `/api/tts/voices` | `{ voices: [{id,name,gender}], default, all?: [{...同上, engine, enabled, checkedAt, checkStatus, checkDetail}] }`；`voices` 只含「已上架且本环境真能用」的项（容器无 `say` 时本地音色不出现） |
+| PATCH | `/api/tts/voices/{id}` | 请求 `{ enabled: boolean }` → 200 `{ voice }`；目录里没有该音色 → 404 `VOICE_NOT_FOUND` |
+| POST | `/api/tts/voices/{id}/probe` | 用固定短句实测该音色能否出音频（**已下架也可测**，否则无法判断能不能重新上架）；结论写回目录并返回 `{ status, detail }`，测不出来同样 200——测不出来就是结果 |
+
+`status` 取值：`ok` / `no_audio`（端点不提供该音色）/ `rate_limited` / `handshake_failed` / `error`。
+探测产物写系统临时目录、ffprobe 出时长后即删，不在 uploads 留孤儿文件。
+
+**合成失败的重试预算按类别区分**（`classifyTtsError` 纯函数）：`voice_unavailable` 与
+`local_engine_missing` 不重试；`rate_limited`（HTTP 429）退避 2s、6s 最多 2 次；
+其余（403 / 超时 / 网络）重试 1 次。固定连发在限流时只会把自己等的窗口越推越远。
 
 ### 5.3 视频渲染服务
 
@@ -593,7 +613,7 @@ POST /api/llm/sleep
 
 **`POST /api/llm/sleep`** — 一键关闭（wake 的镜像操作，`sleepEngine()`）：即时返回后走 SSE `phase=stopping` → 本机端点（localhost / 127.0.0.1 / host.docker.internal）先 `POST {host}/api/generate {model, keep_alive:0}` 卸载模型，再 `brew services stop ollama`（幂等；容器内无 brew/非 brew 安装失败仅记 warn 不阻断）→ 回探一次。回探红灯=完全停止（成功终态），仍连但 `loaded=false`=只卸载未停服务（`notice` 降级提示），`loaded=true`=关闭失败（`error`）。前端仅在就绪/待机态露出关闭按钮，首次点击武装（确认关闭？，3s 无操作自动取消）防误触。
 
-### 5.6 视频数据分析 API（Phase 1~4 + Phase 6 全链路，2026-09-24 新增；同日砍除 抖音开放平台通道并落地导入向导；2026-09-26 审查修正批次 1/3/5；2026-09-28 四步精准匹配导入上线替代旧逐行向导，现 33 路径 41 操作）
+### 5.6 视频数据分析 API（Phase 1~4 + Phase 6 全链路，2026-09-24 新增；同日砍除 抖音开放平台通道并落地导入向导；2026-09-26 审查修正批次 1/3/5；2026-09-28 四步精准匹配导入上线替代旧逐行向导；2026-10-04 批次一新增统一内容主视图、批次二/三新增证据链·采纳·实验分配，现 40 路径 49 操作）
 
 > 模块需求源与完整设计见 docs/17_视频数据分析模块设计.md；本节为契约摘要。实现在 `routes/analytics.ts`（批次 5C 已按领域拆分为 `routes/analytics/{records,import,features,dashboard,insights}.ts`，共用实例组合导出，对外路径/operationId 不变；服务 `analytics-metrics.service` / `analytics-feature.service`，领域目录 `lib/analytics-taxonomy.ts`）。
 
@@ -612,12 +632,16 @@ GET|POST /api/analytics/creator-daily                 账号每日聚合（(plat
 POST   /api/analytics/creator-daily/import            账号日汇总批量导入（动态列映射 + 逐行归属裁决：account 仅账号级 / video 近似归因落视频指标）
 GET    /api/analytics/overview                        分析首页：视频观看漏斗（播放→2秒→5秒→完播→主页）+ 账号增长独立项（上一等长周期环比，Phase 2）
 GET    /api/analytics/videos                          视频表现列表（排序白名单 play/completion/engagement/fans/publish_time，缺数据恒排末，Phase 2）
+GET    /api/analytics/content-videos                   统一内容主视图（一内容一行；发布记录与导入指标作为 platforms[] 明细，批次一）
+GET    /api/analytics/recommendations/{recommendationId}/evidence  建议证据链回放（快照口径→分组→参与视频→指标 provenance→导入原始行→生产字段来源；docs/22 §5.2，批次二）
+POST   /api/analytics/recommendations/{recommendationId}/applications  登记一次建议采纳（建议值服务端自读 + 页面预填值分开存，批次二）
+POST   /api/analytics/recommendation-applications/{applicationId}/bind  生成成功后绑定内容与用户最终参数（二次绑定 409）
 GET    /api/analytics/videos/{contentId}/benchmark    同类 Benchmark（账号自身分组：同模板×时长带×已标注场景/形态；lowSample 强制样本量提示，Phase 2）
 GET    /api/analytics/videos/{contentId}/trend        每日快照趋势序列（不补 0、缺日无点，Phase 2）
 GET    /api/analytics/factors                         内容因子分析（白名单指标×维度分组统计，中位数/均值/样本数，lowSample<8 强制标记；纯读不写库，批次 5B）
 POST   /api/analytics/factors                         因子分析显式重算并留档 analysis_result 快照（批次 5B：留档不再藏在 GET 里）
 GET    /api/analytics/videos/{contentId}/timeline     内容段落时间轴（片头事实 + 字符权重 allocateDurations 派生，非逐帧实测；未派生回 not_derived，Phase 3）
-GET    /api/analytics/recommendations                 生产建议清单（每条必携理由/样本数/依据指标；含采纳汇总 total/pending/accepted/rejected/applied，Phase 4）
+GET    /api/analytics/recommendations                 生产建议清单（每条必携理由/样本数/依据指标；含采纳汇总 total/pending/accepted/rejected/applied——applied 是**已回写 appliedToContentId 的条数**，Phase 4）
 POST   /api/analytics/recommendations/generate        按最新数据重新生成建议（清待处理项重建；已采纳/已忽略历史保留，Phase 4）
 PATCH  /api/analytics/recommendations/{recommendationId} 建议采纳/忽略与采纳后新建内容回写（accepted + appliedToContentId 效果回路，Phase 4）
 GET    /api/analytics/videos/{contentId}/structure    可复用成功结构（从段落时间轴提取结构序列与时长占比，不复制内容，Phase 4）
@@ -625,6 +649,9 @@ GET    /api/analytics/experiments                     内容实验清单（含�
 POST   /api/analytics/experiments                     创建实验（变量白名单 hook/template/duration/structure/prompt_version/cta/voice；两组非空不相交，Phase 6）
 POST   /api/analytics/experiments/{experimentId}/evaluate 评估归档（A/B 描述统计：中位/差值/样本数/lowSample，小样本不下结论，Phase 6）
 PATCH  /api/analytics/experiments/{experimentId}/status   状态流转（completed 仅由 evaluate 写入防手改结论，Phase 6）
+GET    /api/analytics/experiments/{experimentId}/assignments  变体分配台账（谁在生成前被定为哪一组、是否已绑定内容；实验不存在 404，不拿空列表冒充「还没有分配」）
+POST   /api/analytics/experiments/{experimentId}/assignments  生成前登记一次变体分配（variant 仅 A/B；仅 draft/running 可分配，否则 409）
+POST   /api/analytics/experiments/{experimentId}/assignments/{assignmentId}/bind  生成成功后绑定内容与用户最终参数（条件更新 + 回读：二次绑定/并发重发都回 409 不覆盖首次事实；内容不存在 404、生成失败或已被本实验其它分配占用 409）
 ```
 
 > 抖音开放平台同步端点 `POST /api/analytics/sync` 已砍除（需企业资质，项目不具备，2026-09-24 用户决策）：外部绩效数据唯一入口 = `POST /api/analytics/import`；`source_type` 枚举收敛为五值，不保留 DOUYIN_* 死值。
@@ -643,9 +670,10 @@ PATCH  /api/analytics/experiments/{experimentId}/status   状态流转（complet
 
 **看板查询下推（批次 5A）**：`/overview` 只装载 [上一窗口起点, 现在) coalesce(publish_time, created_at) 区间记录（UTC 字面量比较免会话时区漂移）；`/videos` 排序/分页/总数全部 SQL（指标排序经 (record,metric) 别名左连，`IS NULL` 前置位实现「缺数据恒排末」，同值按 created_at desc 决胜）；loadAllVideoRows 仅供确实需要全分组集的 benchmark/因子路径。
 
-**Phase 4 优化闭环**：建议从因子分组派生（`analytics-recommend.service`）：仅样本 ≥8（MIN_GROUP_SAMPLES）的组出参数建议（§十四 小样本不下结论），无合格组只出 data_readiness 诚实建议；每条必携 reason/sourceSampleCount/sourceMetric/confidence（可解释，§十二）。采纳回路：前端「使用推荐参数创建」经 create-session prefill 单例预填 Create 流程（模板/主题/语速 + hook/scene 标签），生成成功后回写 recommendation.applied_to_content_id 并将标签写入新内容 content_features（USER_INPUT，进入下次同类分组）；「复用此视频结构」（页面 C）提取骨架预填（参考横幅展示占比，不假装生成器能按骨架执行）。实体现：recommendations（§八.8，migration 0009）。
+**Phase 4 优化闭环**：建议从因子分组派生（`analytics-recommend.service`）：行动门槛是「同平台同窗口内**非估算**真实样本 ≥8」（MIN_GROUP_SAMPLES；估算值如窗口归因涨粉计入覆盖面不计入门槛），无合格组只出 data_readiness 诚实建议；建议**按平台分别生成**，每条继承产出它的那份因子快照（`recommendations.analysis_result_id`），reason 里写明平台·窗口·指标·组中位 vs 同范围中位·真实样本数，且恒带「这是关联不是因果结论」（§十四 小样本不下结论）。采纳回路（真实闭环批次二）：只有创建页真有对应控件的四类（hook/scene/template/speech_rate）给「使用推荐参数创建」入口——预填值必须是生成链路能表示的参数（语速档位 0.8/1/1.2），不给不存在的效果开按钮；点击先 `POST /recommendations/{id}/applications` 落 suggestedParams（服务端从建议行读，不信前端回传）+ prefillParams，生成成功后再 `POST /recommendation-applications/{id}/bind` 写 contentId + **用户实际提交的** finalParams（分 generation/media 两组）；同时回写 recommendation.applied_to_content_id 并把 hook/scene 标签写入新内容 content_features（USER_INPUT，进入下次同类分组）。登记采纳失败不卡住生产，但横幅与 toast 明说这次不计入效果回路。「复用此视频结构」（页面 C）提取骨架预填（参考横幅展示占比，不假装生成器能按骨架执行）。实体现：recommendations（§八.8，migration 0009）+ recommendation_applications（§10.18，migration 0011）。
 
-**Phase 6 内容实验**：`experiments` 表（§八.9，migration 0010）= 一个变量 × 两变体（各挂 contentIds）+ 控制变量 + 目标指标；`POST /experiments/{id}/evaluate` 用发布指标做分组描述统计（model_version=ab-descriptive-v1）：任一组样本 <8 → lowSample 且 verdict 只给「不构成结论」；缺指标不补 0（无数据时 verdict=无法评估）；completed 仅由 evaluate 写入（状态 PATCH 拒绝手改结论态）；结论恒附相关≠因果声明。前端 `/insights/experiments`（登记表单两组内容多选 + 冲突即时拦截 + 评估卡片）。Phase 5（停留/完播/涨粉模型 + SHAP）按文档门槛在数据量达标后启动，不提前实现。
+**Phase 6 内容实验**：`experiments` 表（§八.9，migration 0007）= 一个变量 × 两变体（各挂 contentIds）+ 控制变量 + 目标指标；`POST /experiments/{id}/evaluate` 用发布指标做分组描述统计（model_version=ab-descriptive-v1）：任一组样本 <8 → lowSample 且 verdict 只给「不构成结论」；缺指标不补 0（无数据时 verdict=无法评估）；completed 仅由 evaluate 写入（状态 PATCH 拒绝手改结论态）；结论恒附相关≠因果声明。前端 `/insights/experiments`（登记表单两组内容多选 + 冲突即时拦截 + 评估卡片）。
+**评估的样本来源（真实闭环批次三）**：`experiment_assignments`（§10.19，migration 0012）是**生成前**登记的事实，评估优先以它为准——两组内容取自已绑定的分配，`result.note` 里写明「生成前登记的变体分配（共 N 条，A 已绑定 x，B 已绑定 y，z 条未绑定不计入）」；一条分配都没有时才回退到 `variantA/B.contentIds`，并在同一段里明说这是**事后分组、不是真正的实验对照**。新建页的可选实验选择器只列 draft/running 的实验（服务端同样拒绝给已归档实验追加分配）。Phase 5（停留/完播/涨粉模型 + SHAP）按文档门槛在数据量达标后启动，不提前实现。
 
 **数据源 Adapter**（需求 §二十三）：`AnalyticsDataProvider` 接口统一映射到平台 Domain Model，业务层不依赖抖音 Response DTO；`douyinOpenApiProvider` 为未接入占位（`isAvailable()=false`，sync 诚实返回 501 `DATA_SOURCE_NOT_CONFIGURED`）。
 
@@ -653,6 +681,14 @@ PATCH  /api/analytics/experiments/{experimentId}/status   状态流转（complet
 - 端点：`POST/GET /import-batches`（创建即服务端字段识别 12 角色 + 粒度三态判定 work_level_strong/weak/account_day_level，判定依据可解释；同 file_hash 已提交 → 409 重复拦截）· `GET/DELETE /import-batches/{id}`（刷新恢复/未提交可删）· `POST .../confirm-granularity`（只允许降级，账号日级升格 400）· `PUT .../rules`（账号/平台映射、时区、发布时间容差、标题标准化 5 开关、相似度阈值 + dry-run 四类预估）· `POST .../prematch`（确定性引擎零 LLM；有人工裁决未 force → 409 needs_confirmation）· `GET .../rows`（分页/状态筛选/关键词）· `GET .../rows/{rowId}`（候选+结构化 evidence）· `POST .../decisions`（confirm/assign/ignore/external/account_day/reset 批量裁决；账号日级行 assign → 400 红线）· `POST .../preflight`（十项校验，③重复导入/④未处理冲突/⑨非法数值/⑩重复提交阻断）· `POST .../commit`（服务端重验 preflight 不过 409 携报告；单事务写 video_metrics/creator_metric_daily 复用单一口径，metadata.batch_id 溯源，commit_preimage 快照）· `POST .../rollback`（按 preimage 精确恢复，含派生行与每日快照）。
 - 匹配优先级固定（`lib/import-matcher.ts` 纯函数）：作品 ID 精确 > URL 解析 ID > 账号+发布时间容差 > 账号+日+标题相似（编辑距离口径）> +时长辅助；强证据（方法1/2）单候选才 unique_match 可批量确认，弱证据单候选一律 conflict（已裁决）；未绑定作品 ID 的发布记录不参与自动匹配仅可人工绑定；每候选必存 evidence（禁裸置信度）。
 - 前端 `/insights/import` 四步工作台（导入数据→匹配规则→匹配校验→提交落库）：统计卡筛选/批量操作/高密度表/右侧详情证据 checklist；旧逐行下拉框向导（analytics-import-wizard.vue）已删除，`/insights/data` 保留发布记录绑定 + 入口卡；`POST /import`、`POST /creator-daily/import` 后端端点保留（已发布契约）。
+
+**统一内容主视图（批次一，`GET /api/analytics/content-videos`）**：行锚点是 `contents`，一条内容一行；`publish_records` 作为 `platforms[]` 明细挂在同一行里，于是「生产了什么 / 发到了哪 / 表现如何」第一次在同一行对齐。旧 `GET /videos`（一发布记录一行）契约逐字保留，两者并存不是重复实现——前者回答内容资产盘点，后者回答按平台排序比较。
+- 默认行集 = `status='completed'` 且有真实视频产物；显式 `status` 会放开 completed 要求（否则 `failed`/`deleted` 永远筛不出来）。`status=all|unpublished|published_unimported|imported|import_conflict|failed|deleted`，取值全集不可增。
+- 有成片但无发布记录的内容进列表且 `platforms=[]`（状态 `unpublished`），**不创建 local 伪平台记录**。
+- 主行不提供任何跨平台合计：播放/点赞/完播/互动只在 `platforms[].metrics` 里按平台读。`sort=play|completion|engagement|publish_time` 的排序键取该内容各平台的**最好值（max）**，仅用于排序，响应里不出现合计值。
+- 每行同时给 `status`（主状态，优先级 failed > import_conflict > deleted > imported > published_unimported > unpublished）与 `statuses`（命中的全部状态）——一行可以既已有指标又存在导入冲突，只报一个会把待裁决的说成没事。
+- `import_conflict` 的判据来自导入中间层本身（`import_row.match_status='conflict'` 且该记录被列为候选），不新造冲突列。
+- 指标缺键 = 无数据（不回 0）；`publishTimeSource=null` = 旧记录判不出来源。
 
 **错误信封**：非 2xx 统一 `{ error: { code, message, ... } }`（DX-1，lib/api-error）。
 
@@ -897,11 +933,16 @@ interface PaginatedResponse<T> {
 | platform | VARCHAR(50) NOT NULL | 发布平台（与 upload_marks.platform 同口径自由文本，加平台免迁移） |
 | platform_video_id | VARCHAR(100) NULL | 平台侧作品 ID（抖音 = item_id） |
 | publish_title / cover_url | VARCHAR | 发布标题与封面 |
-| publish_time | DATETIME NULL | 实际发布时间（mode:"date"） |
+| publish_time | DATETIME NULL | 实际发布时间（mode:"date"）；新建时未填用关联 `contents.created_at` 兜底，不再留 NULL |
+| publish_time_source | ENUM('LOCAL_GENERATED','PLATFORM_IMPORTED','USER_EDITED') NULL | `publish_time` 的来处（migration 0010）：本地生成兜底 / 导入行携带的平台真实时间 / 用户填写。NULL = 旧记录判不出，不事后编一个来源 |
 | publish_status | ENUM('scheduled','published','deleted') | 默认 published |
 | created_at / updated_at | TIMESTAMP | 自动维护 |
 
 **唯一约束** `(platform, platform_video_id)`：禁止按标题模糊匹配维护生产视频↔平台作品关系。
+
+**发布时间覆盖规则（`lib/publish-derivation.ts` 纯函数 `importedPublishTimePatch`）**：导入行只有自带真实发布时间时才更新本表；
+`LOCAL_GENERATED` 兜底值可被平台真实时间覆盖，`USER_EDITED` 不被覆盖；导入行没有时间时**不清空**已有值。
+历史空值由 `pnpm --filter @ai-english/backend db:backfill:publish-time` 回填（默认 dry-run，`-- --apply` 才写；只更新 `publish_time IS NULL` 的行，可重复执行）。
 
 ### 10.6 视频指标表：video_metrics（最新值）
 
@@ -964,9 +1005,11 @@ Production Feature 落库（需求 §五A）：生产可直取字段从 ContentD
 
 追加式留痕：`analysis_type`（如 factors:completion_rate）/ `subject_id`（null=账号级）/ `result` JSON / `evidence` JSON（参与样本 recordId 与总样本量）/ `confidence` / `model_version`（分组统计为 group-stats-v1，不冒充模型）/ `created_at`；索引 (analysis_type, subject_id)。
 
-### 10.12 生产建议表：recommendations（Phase 4，migration 0009）
+### 10.12 生产建议表：recommendations（Phase 4，migration 0009；批次二补证据锚点）
 
-§八.8 全字段落地：`id`（rec_前缀）/ `recommendation_type`（hook/scene/duration/knowledge_points/speech_rate/cta/template/structure/data_readiness）/ `recommendation` JSON `{value,label,kindLabel}` / `reason`（必携：哪个指标、组中位 vs 账号中位、样本数）/ `source_sample_count` / `source_metric` / `confidence` / `accepted`（NULL 待处理 · 1 采纳 · 0 忽略）/ `applied_to_content_id`（采纳后新建内容，效果回路接入点）/ created_at、updated_at。生成纪律：仅 ≥8 样本组出参数建议，否则 data_readiness 诚实建议。
+§八.8 全字段落地：`id`（rec_前缀）/ `recommendation_type`（hook/scene/duration/knowledge_points/speech_rate/cta/template/structure/data_readiness）/ `recommendation` JSON `{value,label,kindLabel}` / `reason`（必携：**平台 · 窗口** + 哪个指标、组中位 vs 同范围中位、真实样本数）/ `source_sample_count`（**非估算真实样本数**）/ `source_metric` / `confidence` / `accepted`（NULL 待处理 · 1 采纳 · 0 忽略）/ `applied_to_content_id`（采纳后新建内容，效果回路接入点）/ `analysis_result_id`（migration 0011 增量；产出本建议的因子快照 id，NULL=本列引入前的历史建议，证据接口据此如实说「未留档」而不回推证据）/ created_at、updated_at。
+
+生成纪律（批次二收紧）：建议**按平台分别生成**，每条挂一份自己的因子快照；窗口固定 `DEFAULT_RECOMMEND_WINDOW_DAYS=90` 并写进文案；行动门槛 = 同平台 + 同窗口 + 同 canonical 指标的**非估算真实样本 ≥8**（估算值计入覆盖面 `sampleCount` 但不计入 `realSampleCount`）；跨平台混合的样本集一律只出 `data_readiness`。
 
 ### 10.13 内容实验表：experiments（Phase 6，migration 0010）
 
@@ -987,6 +1030,64 @@ Production Feature 落库（需求 §五A）：生产可直取字段从 ContentD
 ### 10.17 匹配裁决表：match_decision（migration 0008）
 
 `import_row_id` PK FK(cascade)（一行一决定）/ `batch_id` FK / `match_status` 同六态 / `matched_video_id`（无 FK：发布记录删除不抹裁决历史，提交时服务端校验存在性）/ `match_method`、`confidence` / `decision_type` ENUM(system_auto/operator_confirm/operator_assign/operator_external/operator_account_day/operator_ignore) / `operator`（本机无认证固定 local，字段留位）/ `confirmed_at` / `metadata` JSON（external 留档、系统建议态回退依据）。
+
+### 10.18 建议采纳表：recommendation_applications（批次二，migration 0011）
+
+「建议 → 采纳 → 用户实际提交的参数 → 新内容」的可审计回路（docs/22 §4.2）。**不向 ContentDTO 加任何字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | VARCHAR(32) PK | `recapp_` 前缀 |
+| recommendation_id | VARCHAR(32) NOT NULL | 来源建议。**故意不加外键**：`generateRecommendations()` 会删未处理的旧建议，加级联 FK 会连带抹掉用户已采纳的事实（与 `match_decision.matched_video_id` 同一惯例） |
+| content_id | VARCHAR(32) NULL | 生成成功后绑定；NULL=采纳了但没生成成功（不加 FK，内容被删不该把采纳史变成假阴性） |
+| suggested_params | JSON NOT NULL | 建议给出的值（服务端从 `recommendations` 当场读出，不接受前端回传） |
+| prefill_params | JSON NOT NULL | 点「使用推荐参数创建」时装入创建页的值 |
+| final_params | JSON NULL | **用户最终提交**给生成链路的值，分 `generation`（生成实收 topic/level/template）与 `media`（提交时的语速/音色/BGM/片头）两组；未生成为 NULL，绝不拿建议值冒充 |
+| target_metric | VARCHAR(64) NOT NULL | 该建议针对的 canonical 指标 |
+| analysis_result_id | INT NULL | 证据链锚点（随建议继承，可空=历史建议） |
+| accepted_at / applied_at | TIMESTAMP | 采纳时间 / 成功绑定内容时间（applied_at 非空即已绑定，再绑 409） |
+
+索引：`recommendation_id`、`content_id`。
+
+### 10.19 实验分配表：experiment_assignments（批次三，migration 0012）
+
+变体在**生成之前**由操作者选定，评估以这张表为事实来源（docs/22 §4.3 / §5.3）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | VARCHAR(32) PK | `expa_` 前缀 |
+| experiment_id | VARCHAR(32) NOT NULL | 所属实验。**不加外键**：`experiments.id` 在两个库里的排序规则不一致（测试库是历史灌库留下的 `utf8mb4_0900_ai_ci`，新建表默认 `utf8mb4_unicode_ci`），FK 能否建起来取决于库的往事，等于给发布日埋彩票；存在性由服务层校验，且实验没有删除路径，级联用不上 |
+| content_id | VARCHAR(32) NULL | 生成成功后绑定；NULL = 分配了但没产出（失败/中断），这条事实必须可见，不计入样本也不抹掉 |
+| variant | ENUM('A','B') NOT NULL | 变体；只有两值，第三组不存在 |
+| assignment_method | ENUM('operator_selected') NOT NULL | 第一版固定人工选定——没有随机分流基础设施就假装随机 A/B 是撒谎 |
+| assigned_params | JSON NOT NULL | 分配时页面给出的参数（含 variable 与该变体标签） |
+| final_params | JSON NULL | 生成**实际提交**的参数，与 assigned_params 分列；未生成为 NULL，绝不拿分配值冒充实际值 |
+| assigned_at / bound_at | TIMESTAMP | 分配时间 / 绑定时间（bound_at 非空即已绑定，再绑 409） |
+
+索引：`(experiment_id, variant)`、`content_id`。
+
+---
+
+### 10.20 配音音色目录表：tts_voices（migration 0013）
+
+音色清单从 `lib/tts-catalog` 的硬编码数组搬进这张表，因为可用性是外部端点决定的、会变的
+事实（docs/24）：2026-10-12 微软把合成 WebSocket 从 `speech.platform.bing.com` 迁到
+`api.msedgeservices.com` 后，8 个 Edge 音色里 3 个不再回音频。留在代码里意味着每下架一个音色
+都要走一次生产发布。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | VARCHAR(64) PK | Edge 音色名（`zh-CN-XiaoxiaoNeural`）或本地音色名（`Tingting`） |
+| label / gender | VARCHAR(64) / VARCHAR(8) | 界面显示名与性别 |
+| engine | ENUM('edge','local') | `local` = 宿主机 `say`，**容器内永远不可用**，由服务层按平台过滤 |
+| enabled | INT NOT NULL DEFAULT 1 | 1=上架。下架只影响新合成，不改历史数据 |
+| last_check_at / last_check_status | TIMESTAMP NULL / ENUM NULL | 「测一次」的时间与结论（`ok`/`no_audio`/`rate_limited`/`handshake_failed`/`error`）；NULL=从未实测 |
+| last_check_detail | VARCHAR(200) NULL | 成功记时长与字节数，失败记服务端原因原文 |
+
+无外键：`contents.voice` 存的是历史值（生产库里是 `female_01` 这类旧口径），不为它建约束。
+
+两条口径写死在服务层（`services/tts-voice.service`）：**下架 ≠ 非法**——`knownVoiceIds()`
+含已下架项，发布配置因此仍可回显与重配历史音色；`selectableVoices()` 才受 `enabled` 与平台过滤。
 
 ---
 

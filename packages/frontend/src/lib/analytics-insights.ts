@@ -3,7 +3,13 @@
  * 口径来源：docs/17 §三（指标必须可溯源）与 §八（Empty State：无数据 ≠ 0，不得显示 0%）
  * 视图层只做格式化，不在此计算任何业务指标（核心指标一律后端产出，需求 §二十四）
  */
-import type { FactorDimensionName, FunnelStageView, FunnelStepRateState } from "../api/client";
+import type {
+  ContentVideoStatus,
+  FactorDimensionName,
+  FunnelStageView,
+  FunnelStepRateState,
+  MetricCellView,
+} from "../api/client";
 
 // ── 来源标签（source_type → 展示名；抖音官方 API 通道已砍除，不保留 DOUYIN_* 映射） ──
 
@@ -287,4 +293,94 @@ export function formatByKind(
   if (kind === "rate") return formatRate(value);
   if (kind === "seconds") return formatSeconds(value);
   return formatCount(value);
+}
+
+// ── 统一内容主视图（docs/22 §5.1 / §7.1）展示口径 ──
+
+/** 内容行状态 → 表内文案。措辞只陈述事实，不暗示表现好坏 */
+export const CONTENT_STATUS_LABEL: Record<ContentVideoStatus, string> = {
+  unpublished: "未发布",
+  published_unimported: "已发布，等待导入",
+  imported: "已有指标",
+  import_conflict: "导入待裁决",
+  failed: "生成失败",
+  deleted: "已删除",
+};
+
+/** 状态为空态/待补数据时的下一步指引（不写「表现差」这类没有证据的判词） */
+export const CONTENT_STATUS_HINT: Record<ContentVideoStatus, string> = {
+  unpublished: "本地成片尚未登记发布记录；标记一次已上传即自动登记",
+  published_unimported: "已发布但没有导入指标，去数据接入导入创作者后台导出表",
+  imported: "已导入指标，指标按平台分别展示",
+  import_conflict: "导入数据把这条记录列为待人工裁决归属，去匹配校验处理",
+  failed: "这一集没有生成成功，没有可分析的产物",
+  deleted: "平台侧作品已删除，历史指标仍按原样保留",
+};
+
+/**
+ * 发布时间来源 → 文案。
+ *
+ * null 是「旧记录无法判定来处」，必须如实说不知道——不能显示成用户填的或平台导入的。
+ * LOCAL_GENERATED 是本地生成时间兜底，不是平台真实发布时间，措辞要区分开。
+ */
+export const PUBLISH_TIME_SOURCE_LABEL: Record<
+  "LOCAL_GENERATED" | "PLATFORM_IMPORTED" | "USER_EDITED" | "UNKNOWN",
+  string
+> = {
+  LOCAL_GENERATED: "本地生成时间兜底",
+  PLATFORM_IMPORTED: "平台导入的真实发布时间",
+  USER_EDITED: "人工填写",
+  UNKNOWN: "来源未知",
+};
+
+export function publishTimeSourceLabel(
+  source: "LOCAL_GENERATED" | "PLATFORM_IMPORTED" | "USER_EDITED" | null,
+): string {
+  return source === null ? PUBLISH_TIME_SOURCE_LABEL.UNKNOWN : PUBLISH_TIME_SOURCE_LABEL[source];
+}
+
+/**
+ * 平台指标单元格文案：没有该指标回「—」（页面 B/C 既有的「无数据」语汇）。
+ *
+ * 硬约束：绝不返回 0 —— 缺失和「表现为 0」是两件事（需求 §二十六）。
+ * 「暂无数据」这类整段说明只在平台级出现一次，不铺满每一列。
+ */
+export function platformMetricText(
+  cell: MetricCellView | undefined,
+  kind: "count" | "rate" | "seconds",
+): string {
+  if (!cell) return "—";
+  return formatByKind(cell.value, kind);
+}
+
+/** 同内容多平台时的主行摘要：只报覆盖情况，不报任何合计值 */
+export function contentCoverageText(coverage: {
+  platforms: number;
+  records: number;
+  recordsWithMetrics: number;
+}): string {
+  if (coverage.records === 0) return "未发布";
+  const parts = [`${coverage.platforms} 个平台`];
+  if (coverage.records !== coverage.platforms) parts.push(`${coverage.records} 条登记`);
+  parts.push(`${coverage.recordsWithMetrics}/${coverage.records} 有指标`);
+  return parts.join(" · ");
+}
+
+/**
+ * 实验变量的选项与中文名（新建页选择器、实验页表单与卡片同源）。
+ * 之前只在实验页里有一份数组，新建页要显示时就会滑向「直接印 hook 这种原始键」。
+ */
+export const EXPERIMENT_VARIABLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "hook", label: "Hook" },
+  { value: "template", label: "模板" },
+  { value: "duration", label: "时长" },
+  { value: "structure", label: "脚本结构" },
+  { value: "prompt_version", label: "Prompt 版本" },
+  { value: "cta", label: "CTA" },
+  { value: "voice", label: "配音音色" },
+];
+
+/** 未知变量回原值（不印 undefined，也不假装认识） */
+export function experimentVariableLabel(variable: string): string {
+  return EXPERIMENT_VARIABLE_OPTIONS.find((o) => o.value === variable)?.label ?? variable;
 }

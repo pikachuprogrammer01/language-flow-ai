@@ -8,7 +8,7 @@ import { db } from "../db";
 import { contents } from "../db/schema";
 import { API_TAGS } from "../lib/api-convention";
 import { logger } from "../lib/logger";
-import { generateSceneWordContent } from "../services/content.service";
+import { ContentRejectedError, generateSceneWordContent } from "../services/content.service";
 import { LlmNotConfiguredError } from "../services/llm.service";
 import { generateQuizContent } from "../services/quiz.service";
 import { generateWordCardContent } from "../services/word-card.service";
@@ -153,6 +153,12 @@ export const content = new OpenAPIHono().openapi(generateRoute, async (c): Promi
       return c.json({ error: err.message }, 503);
     }
     logger.error({ err }, "content generate failed");
+    if (err instanceof ContentRejectedError) {
+      // 验收原因照原样回（响应体结构不变，仍是 { error: string }）：
+      // 之前这里固定回 "Content generation failed"，界面只剩「生成失败（HTTP 500）」，
+      // 而服务端其实已经算出「有效词不足：仅 5 个…请让故事更贴近候选词汇的中文含义」
+      return c.json({ error: err.message.slice(0, 500) }, 500);
+    }
     return c.json({ error: "Content generation failed" }, 500);
   }
 });

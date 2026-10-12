@@ -7,8 +7,67 @@ import { buildTtsText } from "../services/tts.service";
 import * as ttsService from "../services/tts.service";
 import { tts } from "./tts";
 
-// mock：不依赖真实网络 / ffprobe / 文件写入
-vi.mock("node:fs/promises", () => ({ mkdir: vi.fn(), writeFile: vi.fn() }));
+// mock：不依赖真实网络 / ffprobe / 文件写入 / 数据库
+const voiceState = vi.hoisted(() => ({
+  selectable: ["zh-CN-XiaoxiaoNeural", "zh-CN-YunxiNeural"],
+  known: ["zh-CN-XiaoxiaoNeural", "zh-CN-YunxiNeural", "zh-CN-XiaohanNeural"],
+  enabledWrites: [] as { id: string; enabled: boolean }[],
+  probeWrites: [] as { id: string; status: string; detail: string }[],
+}));
+vi.mock("node:fs/promises", () => ({
+  mkdir: vi.fn(),
+  mkdtemp: vi.fn(async () => "/tmp/lf-tts-probe-test"),
+  rm: vi.fn(async () => {}),
+  writeFile: vi.fn(),
+}));
+vi.mock("../services/tts-voice.service", () => ({
+  isVoiceSelectable: async (id: string) => voiceState.selectable.includes(id),
+  isVoiceKnown: async (id: string) => voiceState.known.includes(id),
+  voiceCatalogItems: async () =>
+    voiceState.selectable.map((id) => ({ id, name: id, gender: "女" })),
+  loadVoiceCatalog: async () => [
+    {
+      id: "zh-CN-XiaoxiaoNeural",
+      label: "晓晓（女·温暖）",
+      gender: "女",
+      engine: "edge",
+      enabled: true,
+      lastCheckAt: null,
+      lastCheckStatus: null,
+      lastCheckDetail: null,
+    },
+    {
+      id: "zh-CN-XiaohanNeural",
+      label: "晓涵（女·知性）",
+      gender: "女",
+      engine: "edge",
+      enabled: false,
+      lastCheckAt: new Date("2026-10-12T12:00:00.000Z"),
+      lastCheckStatus: "no_audio",
+      lastCheckDetail: "实测零音频帧",
+    },
+  ],
+  setVoiceEnabled: async (id: string, enabled: boolean) => {
+    if (!voiceState.known.includes(id)) return { kind: "not-found" as const };
+    voiceState.enabledWrites.push({ id, enabled });
+    return {
+      kind: "updated" as const,
+      voice: {
+        id,
+        label: id,
+        gender: "女",
+        engine: "edge" as const,
+        enabled,
+        lastCheckAt: null,
+        lastCheckStatus: null,
+        lastCheckDetail: null,
+      },
+    };
+  },
+  recordVoiceProbe: async (id: string, status: string, detail: string) => {
+    voiceState.probeWrites.push({ id, status, detail });
+  },
+}));
 vi.mock("../services/tts.service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../services/tts.service")>();
   return {
@@ -284,5 +343,98 @@ describe("POST /api/tts", () => {
     const body = (await res.json()) as { voices: unknown[]; default: string };
     expect(body.voices.length).toBeGreaterThan(0);
     expect(body.default).toBe("zh-CN-XiaoxiaoNeural");
+  });
+});
+
+// ── 音色上下架与合成前置校验（docs/24）──
+
+describe("音色目录管理", () => {
+  const jsonReq = (path: string, method: string, body?: unknown) =>
+    tts.request(path, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  beforeEach(() => {
+    vi.mocked(ttsService.synthesizeSpeech).mockReset();
+    vi.mocked(ttsService.getAudioDuration).mockReset();
+    vi.mocked(ttsService.synthesizeSpeech).mockResolvedValue(Buffer.from("fake-mp3"));
+    vi.mocked(ttsService.getAudioDuration).mockResolvedValue(3.2);
+    voiceState.enabledWrites.length = 0;
+    voiceState.probeWrites.length = 0;
+  });
+
+  it("generate 用已下架音色：400 且根本不打远端（这类失败不是服务坏了）", async () => {
+    const res = await jsonReq("/generate", "POST", {
+      text: "你好",
+      voice: "zh-CN-XiaohanNeural",
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; code: string };
+    expect(body.code).toBe("VOICE_UNAVAILABLE");
+    expect(body.error).toContain("配音音色");
+    expect(ttsService.synthesizeSpeech).not.toHaveBeenCalled();
+  });
+
+  it("from-content 用已下架音色：同样 400 前置拒掉", async () => {
+    const res = await jsonReq("/from-content", "POST", {
+      template: "word_card",
+      content: [{ word: "forest", meaning: "森林" }],
+      voice: "zh-CN-XiaohanNeural",
+    });
+    expect(res.status).toBe(400);
+    expect(ttsService.synthesizeSpeech).not.toHaveBeenCalled();
+  });
+
+  it("voices 的 all 带上下架状态与实测结论，voices 只含可选项", async () => {
+    const res = await jsonReq("/voices", "GET");
+    const body = (await res.json()) as {
+      voices: { id: string }[];
+      all: { enabled: boolean; id: string; checkStatus: string | null }[];
+    };
+    expect(body.voices.map((v) => v.id)).not.toContain("zh-CN-XiaohanNeural");
+    const disabled = body.all.find((v) => v.id === "zh-CN-XiaohanNeural");
+    expect(disabled?.enabled).toBe(false);
+    expect(disabled?.checkStatus).toBe("no_audio");
+  });
+
+  it("PATCH 下架已上架音色：写库并回新状态", async () => {
+    const res = await jsonReq("/voices/zh-CN-XiaoxiaoNeural", "PATCH", { enabled: false });
+    expect(res.status).toBe(200);
+    expect(voiceState.enabledWrites).toEqual([{ id: "zh-CN-XiaoxiaoNeural", enabled: false }]);
+    const body = (await res.json()) as { voice: { enabled: boolean } };
+    expect(body.voice.enabled).toBe(false);
+  });
+
+  it("PATCH 目录里没有的音色：404，不发写", async () => {
+    const res = await jsonReq("/voices/zh-CN-NoSuchNeural", "PATCH", { enabled: true });
+    expect(res.status).toBe(404);
+    expect(voiceState.enabledWrites).toHaveLength(0);
+  });
+
+  it("probe 成功：200 出音频时长并写回 ok", async () => {
+    const res = await jsonReq("/voices/zh-CN-XiaohanNeural/probe", "POST");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { detail: string; status: string };
+    expect(body.status).toBe("ok");
+    expect(body.detail).toContain("3.2 秒");
+    expect(voiceState.probeWrites[0]?.status).toBe("ok");
+  });
+
+  it("probe 音色不可用：仍返回 200（测不出来就是结果），状态记 no_audio", async () => {
+    vi.mocked(ttsService.synthesizeSpeech).mockRejectedValue(
+      new ttsService.TtsError("voice_unavailable", "该音色在当前配音端点不可用"),
+    );
+    const res = await jsonReq("/voices/zh-CN-XiaohanNeural/probe", "POST");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("no_audio");
+    expect(voiceState.probeWrites[0]?.status).toBe("no_audio");
+  });
+
+  it("probe 未知音色：404 且不动远端", async () => {
+    const res = await jsonReq("/voices/zh-CN-NoSuchNeural/probe", "POST");
+    expect(res.status).toBe(404);
+    expect(ttsService.synthesizeSpeech).not.toHaveBeenCalled();
   });
 });

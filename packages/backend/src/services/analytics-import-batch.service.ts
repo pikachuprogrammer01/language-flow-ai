@@ -23,6 +23,7 @@ import {
   videoMetricDaily,
   videoMetrics,
 } from "../db/schema";
+import type { PublishTimeSource } from "../lib/analytics-taxonomy";
 import {
   type FieldDetectionEntry,
   type ImportDataGranularity,
@@ -44,6 +45,7 @@ import {
   type PreflightReport,
   runPreflightChecks,
 } from "../lib/import-preflight";
+import { importedPublishTimePatch } from "../lib/publish-derivation";
 import {
   mapCreatorDailyRow,
   mapImportRow,
@@ -1151,11 +1153,41 @@ export async function preflightBatch(batchId: string): Promise<PreflightOutcome>
 
 // ── STEP 4：提交落库（重验 preflight → preimage 快照 → 单事务写入） ──
 
+/**
+ * 导入行发布时间 → Date（解析口径与匹配引擎同一函数，不另起一套时间解析）。
+ * 无值或解析不出回 null：null 表示「这一行没告诉我们发布时间」，
+ * 调用方据此不写 publish_time——绝不把缺失当 0/空覆盖已有值。
+ */
+export function parseImportedPublishTime(
+  raw: string | null | undefined,
+  timezoneOffsetMinutes: number,
+): Date | null {
+  if (!raw) return null;
+  const epoch = parseTimeToEpoch(raw, timezoneOffsetMinutes);
+  return epoch === null ? null : new Date(epoch);
+}
+
 interface VideoSnapshot {
   recordId: string;
   metrics: MetricSnapshotRow[];
   daily: DailySnapshotRow[];
+  /**
+   * 提交前的发布时间（commit 会用导入行携带的真实时间覆盖 LOCAL_GENERATED 兜底）。
+   * 可选字段：本列引入之前提交的批次 preimage 里没有它，回滚时按「不动发布时间」处理。
+   */
+  publishTime?: PublishTimeSnapshot;
 }
+
+/**
+ * preimage 存进 JSON 列，时间一律以 ISO 字符串落盘（不依赖 JSON.stringify 对 Date 的隐式转换）。
+ * 回滚写回 publish_records.publish_time 时再显式还原成 Date——
+ * drizzle 的 datetime(mode:"date") 在 UPDATE 路径上只接受 Date，
+ * 直接把 JSON 里的字符串塞进去会抛 `value.toISOString is not a function`。
+ */
+type PublishTimeSnapshot = {
+  publishTime: string | null;
+  publishTimeSource: PublishTimeSource | null;
+};
 
 /** 快照只存语义列（自增 id/时间戳回灌时由 DB 重建），直接复用 drizzle 插入类型 */
 type MetricSnapshotRow = typeof videoMetrics.$inferInsert;
@@ -1242,7 +1274,22 @@ export async function commitBatch(batchId: string): Promise<CommitResult> {
     external: decisions.filter((d) => d.decisionType === "operator_external").length,
     skippedRows: skipped,
   };
+  const commitTimezoneOffset = ((b.matchRules as ImportMatchRules | null) ?? DEFAULT_MATCH_RULES)
+    .timezoneOffsetMinutes;
   await db.transaction(async (tx) => {
+    // 发布时间只在导入行真的携带时才写，且判据走纯函数（不覆盖人工值、缺失不清空）
+    const timeStates = new Map(
+      (
+        await tx
+          .select({
+            id: publishRecords.id,
+            publishTime: publishRecords.publishTime,
+            publishTimeSource: publishRecords.publishTimeSource,
+          })
+          .from(publishRecords)
+          .where(inArray(publishRecords.id, recordIds.length > 0 ? recordIds : [""]))
+      ).map((r) => [r.id, r]),
+    );
     for (const row of workRows) {
       const recordId = decisionByRow.get(row.id)?.matchedVideoId as string;
       const { drafts, skipped: fields } = mapImportRow(row.rawData, metricMapping);
@@ -1270,6 +1317,19 @@ export async function commitBatch(batchId: string): Promise<CommitResult> {
         })),
       );
       await recomputeDerivedMetrics(recordId, tx);
+      const state = timeStates.get(recordId);
+      const importedAt = parseImportedPublishTime(row.normalized.publishTime, commitTimezoneOffset);
+      if (state && importedAt) {
+        const timePatch = importedPublishTimePatch(state, importedAt);
+        if (timePatch) {
+          await tx
+            .update(publishRecords)
+            .set({ ...timePatch, updatedAt: new Date() })
+            .where(eq(publishRecords.id, recordId));
+          // 同批后续行不再按旧值判定（避免同一记录被同批两条互相回退）
+          timeStates.set(recordId, { ...state, ...timePatch });
+        }
+      }
       summary.workLevel += 1;
     }
     for (const row of dayRows) {
@@ -1311,6 +1371,17 @@ async function capturePreimage(
   dailyKeys: Array<{ platform: string; statDate: string }>,
 ): Promise<CommitPreimage> {
   const video: VideoSnapshot[] = [];
+  // 发布时间也在本次提交的写入面内（导入行携带平台真实时间时会覆盖兜底值），
+  // 提交前逐条取回旧值，回滚才能把 record 一并恢复原状。
+  const recordStates = await db
+    .select({
+      id: publishRecords.id,
+      publishTime: publishRecords.publishTime,
+      publishTimeSource: publishRecords.publishTimeSource,
+    })
+    .from(publishRecords)
+    .where(inArray(publishRecords.id, recordIds.length > 0 ? recordIds : [""]));
+  const recordState = new Map(recordStates.map((r) => [r.id, r]));
   for (const recordId of recordIds) {
     const metrics = await db
       .select({
@@ -1340,7 +1411,18 @@ async function capturePreimage(
       })
       .from(videoMetricDaily)
       .where(eq(videoMetricDaily.publishRecordId, recordId));
-    video.push({ recordId, metrics, daily });
+    const state = recordState.get(recordId);
+    video.push({
+      recordId,
+      metrics,
+      daily,
+      publishTime: state
+        ? {
+            publishTime: state.publishTime ? state.publishTime.toISOString() : null,
+            publishTimeSource: state.publishTimeSource,
+          }
+        : undefined,
+    });
   }
   const creatorDaily: CommitPreimage["creatorDaily"] = [];
   for (const key of dailyKeys) {
@@ -1401,6 +1483,19 @@ export async function rollbackBatch(batchId: string): Promise<RollbackResult> {
       }
       if (snap.daily.length > 0) {
         await tx.insert(videoMetricDaily).values(snap.daily);
+      }
+      // 发布时间只在 preimage 记录过旧值时恢复（旧批次无该字段 → 不碰，不制造假恢复）
+      if (snap.publishTime) {
+        await tx
+          .update(publishRecords)
+          .set({
+            publishTime: snap.publishTime.publishTime
+              ? new Date(snap.publishTime.publishTime)
+              : null,
+            publishTimeSource: snap.publishTime.publishTimeSource,
+            updatedAt: new Date(),
+          })
+          .where(eq(publishRecords.id, snap.recordId));
       }
     }
     for (const day of preimage.creatorDaily) {

@@ -30,6 +30,14 @@ export interface CreatePrefill {
   /** 采纳的标签建议：新内容生成后写入 content_features（USER_INPUT），进入下次同类分组 */
   labelScene?: string | null;
   labelHook?: string | null;
+  /**
+   * 批次二：采纳记录 id（recommendation_applications）。
+   * 生成成功要用它绑定**用户最终提交的参数**；生成失败时不会有绑定，
+   * 采纳记录保持未绑定——不能因为一次失败生成就谎称「按建议做了」。
+   */
+  applicationId?: string;
+  /** 批次二：建议来源口径，用于在新建页如实标注这条建议的依据（样本数/指标） */
+  adoptionNote?: string;
   /** 复用成功结构：只读骨架展示 + 生成后审阅引导（不假装生成器能按骨架执行） */
   structure?: { label: string; startTime: number; endTime: number; durationShare: number }[];
   structureSourceContentId?: string;

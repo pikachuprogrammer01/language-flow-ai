@@ -13,9 +13,11 @@
     "openapi:gen": "DATABASE_URL=${DATABASE_URL:-mysql://dev:dev@localhost:3307/language_flow} tsx --env-file=.env scripts/openapi-gen.ts",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run src/db/integration.test.ts",
+    "test:invariants": "DATABASE_URL=${DATABASE_URL:-mysql://dev:dev@localhost:3307/language_flow} vitest run src/db/invariants.test.ts",
     "test:watch": "vitest",
     "db:generate": "DATABASE_URL=${DATABASE_URL:-mysql://dev:dev@localhost:3307/language_flow} drizzle-kit generate",
     "db:migrate": "DATABASE_URL=${DATABASE_URL:-mysql://dev:dev@localhost:3307/language_flow} drizzle-kit migrate",
+    "db:backfill:publish-time": "DATABASE_URL=${DATABASE_URL:-mysql://dev:dev@localhost:3307/language_flow} tsx scripts/backfill-publish-time.ts",
     "db:seed": "DATABASE_URL=${DATABASE_URL:-mysql://dev:dev@localhost:3307/language_flow} tsx src/db/seed.ts",
     "db:studio": "DATABASE_URL=${DATABASE_URL:-mysql://dev:dev@localhost:3307/language_flow} drizzle-kit studio",
     "coverage": "vitest run --coverage"

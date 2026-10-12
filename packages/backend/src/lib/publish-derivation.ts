@@ -1,3 +1,4 @@
+import type { PublishTimeSource } from "./analytics-taxonomy";
 /**
  * 上传标记 ⇒ 发布记录的派生规则（纯函数，不触库）。
  *
@@ -26,6 +27,8 @@ export type PublishRecordIntent = {
   videoAssetId: string;
   publishTitle: string | null;
   publishTime: Date;
+  /** 标记动作时间由用户断言，不是本地生成兜底，也不是平台导入 */
+  publishTimeSource: PublishTimeSource;
   publishStatus: "published";
 };
 
@@ -40,6 +43,7 @@ export function derivePublishIntent(mark: MarkSnapshot): PublishRecordIntent | n
     videoAssetId: mark.videoFilename,
     publishTitle: mark.contentTitle,
     publishTime: mark.markedAt,
+    publishTimeSource: "USER_EDITED",
     publishStatus: "published",
   };
 }
@@ -49,6 +53,7 @@ export type ExistingPublishRecord = {
   videoAssetId: string | null;
   publishTitle: string | null;
   publishTime: Date | null;
+  publishTimeSource: PublishTimeSource | null;
 };
 
 /**
@@ -68,6 +73,28 @@ export function publishRecordFillPatch(
   if (!existing.publishTitle && intent.publishTitle) {
     patch.publishTitle = intent.publishTitle;
   }
-  if (!existing.publishTime) patch.publishTime = intent.publishTime;
+  if (!existing.publishTime) {
+    patch.publishTime = intent.publishTime;
+    patch.publishTimeSource = intent.publishTimeSource;
+  }
   return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/**
+ * 导入行携带平台真实发布时间时是否应写回发布记录（纯函数，提交链路唯一判据）。
+ *
+ * 纪律：
+ * - 导入行没有时间 → 返回 null，绝不把已有时间清空（无数据 ≠ 已知为 null）。
+ * - 来源为 USER_EDITED → 不覆盖用户手工断言的时间。
+ * - 来源为 LOCAL_GENERATED / PLATFORM_IMPORTED / 未知（旧记录 NULL）→ 用平台真实时间，
+ *   它比本地生成兜底更接近事实，也让人工核对看得见出处。
+ */
+export function importedPublishTimePatch(
+  existing: Pick<ExistingPublishRecord, "publishTime" | "publishTimeSource">,
+  importedAt: Date | null,
+): { publishTime: Date; publishTimeSource: PublishTimeSource } | null {
+  if (!importedAt) return null;
+  if (existing.publishTimeSource === "USER_EDITED") return null;
+  if (existing.publishTime && existing.publishTime.getTime() === importedAt.getTime()) return null;
+  return { publishTime: importedAt, publishTimeSource: "PLATFORM_IMPORTED" };
 }

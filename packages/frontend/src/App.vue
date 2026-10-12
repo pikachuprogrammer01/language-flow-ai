@@ -4,6 +4,7 @@
 import {
   Activity,
   ArrowLeft,
+  AudioLines,
   FileDown,
   FolderOpen,
   History,
@@ -83,6 +84,7 @@ const NAV_GROUPS: {
       { path: "/insights/import", label: "数据导入", icon: FileDown },
       { path: "/marks", label: "上传标记", icon: SquareCheck },
       { path: "/audit", label: "审计管理", icon: Activity },
+      { path: "/tts-voices", label: "配音音色", icon: AudioLines },
     ],
   },
 ];

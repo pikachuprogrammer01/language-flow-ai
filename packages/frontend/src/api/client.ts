@@ -55,7 +55,14 @@ export async function generateContent(input: GenerateInput, opts?: RequestOpts) 
     body: input,
     signal: opts?.signal,
   });
-  if (error || !response.ok) throw new Error(`生成失败（HTTP ${response.status}）`);
+  if (error || !response.ok) {
+    // 服务端会把「哪一关没过」写进 { error }（如有效词不足的具体提示）；
+    // 只报 HTTP 500 等于把可执行的原因丢掉，让人对着状态码猜
+    const reason = apiError(error, response);
+    throw new Error(
+      reason === `HTTP ${response.status}` ? `生成失败（HTTP ${response.status}）` : reason,
+    );
+  }
   if (!data) throw new Error("生成失败：空响应");
   return data.content;
 }
@@ -91,6 +98,45 @@ export async function listVoices() {
   if (error || !response.ok) throw new Error(`获取配音列表失败（HTTP ${response.status}）`);
   if (!data) throw new Error("获取配音列表失败：空响应");
   return data;
+}
+
+/** 音色管理条目（GET /api/tts/voices 的 all 字段） */
+export interface ManagedVoice {
+  checkDetail: string | null;
+  checkedAt: string | null;
+  enabled: boolean;
+  engine: "edge" | "local";
+  checkStatus: "ok" | "no_audio" | "rate_limited" | "handshake_failed" | "error" | null;
+  gender: string;
+  id: string;
+  name: string;
+}
+
+/** 上架 / 下架配音音色（docs/24：下架只影响新合成，存量内容不受影响） */
+export async function setVoiceEnabled(voiceId: string, enabled: boolean): Promise<void> {
+  const { error, response } = await client.PATCH("/api/tts/voices/{id}", {
+    params: { path: { id: voiceId } },
+    body: { enabled },
+  });
+  if (error || !response.ok) {
+    const detail = (error as { error?: string } | null)?.error;
+    throw new Error(detail ?? `${enabled ? "上架" : "下架"}失败（HTTP ${response.status}）`);
+  }
+}
+
+/** 实测某音色能否出音频（已下架也可测）；测不出来同样返回结论，不当作请求失败 */
+export async function probeVoice(voiceId: string): Promise<{
+  detail: string;
+  status: "ok" | "no_audio" | "rate_limited" | "handshake_failed" | "error";
+}> {
+  const { data, error, response } = await client.POST("/api/tts/voices/{id}/probe", {
+    params: { path: { id: voiceId } },
+  });
+  if (error || !response.ok || !data) {
+    const detail = (error as { error?: string } | null)?.error;
+    throw new Error(detail ?? `实测失败（HTTP ${response.status}）`);
+  }
+  return { detail: data.detail, status: data.status };
 }
 
 /** 主题推荐（本地模型生成候选，用户确认后生成；PRD §10.1.2） */
@@ -541,6 +587,185 @@ export async function listAnalyticsVideos(
   };
 }
 
+/** 统一内容主视图的行状态（docs/22 §5.1，与后端 CONTENT_VIDEO_STATUSES 同集合） */
+export type ContentVideoStatus =
+  | "unpublished"
+  | "published_unimported"
+  | "imported"
+  | "import_conflict"
+  | "failed"
+  | "deleted";
+
+export type ContentVideoSort =
+  | "created_time"
+  | "publish_time"
+  | "play"
+  | "completion"
+  | "engagement";
+
+export interface ContentVideoPlatform {
+  recordId: string;
+  platform: string;
+  platformVideoId: string | null;
+  publishStatus: "scheduled" | "published" | "deleted";
+  publishTime: string | null;
+  /** 发布时间来处；null = 旧记录无法判定（界面显示「来源未知」而不是猜一个） */
+  publishTimeSource: "LOCAL_GENERATED" | "PLATFORM_IMPORTED" | "USER_EDITED" | null;
+  metricCount: number;
+  hasImportConflict: boolean;
+  metrics: Record<string, MetricCellView>;
+}
+
+export interface ContentVideoRow {
+  contentId: string;
+  title: string;
+  template: "scene_word" | "word_card" | "quiz";
+  level: "CET4" | "CET6";
+  localStatus: string;
+  generatedAt: string;
+  videoAssetId: string | null;
+  durationSec: number | null;
+  status: ContentVideoStatus;
+  statuses: ContentVideoStatus[];
+  platformCount: number;
+  metricCoverage: { platforms: number; records: number; recordsWithMetrics: number };
+  /** 平台明细：指标只在各自平台里读，主行没有也不该有跨平台合计 */
+  platforms: ContentVideoPlatform[];
+}
+
+export async function listAnalyticsContentVideos(
+  params: {
+    status?: ContentVideoStatus | "all";
+    platform?: string;
+    sort?: ContentVideoSort;
+    order?: "asc" | "desc";
+    page?: number;
+    pageSize?: number;
+  } = {},
+): Promise<{ items: ContentVideoRow[]; total: number; page: number; pageSize: number }> {
+  const { data, error, response } = await client.GET("/api/analytics/content-videos", {
+    params: { query: params },
+  });
+  if (error || !data) throw new Error(`查询内容表现列表失败：${apiError(error, response)}`);
+  return data as {
+    items: ContentVideoRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+  };
+}
+
+/** 证据链：单个指标单元格（含导入批次与原始行号，追不到就是 null） */
+export interface EvidenceMetricCell {
+  value: number;
+  sourceType: string;
+  sourceField: string | null;
+  dataDate: string | null;
+  isEstimated: boolean;
+  batchId: string | null;
+  importRowNumber: number | null;
+  matchedBy: string | null;
+}
+
+export interface EvidenceVideo {
+  recordId: string;
+  contentId: string;
+  title: string;
+  platform: string;
+  platformVideoId: string | null;
+  publishStatus: string;
+  publishTime: string | null;
+  publishTimeSource: "LOCAL_GENERATED" | "PLATFORM_IMPORTED" | "USER_EDITED" | null;
+  videoAssetId: string | null;
+  metrics: Record<string, EvidenceMetricCell>;
+  features: Record<string, unknown> | null;
+  fieldSources: Record<string, string> | null;
+  auditAvailable: boolean;
+  auditInputKeys: string[];
+}
+
+export interface EvidenceImportRow {
+  batchId: string;
+  rowNumber: number;
+  filename: string | null;
+  batchPlatform: string | null;
+  batchStatus: string | null;
+  rawData: unknown;
+  matchStatus: string | null;
+  decisionType: string | null;
+}
+
+export interface RecommendationEvidence {
+  recommendationId: string;
+  recommendationType: string;
+  recommendation: unknown;
+  reason: string;
+  targetMetric: string;
+  sourceSampleCount: number;
+  analysisResultId: number | null;
+  status: "traceable" | "evidence_unavailable";
+  unavailableReasons: string[];
+  snapshot: {
+    analysisType: string;
+    modelVersion: string;
+    computedAt: string;
+    scope: { platform?: string | null; windowDays?: number | null } | null;
+    accountMedian: number | null;
+    accountSampleCount: number | null;
+    accountRealSampleCount: number | null;
+  } | null;
+  groups: {
+    dimension: string;
+    value: string;
+    sampleCount: number;
+    realSampleCount: number;
+    median: number | null;
+    mean: number | null;
+    recordIds: string[];
+  }[];
+  videos: EvidenceVideo[];
+  importRows: EvidenceImportRow[];
+}
+
+export async function getAnalyticsRecommendationEvidence(
+  recommendationId: string,
+): Promise<RecommendationEvidence> {
+  const { data, error, response } = await client.GET(
+    "/api/analytics/recommendations/{recommendationId}/evidence",
+    { params: { path: { recommendationId } } },
+  );
+  if (error || !data) throw new Error(`查询建议证据失败：${apiError(error, response)}`);
+  return data as RecommendationEvidence;
+}
+
+/**
+ * 登记一次采纳：服务端从建议行自己读 suggestedParams，页面只交预填值。
+ * 返回的 id 用于生成成功后绑定最终参数（生成失败时不调用，记录保持未绑定）。
+ */
+export async function createAnalyticsRecommendationApplication(
+  recommendationId: string,
+  prefillParams: Record<string, unknown>,
+): Promise<{ id: string; targetMetric: string; analysisResultId: number | null }> {
+  const { data, error, response } = await client.POST(
+    "/api/analytics/recommendations/{recommendationId}/applications",
+    // body 与 params 同级：塞进 params 里 openapi-fetch 不会发出请求体（服务端只会看到空 body）
+    { params: { path: { recommendationId } }, body: { prefillParams } },
+  );
+  if (error || !data) throw new Error(`记录建议采纳失败：${apiError(error, response)}`);
+  return data;
+}
+
+export async function bindAnalyticsRecommendationApplication(
+  applicationId: string,
+  body: { contentId: string; finalParams: Record<string, unknown> },
+): Promise<void> {
+  const { error, response } = await client.POST(
+    "/api/analytics/recommendation-applications/{applicationId}/bind",
+    { params: { path: { applicationId } }, body },
+  );
+  if (error) throw new Error(`绑定最终参数失败：${apiError(error, response)}`);
+}
+
 export interface AnalyticsBenchmark {
   subject: {
     contentId: string;
@@ -868,6 +1093,66 @@ export async function listAnalyticsExperiments(): Promise<ExperimentView[]> {
   const { data, error, response } = await client.GET("/api/analytics/experiments");
   if (error || !data) throw new Error(`查询内容实验失败：${apiError(error, response)}`);
   return (data as { items: unknown[] }).items as ExperimentView[];
+}
+
+/** 实验变体分配（批次三）：生成前选定，评估以它为准 */
+export interface ExperimentAssignmentView {
+  id: string;
+  experimentId: string;
+  contentId: string | null;
+  variant: "A" | "B";
+  assignmentMethod: string;
+  /** 分配时给出的参数（形状异常为 null，不冒充空对象） */
+  assignedParams: Record<string, unknown> | null;
+  /** 生成提交时的最终参数；未绑定为 null */
+  finalParams: Record<string, unknown> | null;
+  assignedAt: string;
+  boundAt: string | null;
+}
+
+export async function listAnalyticsExperimentAssignments(
+  experimentId: string,
+): Promise<ExperimentAssignmentView[]> {
+  const { data, error, response } = await client.GET(
+    "/api/analytics/experiments/{experimentId}/assignments",
+    { params: { path: { experimentId } } },
+  );
+  if (error || !data) throw new Error(`查询实验分配台账失败：${apiError(error, response)}`);
+  return data.items;
+}
+
+/**
+ * 生成**之前**登记一次变体分配。失败时调用方不得假装已计入实验——
+ * 没有分配记录的内容不是这条实验的样本。
+ */
+export async function createAnalyticsExperimentAssignment(
+  experimentId: string,
+  variant: "A" | "B",
+  assignedParams: Record<string, unknown>,
+): Promise<ExperimentAssignmentView> {
+  const { data, error, response } = await client.POST(
+    "/api/analytics/experiments/{experimentId}/assignments",
+    { params: { path: { experimentId } }, body: { variant, assignedParams } },
+  );
+  if (error || !data) throw new Error(`登记实验变体分配失败：${apiError(error, response)}`);
+  return data;
+}
+
+/** 生成成功后把内容与用户实际提交的参数绑到这次分配上 */
+export async function bindAnalyticsExperimentAssignment(
+  experimentId: string,
+  assignmentId: string,
+  contentId: string,
+  finalParams: Record<string, unknown>,
+): Promise<void> {
+  const { error, response } = await client.POST(
+    "/api/analytics/experiments/{experimentId}/assignments/{assignmentId}/bind",
+    {
+      params: { path: { experimentId, assignmentId } },
+      body: { contentId, finalParams },
+    },
+  );
+  if (error) throw new Error(`绑定实验内容失败：${apiError(error, response)}`);
 }
 
 export async function createAnalyticsExperiment(input: {

@@ -10,10 +10,13 @@ import {
   type FactorAnalysis,
   type FactorDimensionName,
   type FactorMetricName,
+  type RecommendationEvidence,
   type RecommendationView,
+  createAnalyticsRecommendationApplication,
   decideAnalyticsRecommendation,
   generateAnalyticsRecommendations,
   getAnalyticsFactors,
+  getAnalyticsRecommendationEvidence,
   listAnalyticsRecommendations,
   recomputeAnalyticsFactors,
 } from "../api/client";
@@ -47,6 +50,14 @@ function formatMetric(value: number | null): string {
     ? formatRate(value)
     : Math.round(value).toLocaleString("zh-CN");
 }
+
+/**
+ * 目标指标无数据时的切换提示（docs/22 §6.1：默认 completion_rate，缺失要提示换
+ * effective_play_rate_2s，但**不静默替用户换**——换与不换由他点）。
+ */
+const metricHasNoSample = computed(
+  () => metric.value === "completion_rate" && (result.value?.accountSampleCount ?? 0) === 0,
+);
 
 function toggleDimension(dim: FactorDimensionName): void {
   const set = new Set(dimensions.value);
@@ -134,7 +145,9 @@ function prefillOf(rec: RecommendationView): CreatePrefill {
       return { template: value as CreatePrefill["template"], recommendationId: rec.id };
     case "speech_rate":
       return {
-        rate: value.startsWith("慢") ? 0.85 : value.startsWith("快") ? 1.15 : 1,
+        // 必须落在创建页语速档位上（0.8 / 1 / 1.2）：预填一个表单里选不出来的值
+        // 会让三个档位都不高亮，用户看到的「已预填」与实际提交值不一致
+        rate: value.startsWith("慢") ? 0.8 : value.startsWith("快") ? 1.2 : 1,
         recommendationId: rec.id,
       };
     default:
@@ -177,8 +190,50 @@ async function ignore(rec: RecommendationView): Promise<void> {
   }
 }
 
-function adopt(rec: RecommendationView): void {
-  goCreate(prefillOf(rec));
+/**
+ * 采纳一条建议：先登记采纳记录（服务端自己读建议值），再带着预填进新建页。
+ *
+ * 登记失败不假装成功：仍然跳转预填（不因一个记录写入卡死生产），但横幅与提示都会
+ * 明说「这次没记上采纳」——不然效果回路会静默断链，比不预填更糟。
+ */
+async function adopt(rec: RecommendationView): Promise<void> {
+  const base = prefillOf(rec);
+  try {
+    const app = await createAnalyticsRecommendationApplication(rec.id, {
+      ...base,
+    });
+    goCreate({ ...base, applicationId: app.id, adoptionNote: rec.reason });
+  } catch (err) {
+    toast.warning(
+      `采纳记录登记失败（${err instanceof Error ? err.message : "未知错误"}）：已按建议预填，但这次采纳不会被计入效果回路`,
+    );
+    goCreate({ ...base, adoptionNote: rec.reason });
+  }
+}
+
+/* ── 证据链（docs/22 §5.2：建议必须能追到原始数据） ── */
+const evidenceOpen = ref<string | null>(null);
+const evidence = ref<RecommendationEvidence | null>(null);
+const evidenceLoading = ref(false);
+const evidenceError = ref("");
+
+async function toggleEvidence(rec: RecommendationView): Promise<void> {
+  if (evidenceOpen.value === rec.id) {
+    evidenceOpen.value = null;
+    evidence.value = null;
+    return;
+  }
+  evidenceOpen.value = rec.id;
+  evidence.value = null;
+  evidenceError.value = "";
+  evidenceLoading.value = true;
+  try {
+    evidence.value = await getAnalyticsRecommendationEvidence(rec.id);
+  } catch (err) {
+    evidenceError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    evidenceLoading.value = false;
+  }
 }
 
 onMounted(() => {
@@ -241,7 +296,11 @@ onMounted(() => {
           v-for="rec in recs"
           :key="rec.id"
           class="rounded-xl border p-3"
-          :class="rec.accepted === null ? 'border-brand/30 bg-brand-soft/40' : 'border-hairline bg-white opacity-70'"
+          :class="[
+            rec.accepted === null ? 'border-brand/30 bg-brand-soft/40' : 'border-hairline bg-white opacity-70',
+            evidenceOpen === rec.id ? 'col-span-2 max-lg:col-span-1' : '',
+          ]"
+          data-testid="rec-card"
         >
           <p class="text-[13px] font-semibold">
             {{ rec.recommendation.kindLabel }}：{{ rec.recommendation.label }}
@@ -266,10 +325,83 @@ onMounted(() => {
             <button
               type="button"
               class="cursor-pointer rounded-[10px] border border-hairline bg-white px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50"
+              :aria-expanded="evidenceOpen === rec.id"
+              @click="toggleEvidence(rec)"
+            >
+              {{ evidenceOpen === rec.id ? "收起证据" : "查看证据" }}
+            </button>
+            <button
+              type="button"
+              class="cursor-pointer rounded-[10px] border border-hairline bg-white px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50"
               @click="ignore(rec)"
             >
               忽略
             </button>
+          </div>
+          <!-- 证据链：建议 → 快照（平台/窗口/指标）→ 分组 → 参与视频 → 指标来源 → 导入原始行 -->
+          <div
+            v-if="evidenceOpen === rec.id"
+            class="mt-2 rounded-lg border border-hairline bg-[#fafbfc] p-2.5 text-xs"
+            data-testid="evidence-panel"
+          >
+            <p v-if="evidenceLoading" class="text-subtle">证据加载中…</p>
+            <p v-else-if="evidenceError" role="alert" class="text-red-600">{{ evidenceError }}</p>
+            <template v-else-if="evidence">
+              <p v-if="evidence.status === 'evidence_unavailable'" class="text-amber-800">
+                证据不完整：{{ evidence.unavailableReasons.join("；") || "缺少可回放的统计快照" }}
+              </p>
+              <p v-if="evidence.snapshot" class="text-subtle">
+                快照 #{{ evidence.snapshot.analysisType }} · 口径
+                {{ evidence.snapshot.scope?.platform ?? "未限定平台" }} ·
+                {{
+                  evidence.snapshot.scope?.windowDays
+                    ? `近 ${evidence.snapshot.scope.windowDays} 天`
+                    : "全部历史"
+                }}
+                · 模型 {{ evidence.snapshot.modelVersion }} ·
+                {{ evidence.snapshot.computedAt.slice(0, 10) }}
+              </p>
+              <p v-for="g in evidence.groups" :key="g.dimension + g.value" class="mt-1">
+                分组 {{ g.dimension }}={{ g.value }}：真实样本 {{ g.realSampleCount }} / 共
+                {{ g.sampleCount }}，中位 {{ g.median ?? "—" }}
+              </p>
+              <p v-if="evidence.videos.length > 0" class="mt-1.5 text-subtle">
+                参与样本 {{ evidence.videos.length }} 条
+              </p>
+              <ul v-if="evidence.videos.length > 0" class="mt-1 space-y-1">
+                <li v-for="v in evidence.videos.slice(0, 5)" :key="v.recordId">
+                  {{ v.title }}（{{ v.platform }} · {{ v.recordId }}）
+                  <span class="text-subtle">
+                    指标 {{ Object.keys(v.metrics).length }} 项；生产特征字段来源
+                    {{ v.fieldSources ? Object.keys(v.fieldSources).length : 0 }} 项；审计档案
+                    {{ v.auditAvailable ? "有" : "无" }}
+                  </span>
+                </li>
+              </ul>
+              <p v-if="evidence.videos.length > 5" class="text-subtle">
+                （仅列前 5 条，共 {{ evidence.videos.length }} 条）
+              </p>
+              <p v-if="evidence.importRows.length > 0" class="mt-1.5 text-subtle">
+                导入原始行 {{ evidence.importRows.length }} 条
+              </p>
+              <ul v-if="evidence.importRows.length > 0" class="mt-1 space-y-1">
+                <li
+                  v-for="r in evidence.importRows.slice(0, 5)"
+                  :key="`${r.batchId}-${r.rowNumber}`"
+                  data-testid="evidence-import-row"
+                >
+                  批次 {{ r.batchId }} · 第 {{ r.rowNumber }} 行 ·
+                  {{ r.filename ?? "文件名未知" }} · 裁决 {{ r.decisionType ?? "无记录" }}
+                </li>
+              </ul>
+              <p
+                v-for="reason in evidence.unavailableReasons"
+                :key="reason"
+                class="mt-1 text-amber-800"
+              >
+                {{ reason }}
+              </p>
+            </template>
           </div>
         </div>
       </div>
@@ -293,6 +425,23 @@ onMounted(() => {
         {{ m.label }}
       </button>
     </section>
+
+    <!-- 默认完播率无导入数据时点破并给出可换指标，但不替用户换（docs/22 §6.1） -->
+    <p
+      v-if="metricHasNoSample"
+      class="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800"
+      data-testid="metric-switch-hint"
+    >
+      <span>完播率暂无可统计的导入数据，分组结果会是空的。</span>
+      <button
+        type="button"
+        class="cursor-pointer rounded-[10px] border border-amber-300 bg-white px-2.5 py-1 text-xs hover:bg-amber-100"
+        @click="pickMetric('effective_play_rate_2s')"
+      >
+        改看「2 秒有效播放率」
+      </button>
+      <span class="text-xs">系统不会自动替你换指标。</span>
+    </p>
 
     <!-- 因子维度多选 -->
     <section class="mb-5 flex flex-wrap items-center gap-2">

@@ -788,7 +788,7 @@
           "配音"
         ],
         "operationId": "listVoices",
-        "summary": "可用配音列表（音色/性别）",
+        "summary": "可用配音列表（音色/性别；附管理页所需的全量目录与实测状态）",
         "responses": {
           "200": {
             "description": "配音列表",
@@ -802,30 +802,270 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "gender": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "gender",
+                          "id",
+                          "name"
+                        ]
+                      }
+                    },
+                    "default": {
+                      "type": "string"
+                    },
+                    "all": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "gender": {
+                            "type": "string"
+                          },
                           "id": {
                             "type": "string"
                           },
                           "name": {
                             "type": "string"
                           },
-                          "gender": {
-                            "type": "string"
+                          "checkDetail": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "checkedAt": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "engine": {
+                            "type": "string",
+                            "enum": [
+                              "edge",
+                              "local"
+                            ]
                           }
                         },
                         "required": [
+                          "gender",
                           "id",
                           "name",
-                          "gender"
+                          "checkDetail",
+                          "checkedAt",
+                          "enabled",
+                          "engine"
                         ]
                       }
-                    },
-                    "default": {
-                      "type": "string"
                     }
                   },
                   "required": [
                     "voices",
                     "default"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tts/voices/{id}": {
+      "patch": {
+        "tags": [
+          "配音"
+        ],
+        "operationId": "setVoiceEnabled",
+        "summary": "上架 / 下架配音音色（下架只影响新合成，存量内容不受影响）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "voice": {
+                      "type": "object",
+                      "properties": {
+                        "gender": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "checkDetail": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "checkedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "engine": {
+                          "type": "string",
+                          "enum": [
+                            "edge",
+                            "local"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "gender",
+                        "id",
+                        "name",
+                        "checkDetail",
+                        "checkedAt",
+                        "enabled",
+                        "engine"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "voice"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "音色不在目录中",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tts/voices/{id}/probe": {
+      "post": {
+        "tags": [
+          "配音"
+        ],
+        "operationId": "probeVoice",
+        "summary": "实测某个音色能否出音频（含已下架音色），结果写回目录供判断上下架",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "实测结论（status 非 ok 时同样返回 200：测不出来就是结果）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "no_audio",
+                        "rate_limited",
+                        "handshake_failed",
+                        "error"
+                      ]
+                    },
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "音色不在目录中",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
                   ]
                 }
               }
@@ -6514,6 +6754,322 @@
         }
       }
     },
+    "/api/analytics/content-videos": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsContentVideos",
+        "summary": "统一内容主视图（一内容一行，平台发布记录与导入指标作为明细）",
+        "description": "行锚点是 contents：本地有成片但未发布的集也在列表里（platforms=[]，status=unpublished），不为它造 local 伪平台记录。默认只返回已完成且有真实视频产物的内容；显式 status 会放开该范围以筛出失败/删除态。排序里的 play/completion/engagement 取该内容各平台该指标的最好值（max），跨平台口径不可比，绝不返回相加后的合计；指标缺键表示无数据而非 0，发布时间来源为 null 表示旧记录无法判定来源。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "unpublished",
+                "published_unimported",
+                "imported",
+                "import_conflict",
+                "failed",
+                "deleted",
+                "all"
+              ],
+              "default": "all"
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "required": false,
+            "name": "platform",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created_time",
+                "publish_time",
+                "play",
+                "completion",
+                "engagement"
+              ],
+              "default": "created_time"
+            },
+            "required": false,
+            "name": "sort",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "required": false,
+            "name": "order",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "required": false,
+            "name": "pageSize",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "统一内容列表（分页；items 顺序跟随排序参数）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "contentId": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "template": {
+                            "type": "string",
+                            "enum": [
+                              "scene_word",
+                              "word_card",
+                              "quiz"
+                            ]
+                          },
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "CET4",
+                              "CET6"
+                            ]
+                          },
+                          "localStatus": {
+                            "type": "string"
+                          },
+                          "generatedAt": {
+                            "type": "string"
+                          },
+                          "videoAssetId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "durationSec": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "unpublished",
+                              "published_unimported",
+                              "imported",
+                              "import_conflict",
+                              "failed",
+                              "deleted"
+                            ]
+                          },
+                          "statuses": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "unpublished",
+                                "published_unimported",
+                                "imported",
+                                "import_conflict",
+                                "failed",
+                                "deleted"
+                              ]
+                            }
+                          },
+                          "platformCount": {
+                            "type": "number"
+                          },
+                          "metricCoverage": {
+                            "type": "object",
+                            "properties": {
+                              "platforms": {
+                                "type": "number"
+                              },
+                              "records": {
+                                "type": "number"
+                              },
+                              "recordsWithMetrics": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "platforms",
+                              "records",
+                              "recordsWithMetrics"
+                            ]
+                          },
+                          "platforms": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "recordId": {
+                                  "type": "string"
+                                },
+                                "platform": {
+                                  "type": "string"
+                                },
+                                "platformVideoId": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "publishStatus": {
+                                  "type": "string",
+                                  "enum": [
+                                    "scheduled",
+                                    "published",
+                                    "deleted"
+                                  ]
+                                },
+                                "publishTime": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "publishTimeSource": {
+                                  "type": "string",
+                                  "nullable": true,
+                                  "enum": [
+                                    "LOCAL_GENERATED",
+                                    "PLATFORM_IMPORTED",
+                                    "USER_EDITED"
+                                  ]
+                                },
+                                "metricCount": {
+                                  "type": "number"
+                                },
+                                "hasImportConflict": {
+                                  "type": "boolean"
+                                },
+                                "metrics": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "object",
+                                    "properties": {
+                                      "value": {
+                                        "type": "number"
+                                      },
+                                      "sourceType": {
+                                        "type": "string",
+                                        "enum": [
+                                          "CREATOR_IMPORT",
+                                          "PLATFORM_PRODUCTION",
+                                          "PLATFORM_CALCULATED",
+                                          "AI_EXTRACTED",
+                                          "USER_INPUT"
+                                        ]
+                                      },
+                                      "isEstimated": {
+                                        "type": "boolean"
+                                      },
+                                      "dataDate": {
+                                        "type": "string",
+                                        "nullable": true
+                                      }
+                                    },
+                                    "required": [
+                                      "value",
+                                      "sourceType",
+                                      "isEstimated",
+                                      "dataDate"
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "recordId",
+                                "platform",
+                                "platformVideoId",
+                                "publishStatus",
+                                "publishTime",
+                                "publishTimeSource",
+                                "metricCount",
+                                "hasImportConflict",
+                                "metrics"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "contentId",
+                          "title",
+                          "template",
+                          "level",
+                          "localStatus",
+                          "generatedAt",
+                          "videoAssetId",
+                          "durationSec",
+                          "status",
+                          "statuses",
+                          "platformCount",
+                          "metricCoverage",
+                          "platforms"
+                        ]
+                      }
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "page": {
+                      "type": "number"
+                    },
+                    "pageSize": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "total",
+                    "page",
+                    "pageSize"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      }
+    },
     "/api/analytics/factors": {
       "get": {
         "tags": [
@@ -6521,7 +7077,7 @@
         ],
         "operationId": "getAnalyticsFactors",
         "summary": "内容因子分析（哪些生产参数与效果同时出现；分组统计非因果，纯读不落库）",
-        "description": "需求 §十一 页面 D / §十四：早期只做分组统计（中位数/均值/样本数），不上模型；每组必携 sampleCount，<8 标 lowSample；响应 note 声明相关性非因果。批次 5B：GET 纯读不再有写副作用，留档走 POST /factors。",
+        "description": "需求 §十一 页面 D / §十四：早期只做分组统计（中位数/均值/样本数），不上模型；每组必携 sampleCount，低样本判据为「非估算真实样本 <8」（估算值如窗口归因涨粉不满足行动门槛）；响应 note 声明相关性非因果。批次 5B：GET 纯读不再有写副作用，留档走 POST /factors。批次二：可选 platform/days 收窄统计范围（docs/22 §6.1 同平台同窗口才可比），省略时保持既有全量口径并在 note 里明示跨平台。",
         "parameters": [
           {
             "schema": {
@@ -6551,6 +7107,25 @@
             },
             "required": false,
             "name": "dimensions",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "required": false,
+            "name": "platform",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
+            },
+            "required": false,
+            "name": "days",
             "in": "query"
           }
         ],
@@ -7192,6 +7767,528 @@
           },
           "500": {
             "description": "更新失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/recommendations/{recommendationId}/evidence": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "getAnalyticsRecommendationEvidence",
+        "summary": "建议证据链回放（快照 → 分组 → 参与视频 → 指标 provenance → 导入原始行 → 生产字段来源）",
+        "description": "docs/22 §5.2：建议必须能追到它依据的真实数据。analysisResultId 为 null 的历史建议返回 status=evidence_unavailable 并说明「产出时未留档快照」，不回推一份看起来完整的证据；指标行缺 batch_id/import_row 留痕（派生或人工录入）时如实说明只能追到字段名层级。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "recommendationId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "证据视图（traceable 或 evidence_unavailable）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recommendationId": {
+                      "type": "string"
+                    },
+                    "recommendationType": {
+                      "type": "string"
+                    },
+                    "recommendation": {
+                      "nullable": true
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "targetMetric": {
+                      "type": "string"
+                    },
+                    "sourceSampleCount": {
+                      "type": "number"
+                    },
+                    "analysisResultId": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "traceable",
+                        "evidence_unavailable"
+                      ]
+                    },
+                    "unavailableReasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "snapshot": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "analysisType": {
+                          "type": "string"
+                        },
+                        "modelVersion": {
+                          "type": "string"
+                        },
+                        "computedAt": {
+                          "type": "string"
+                        },
+                        "scope": {
+                          "nullable": true
+                        },
+                        "accountMedian": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "accountSampleCount": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "accountRealSampleCount": {
+                          "type": "number",
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "analysisType",
+                        "modelVersion",
+                        "computedAt",
+                        "accountMedian",
+                        "accountSampleCount",
+                        "accountRealSampleCount"
+                      ]
+                    },
+                    "groups": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "dimension": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          },
+                          "sampleCount": {
+                            "type": "number"
+                          },
+                          "realSampleCount": {
+                            "type": "number"
+                          },
+                          "median": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "mean": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "recordIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "dimension",
+                          "value",
+                          "sampleCount",
+                          "realSampleCount",
+                          "median",
+                          "mean",
+                          "recordIds"
+                        ]
+                      }
+                    },
+                    "videos": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "recordId": {
+                            "type": "string"
+                          },
+                          "contentId": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "platformVideoId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "publishStatus": {
+                            "type": "string"
+                          },
+                          "publishTime": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "publishTimeSource": {
+                            "type": "string",
+                            "nullable": true,
+                            "enum": [
+                              "LOCAL_GENERATED",
+                              "PLATFORM_IMPORTED",
+                              "USER_EDITED"
+                            ]
+                          },
+                          "videoAssetId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "metrics": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "object",
+                              "properties": {
+                                "value": {
+                                  "type": "number"
+                                },
+                                "sourceType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "CREATOR_IMPORT",
+                                    "PLATFORM_PRODUCTION",
+                                    "PLATFORM_CALCULATED",
+                                    "AI_EXTRACTED",
+                                    "USER_INPUT"
+                                  ]
+                                },
+                                "sourceField": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "dataDate": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "isEstimated": {
+                                  "type": "boolean"
+                                },
+                                "batchId": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "importRowNumber": {
+                                  "type": "number",
+                                  "nullable": true
+                                },
+                                "matchedBy": {
+                                  "type": "string",
+                                  "nullable": true
+                                }
+                              },
+                              "required": [
+                                "value",
+                                "sourceType",
+                                "sourceField",
+                                "dataDate",
+                                "isEstimated",
+                                "batchId",
+                                "importRowNumber",
+                                "matchedBy"
+                              ]
+                            }
+                          },
+                          "features": {
+                            "type": "object",
+                            "nullable": true,
+                            "additionalProperties": {
+                              "nullable": true
+                            }
+                          },
+                          "fieldSources": {
+                            "type": "object",
+                            "nullable": true,
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "auditAvailable": {
+                            "type": "boolean"
+                          },
+                          "auditInputKeys": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "recordId",
+                          "contentId",
+                          "title",
+                          "platform",
+                          "platformVideoId",
+                          "publishStatus",
+                          "publishTime",
+                          "publishTimeSource",
+                          "videoAssetId",
+                          "metrics",
+                          "features",
+                          "fieldSources",
+                          "auditAvailable",
+                          "auditInputKeys"
+                        ]
+                      }
+                    },
+                    "importRows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "batchId": {
+                            "type": "string"
+                          },
+                          "rowNumber": {
+                            "type": "number"
+                          },
+                          "filename": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "batchPlatform": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "batchStatus": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "rawData": {
+                            "nullable": true
+                          },
+                          "matchStatus": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "decisionType": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "batchId",
+                          "rowNumber",
+                          "filename",
+                          "batchPlatform",
+                          "batchStatus",
+                          "matchStatus",
+                          "decisionType"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "recommendationId",
+                    "recommendationType",
+                    "reason",
+                    "targetMetric",
+                    "sourceSampleCount",
+                    "analysisResultId",
+                    "status",
+                    "unavailableReasons",
+                    "snapshot",
+                    "groups",
+                    "videos",
+                    "importRows"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "建议不存在"
+          },
+          "500": {
+            "description": "证据查询失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/recommendations/{recommendationId}/applications": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "createAnalyticsRecommendationApplication",
+        "summary": "记录一次建议采纳（建议值 + 页面预填值分开存；最终值由生成成功后的 bind 写入）",
+        "description": "suggestedParams 由服务端从建议行当场读出，不接受前端回传建议值（防「按建议生成」其实换了参数）。本端点只登记采纳动作；生成失败时不会有对应 bind 调用，记录保持未绑定，不伪造 content_id。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "recommendationId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prefillParams": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "required": [
+                  "prefillParams"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "采纳记录已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "targetMetric": {
+                      "type": "string"
+                    },
+                    "analysisResultId": {
+                      "type": "number",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "targetMetric",
+                    "analysisResultId"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "404": {
+            "description": "建议不存在"
+          },
+          "500": {
+            "description": "创建失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/recommendation-applications/{applicationId}/bind": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "bindAnalyticsRecommendationApplication",
+        "summary": "生成成功后绑定内容与用户最终参数（一次采纳对应一次生成，不覆盖首次事实）",
+        "description": "finalParams 必须是用户实际提交给生成链路的值，不是建议值；内容不存在时拒绝绑定（404），已绑定过再绑返回 409 而不是静默改写。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "applicationId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "contentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  "finalParams": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "required": [
+                  "contentId",
+                  "finalParams"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "绑定完成",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "bound": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "bound"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "404": {
+            "description": "采纳记录或内容不存在"
+          },
+          "409": {
+            "description": "该采纳记录已绑定过内容"
+          },
+          "500": {
+            "description": "绑定失败"
           }
         }
       }
@@ -8096,6 +9193,326 @@
           },
           "500": {
             "description": "更新失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/experiments/{experimentId}/assignments": {
+      "get": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "listAnalyticsExperimentAssignments",
+        "summary": "实验的变体分配台账（谁在生成前被定为哪一组、是否已绑定内容）",
+        "description": "旧 `GET /experiments` 的两组 contentIds 是事后记账，回答不了「生成前是否已选定变体」。本端点是新增的读出口，不改旧响应结构。实验不存在回 404——不能拿一份空列表冒充「这个实验还没有分配」。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "experimentId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "分配列表（按分配时间升序）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "experimentId": {
+                            "type": "string"
+                          },
+                          "contentId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "variant": {
+                            "type": "string",
+                            "enum": [
+                              "A",
+                              "B"
+                            ]
+                          },
+                          "assignmentMethod": {
+                            "type": "string"
+                          },
+                          "assignedParams": {
+                            "type": "object",
+                            "nullable": true,
+                            "additionalProperties": {
+                              "nullable": true
+                            }
+                          },
+                          "finalParams": {
+                            "type": "object",
+                            "nullable": true,
+                            "additionalProperties": {
+                              "nullable": true
+                            }
+                          },
+                          "assignedAt": {
+                            "type": "string"
+                          },
+                          "boundAt": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "experimentId",
+                          "contentId",
+                          "variant",
+                          "assignmentMethod",
+                          "assignedParams",
+                          "finalParams",
+                          "assignedAt",
+                          "boundAt"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "实验不存在（不能拿一份空列表冒充「这个实验还没有分配」）"
+          },
+          "500": {
+            "description": "查询失败"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "createAnalyticsExperimentAssignment",
+        "summary": "生成前登记一次变体分配（variant 只能 A/B；仅 draft/running 的实验可分配）",
+        "description": "第一版 assignment_method 固定 operator_selected——没有随机分流基础设施就不假装随机 A/B。此时还没有内容：contentId 为空，生成成功后由 bind 写入。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "experimentId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "variant": {
+                    "type": "string",
+                    "enum": [
+                      "A",
+                      "B"
+                    ]
+                  },
+                  "assignedParams": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "required": [
+                  "variant",
+                  "assignedParams"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "分配已登记",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "experimentId": {
+                      "type": "string"
+                    },
+                    "contentId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "variant": {
+                      "type": "string",
+                      "enum": [
+                        "A",
+                        "B"
+                      ]
+                    },
+                    "assignmentMethod": {
+                      "type": "string"
+                    },
+                    "assignedParams": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": {
+                        "nullable": true
+                      }
+                    },
+                    "finalParams": {
+                      "type": "object",
+                      "nullable": true,
+                      "additionalProperties": {
+                        "nullable": true
+                      }
+                    },
+                    "assignedAt": {
+                      "type": "string"
+                    },
+                    "boundAt": {
+                      "type": "string",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "experimentId",
+                    "contentId",
+                    "variant",
+                    "assignmentMethod",
+                    "assignedParams",
+                    "finalParams",
+                    "assignedAt",
+                    "boundAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "404": {
+            "description": "实验不存在"
+          },
+          "409": {
+            "description": "实验状态不允许再分配（已完成/已取消）"
+          },
+          "500": {
+            "description": "登记失败"
+          }
+        }
+      }
+    },
+    "/api/analytics/experiments/{experimentId}/assignments/{assignmentId}/bind": {
+      "post": {
+        "tags": [
+          "数据分析"
+        ],
+        "operationId": "bindAnalyticsExperimentAssignment",
+        "summary": "生成成功后绑定内容与最终参数（一次分配对应一次生成，不覆盖首次事实）",
+        "description": "finalParams 是用户实际提交的参数，不是分配时的参数；内容不存在或状态为 failed 时拒绝绑定——失败产物不是实验样本，未绑定的分配会如实留在台账里。",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "experimentId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 32
+            },
+            "required": true,
+            "name": "assignmentId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "contentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  "finalParams": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "nullable": true
+                    }
+                  }
+                },
+                "required": [
+                  "contentId",
+                  "finalParams"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "绑定成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数不合法"
+          },
+          "404": {
+            "description": "分配不存在或内容不存在"
+          },
+          "409": {
+            "description": "该分配已绑定过 / 内容已被这条实验的其它分配占用 / 内容为生成失败产物（都不静默覆盖首次事实）"
+          },
+          "500": {
+            "description": "绑定失败"
           }
         }
       }

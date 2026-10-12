@@ -14,6 +14,7 @@ import InsightsVideos from "./views/InsightsVideos.vue";
 import MarksList from "./views/MarksList.vue";
 import TaskDetail from "./views/TaskDetail.vue";
 import TaskList from "./views/TaskList.vue";
+import TtsVoices from "./views/TtsVoices.vue";
 import VideoList from "./views/VideoList.vue";
 
 const routes = [
@@ -25,6 +26,7 @@ const routes = [
   { path: "/audit", name: "audit", component: AuditList, meta: { title: "审计管理" } },
   { path: "/videos", name: "videos", component: VideoList, meta: { title: "视频资产" } },
   { path: "/marks", name: "marks", component: MarksList, meta: { title: "上传标记" } },
+  { path: "/tts-voices", name: "tts-voices", component: TtsVoices, meta: { title: "配音音色" } },
   { path: "/analytics", name: "analytics", component: Analytics, meta: { title: "发布管理" } },
   { path: "/insights", name: "insights", component: InsightsOverview, meta: { title: "数据分析" } },
   {

@@ -477,6 +477,26 @@ async function loadVideoRowsInWindow(from: Date, to: Date): Promise<VideoRowData
   );
 }
 
+/**
+ * 按统计范围装载样本行（docs/22 §6.1：因子/推荐只认同平台、同窗口的值）。
+ *
+ * platform=null 或 windowDays=null 表示「未限定」——装载层不做隐含收窄（口径由调用方自述），
+ * 但推荐层据此拒绝出参数改动建议（跨平台混合不可比、窗口不明无法复现）。
+ */
+export async function loadVideoRowsForScope(scope: {
+  platform: string | null;
+  windowDays: number | null;
+}): Promise<VideoRowData[]> {
+  const conditions = [];
+  if (scope.platform) conditions.push(eq(publishRecords.platform, scope.platform));
+  if (scope.windowDays !== null) {
+    const to = new Date();
+    const from = new Date(to.getTime() - scope.windowDays * 86_400_000);
+    conditions.push(sql`${publishedAtSql} >= ${toSqlDateTime(from)}`);
+  }
+  return loadVideoRowsBy(conditions.length > 0 ? and(...conditions) : undefined);
+}
+
 /** 账号窗口内日新增粉丝合计与参与天数（fans null=窗口内无任何导入行，区别于 0） */
 async function sumCreatorNewFans(
   from: Date,

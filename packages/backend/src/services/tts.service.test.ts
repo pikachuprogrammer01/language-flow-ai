@@ -15,7 +15,7 @@ const { wsInstances, execFileMock } = vi.hoisted(() => ({
 class FakeWS extends EventEmitter {
   sent: string[] = [];
   closed = false;
-  constructor() {
+  constructor(readonly url: string) {
     super();
     wsInstances.push(this);
   }
@@ -40,8 +40,8 @@ class FakeWS extends EventEmitter {
 }
 
 vi.mock("ws", () => ({
-  default: vi.fn(function create() {
-    return new FakeWS();
+  default: vi.fn(function create(url: string): FakeWS {
+    return new FakeWS(url);
   }),
 }));
 // promisify(execFile) 依赖 nodejs.util.promisify.custom 才能拿到 { stdout }；显式实现该符号
@@ -60,6 +60,7 @@ vi.mock("node:child_process", () => {
 
 const {
   buildQuizItemText,
+  classifyTtsError,
   estimateSpeechSeconds,
   getAudioDuration,
   isMacVoice,
@@ -97,37 +98,80 @@ describe("synthesizeSpeech — Edge TTS 路径", () => {
     expect(ws.sent[1]).toContain("&lt;world&gt; &amp; &apos;quote&apos;");
   });
 
-  it("全 3 次尝试均无音频：抛 No audio data（重试预算用尽）", async () => {
+  it("端点守卫：合成走 api.msedgeservices.com + Ocp-Apim-Subscription-Key（旧主机自 2026-10 起 403）", async () => {
     const p = synthesizeSpeech("x", "zh-CN-XiaoxiaoNeural");
-    // 同步驱动失败时，中间轮 rejection 到下一 microtask 才被重试循环接住——预挂 no-op catch 占位防 unhandled
+    wsAt(0).completeWith("AUDIO");
+    await expect(p).resolves.toEqual(Buffer.from("AUDIO"));
+    const url = new URL(wsAt(0).url);
+    expect(url.host).toBe("api.msedgeservices.com");
+    expect(url.pathname).toBe("/tts/cognitiveservices/websocket/v1");
+    expect(url.searchParams.get("Ocp-Apim-Subscription-Key")).toBe(
+      "6A5AA1D4EAFF4E9FB37E23D68491D6F4",
+    );
+    expect(url.searchParams.has("TrustedClientToken")).toBe(false);
+    expect(url.searchParams.get("Sec-MS-GEC")).toMatch(/^[0-9A-F]{64}$/);
+    expect(url.searchParams.get("Sec-MS-GEC-Version")).toMatch(/^1-\d+\.\d+\.\d+\.\d+$/);
+  });
+
+  it("音色不可用（连上但零音频帧）不重试：只连一次，文案指路到音色页", async () => {
+    const p = synthesizeSpeech("x", "zh-CN-XiaohanNeural");
     p.catch(() => {});
-    for (let i = 0; i < 3; i++) {
-      wsAt(i).emit("open");
-      wsAt(i).close();
-      await vi.advanceTimersByTimeAsync(1100);
-    }
-    await expect(p).rejects.toThrow("No audio data");
+    wsAt(0).emit("open");
+    wsAt(0).close();
+    await expect(p).rejects.toThrow(/该音色在当前配音端点不可用/);
+    expect(wsInstances).toHaveLength(1);
+  });
+
+  it("握手类失败只补 1 次（共 2 次连接）后透出原文", async () => {
+    const p = synthesizeSpeech("x", "zh-CN-XiaoxiaoNeural");
+    p.catch(() => {});
+    wsAt(0).emit("error", new Error("socket boom"));
+    await vi.advanceTimersByTimeAsync(600);
+    wsAt(1).emit("error", new Error("socket boom again"));
+    await expect(p).rejects.toThrow(/配音端点连接失败/);
+    expect(wsInstances).toHaveLength(2);
+  });
+
+  it("限流 429 按 2s/6s 退避重试 2 次（共 3 次连接），不固定连发", async () => {
+    const p = synthesizeSpeech("x", "zh-CN-XiaoxiaoNeural");
+    p.catch(() => {});
+    wsAt(0).emit("error", new Error("Unexpected server response: 429"));
+    await vi.advanceTimersByTimeAsync(1900);
+    expect(wsInstances).toHaveLength(1); // 2s 未到期不得提前重连
+    await vi.advanceTimersByTimeAsync(200);
+    wsAt(1).emit("error", new Error("Unexpected server response: 429"));
+    await vi.advanceTimersByTimeAsync(6100);
+    wsAt(2).emit("error", new Error("Unexpected server response: 429"));
+    await expect(p).rejects.toThrow(/配音服务限流/);
     expect(wsInstances).toHaveLength(3);
   });
 
-  it("WebSocket error 事件：逐次透出并最终失败", async () => {
+  it("握手失败后第二次成功即返回（共 2 次连接）", async () => {
     const p = synthesizeSpeech("x", "zh-CN-XiaoxiaoNeural");
-    p.catch(() => {});
-    for (let i = 0; i < 3; i++) {
-      wsAt(i).emit("error", new Error(`socket boom ${String(i)}`));
-      await vi.advanceTimersByTimeAsync(1100);
-    }
-    await expect(p).rejects.toThrow("socket boom 0"); // 抛的是首次错误
-  });
-
-  it("首轮失败自动重试：第二次成功即返回（共 2 次连接）", async () => {
-    const p = synthesizeSpeech("x", "zh-CN-XiaoxiaoNeural");
-    wsAt(0).emit("open");
-    wsAt(0).close();
+    wsAt(0).emit("error", new Error("ECONNRESET"));
     await vi.advanceTimersByTimeAsync(600);
     wsAt(1).completeWith("OK");
     await expect(p).resolves.toEqual(Buffer.from("OK"));
     expect(wsInstances).toHaveLength(2);
+  });
+});
+
+describe("classifyTtsError（重试预算的依据）", () => {
+  it("零音频帧 = 音色不可用，重试没有意义", () => {
+    expect(classifyTtsError("No audio data received from Edge TTS")).toBe("voice_unavailable");
+  });
+  it("429 = 限流，必须退避而非连发", () => {
+    expect(classifyTtsError("Unexpected server response: 429")).toBe("rate_limited");
+  });
+  it("容器缺 say = 本地引擎缺失", () => {
+    expect(classifyTtsError("spawn say ENOENT")).toBe("local_engine_missing");
+    expect(classifyTtsError("say 合成结果为空（音色 Tingting 可能未安装/未下载）")).toBe(
+      "local_engine_missing",
+    );
+  });
+  it("其余（403/超时/网络）归到握手失败", () => {
+    expect(classifyTtsError("Unexpected server response: 403")).toBe("handshake_failed");
+    expect(classifyTtsError("Edge TTS timed out")).toBe("handshake_failed");
   });
 });
 

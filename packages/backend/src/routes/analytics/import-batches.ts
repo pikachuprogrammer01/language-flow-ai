@@ -30,6 +30,7 @@ import {
   rollbackBatch,
   saveRules,
 } from "../../services/analytics-import-batch.service";
+import { generateRecommendations } from "../../services/analytics-recommend.service";
 import { analyticsRoute } from "./shared";
 
 const batchIdParam = z.object({ batchId: z.string().min(1).max(32) });
@@ -908,6 +909,14 @@ analyticsRoute.openapi(commitRoute, async (c) => {
     const result = await commitBatch(batchId);
     if (result.kind === "not-found") return c.json(apiError("NOT_FOUND", "批次不存在"), 404);
     if (result.kind === "preflight_failed") return preflightFailed(c, result.report);
+    // 导入成功后刷新一次推荐（docs/22 §6.2）：必须在提交事务之外，
+    // 刷新失败绝不回滚已落库的指标——只记日志，页面 D 的「按最新数据生成」仍是手动兜底。
+    try {
+      const created = await generateRecommendations();
+      logger.info({ batchId, created }, "导入提交后已刷新生产建议");
+    } catch (e) {
+      logger.error({ err: e, batchId }, "导入提交后刷新生产建议失败（导入结果不受影响）");
+    }
     return c.json({ ok: true as const, summary: result.summary satisfies CommitSummary }, 200);
   } catch (e) {
     logger.error({ err: e, batchId }, "import-batches 提交失败");

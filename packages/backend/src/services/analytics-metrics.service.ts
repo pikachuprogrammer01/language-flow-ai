@@ -7,7 +7,7 @@
  * - 视频级 new_fan_count 属时间窗口归因/估算，导入时必须显式携带 isEstimated（本服务不自动派生粉丝归因）
  */
 import { randomBytes } from "node:crypto";
-import { and, asc, count, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, like, lte, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   contents,
@@ -20,6 +20,7 @@ import {
   CREATOR_DAILY_FIELDS,
   type MetricSourceType,
   type MetricUnit,
+  type PublishTimeSource,
   derivedMetricNames,
   findCanonicalMetric,
   isCreatorDailyField,
@@ -297,11 +298,33 @@ export type PublishRecordResult =
   | { kind: "content-not-found" }
   | { kind: "duplicate" };
 
+/**
+ * 新建发布记录时确定发布时间与其来源。
+ *
+ * 表单里没填时间不代表这一集没有时间——它确实在 contents.created_at 那一刻产出过。
+ * 留 NULL 会让数据接入页只能显示「-」，也让导入按发布时间匹配失去对齐锚点，
+ * 所以用本地生成事实兜底并如实标注来源，导入到真实平台时间时可以覆盖它。
+ *
+ * 解析不出的表单时间回 null（不产生 Invalid Date 落库），也**不**拿生成时间冒充
+ * 用户填的时间——两者语义不同，冒充会让来源说成 USER_EDITED 而值其实是兜底值。
+ */
+export function resolvePublishTimeOnCreate(
+  formTime: string | null | undefined,
+  contentCreatedAt: Date,
+): { publishTime: Date | null; publishTimeSource: PublishTimeSource | null } {
+  if (formTime) {
+    const parsed = new Date(formTime);
+    if (Number.isNaN(parsed.getTime())) return { publishTime: null, publishTimeSource: null };
+    return { publishTime: parsed, publishTimeSource: "USER_EDITED" };
+  }
+  return { publishTime: contentCreatedAt, publishTimeSource: "LOCAL_GENERATED" };
+}
+
 export async function createPublishRecord(
   input: PublishRecordCreateInput,
 ): Promise<PublishRecordResult> {
   const [content] = await db
-    .select({ id: contents.id, video: contents.video })
+    .select({ id: contents.id, video: contents.video, createdAt: contents.createdAt })
     .from(contents)
     .where(eq(contents.id, input.contentId))
     .limit(1);
@@ -320,6 +343,10 @@ export async function createPublishRecord(
     if (dup.length > 0) return { kind: "duplicate" };
   }
   const id = makePublishId();
+  const { publishTime, publishTimeSource } = resolvePublishTimeOnCreate(
+    input.publishTime,
+    content.createdAt,
+  );
   try {
     await db.insert(publishRecords).values({
       id,
@@ -328,7 +355,8 @@ export async function createPublishRecord(
       platform: input.platform,
       platformVideoId: input.platformVideoId ?? null,
       publishTitle: input.publishTitle ?? null,
-      publishTime: input.publishTime ? new Date(input.publishTime) : null,
+      publishTime,
+      publishTimeSource,
       coverUrl: input.coverUrl ?? null,
       publishStatus: input.publishStatus ?? "published",
     });
@@ -403,6 +431,8 @@ export async function upsertPublishRecordFromMark(
       platformVideoId: intent.platformVideoId,
       publishTitle: intent.publishTitle,
       publishTime: intent.publishTime,
+      // 标记动作本身就是用户断言的发布时间（不是本地生成兜底，也不是平台导入）
+      publishTimeSource: intent.publishTimeSource,
       coverUrl: null,
       publishStatus: intent.publishStatus,
     });
@@ -423,6 +453,11 @@ export interface PublishRecordListItem {
   platform: string;
   platformVideoId: string | null;
   publishTitle: string | null;
+  /**
+   * 发布时间；publish_time_source（这一时间的来处）不在本响应里暴露：
+   * GET /publish-records 是已发布契约，加字段等于改响应结构。来源统一在
+   * GET /content-videos 的平台明细里给出。
+   */
   publishTime: string | null;
   coverUrl: string | null;
   publishStatus: string;
@@ -536,8 +571,12 @@ export async function updatePublishRecord(
         ...(patch.platform !== undefined ? { platform } : {}),
         ...(patch.platformVideoId !== undefined ? { platformVideoId } : {}),
         ...(patch.publishTitle !== undefined ? { publishTitle: patch.publishTitle } : {}),
+        // 表单里改发布时间 = 人工断言，来源标 USER_EDITED；导入的平台真实时间不得覆盖它
         ...(patch.publishTime !== undefined
-          ? { publishTime: patch.publishTime ? new Date(patch.publishTime) : null }
+          ? {
+              publishTime: patch.publishTime ? new Date(patch.publishTime) : null,
+              publishTimeSource: patch.publishTime ? ("USER_EDITED" as const) : null,
+            }
           : {}),
         ...(patch.coverUrl !== undefined ? { coverUrl: patch.coverUrl } : {}),
         ...(patch.publishStatus !== undefined ? { publishStatus: patch.publishStatus } : {}),
@@ -549,6 +588,62 @@ export async function updatePublishRecord(
     throw e;
   }
   return "updated";
+}
+
+export interface PublishTimeBackfillReport {
+  /** publish_time 为空的历史发布记录数 */
+  nullTimeRecords: number;
+  /** 其中能关联到 contents.created_at、本次可回填的条数 */
+  backfillable: number;
+  /** 关联不到内容的时间来源冲突数（FK 保证正常为 0，非 0 必须让人看见） */
+  conflicts: number;
+  /** 本次是否真的写入 */
+  applied: boolean;
+  /** 实际更新条数（dry-run 为 0） */
+  updated: number;
+}
+
+/**
+ * 历史空发布时间回填（只补 publish_time IS NULL 的记录）。
+ *
+ * 只读预演是默认态：先给出「空值多少 / 能回填多少 / 冲突多少」，确认后才 --apply。
+ * 已有非空时间（人工填写或导入的平台时间）一律不碰，也无法判定其来源，
+ * 故不事后编造 publish_time_source——留 NULL 就是「不知道」。
+ * 幂等：回填后记录不再满足 IS NULL，第二次执行零变更。
+ */
+export async function backfillMissingPublishTime(
+  apply: boolean,
+  executor: Executor = db,
+): Promise<PublishTimeBackfillReport> {
+  const rows = await executor
+    .select({
+      recordId: publishRecords.id,
+      contentCreatedAt: contents.createdAt,
+    })
+    .from(publishRecords)
+    .leftJoin(contents, eq(contents.id, publishRecords.contentId))
+    .where(isNull(publishRecords.publishTime));
+  const backfillable = rows.filter((r) => r.contentCreatedAt !== null);
+  const report = {
+    nullTimeRecords: rows.length,
+    backfillable: backfillable.length,
+    conflicts: rows.length - backfillable.length,
+    applied: apply,
+    updated: 0,
+  };
+  if (!apply) return report;
+  for (const row of backfillable) {
+    await executor
+      .update(publishRecords)
+      .set({
+        publishTime: row.contentCreatedAt,
+        publishTimeSource: "LOCAL_GENERATED",
+        updatedAt: new Date(),
+      })
+      .where(eq(publishRecords.id, row.recordId));
+    report.updated += 1;
+  }
+  return report;
 }
 
 /** 删除发布记录（指标级联）；不存在时返回 false 供路由回 404，不再假报删除成功 */

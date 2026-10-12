@@ -9,12 +9,13 @@ import WebSocket, { type RawData } from "ws";
 import { logger } from "../lib/logger";
 
 // Edge TTS — 微软公开的浏览器朗读接口
-// 来源: https://github.com/rany2/edge-tts（2026-08 master）
+// 来源: https://github.com/rany2/edge-tts（2026-08 master；403 修复对齐 PR #491）
 // 服务端要求：Sec-MS-GEC 时间戳签名（hex 大写、向下取整到 5 分钟）+ Cookie muid，
 // 缺失或算法不符返回 403
 
-const EDGE_TTS_BASE_URL =
-  "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
+// 2026-10 起旧主机 speech.platform.bing.com 对合成 WebSocket 一律 403（音色列表仍可用），
+// Edge 155 改走 api.msedgeservices.com，同一 token 换用 Ocp-Apim-Subscription-Key 传
+const EDGE_TTS_BASE_URL = "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1";
 const EDGE_TTS_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 // 与 edge-tts master 对齐：Chromium 143
 const SEC_MS_GEC_VERSION = "1-143.0.3650.75";
@@ -31,7 +32,7 @@ function buildEdgeTtsUrl(): string {
     .digest("hex")
     .toUpperCase();
   return (
-    `${EDGE_TTS_BASE_URL}?TrustedClientToken=${EDGE_TTS_TOKEN}` +
+    `${EDGE_TTS_BASE_URL}?Ocp-Apim-Subscription-Key=${EDGE_TTS_TOKEN}` +
     `&ConnectionId=${randomUUID()}` +
     `&Sec-MS-GEC=${secMsGec}` +
     `&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}`
@@ -52,8 +53,11 @@ export function isMacVoice(voice: string): boolean {
  * 通过 WebSocket 连接 Edge TTS 服务，将中文文本合成 MP3
  * 返回音频 Buffer，可直接写入文件或返回前端
  */
-/** Mac 本地合成（say 命令，稳定离线；输出 AIFF 22050Hz mono） */
-async function synthesizeWithSay(text: string, voice: string, rate = 1): Promise<Buffer> {
+/** Mac 本地合成（say 命令，稳定离线；输出 AIFF 22050Hz mono） */ async function synthesizeWithSay(
+  text: string,
+  voice: string,
+  rate = 1,
+): Promise<Buffer> {
   const workDir = await mkdtemp(join(tmpdir(), "lf-say-"));
   const outPath = join(workDir, "out.aiff");
   try {
@@ -73,7 +77,61 @@ async function synthesizeWithSay(text: string, voice: string, rate = 1): Promise
   }
 }
 
-/** 合成（按音色自动分发引擎；Edge 含一次自动重试：偶发断开/无数据） */
+/** 配音失败类别：不同类别的重试代价完全不同，混在一起重试会放大故障 */
+export type TtsErrorClass =
+  | "voice_unavailable"
+  | "rate_limited"
+  | "handshake_failed"
+  | "local_engine_missing";
+
+/**
+ * 每类的重试预算（docs/24 §五）。
+ * 音色不可用重试没有意义（白等 7 秒再报同一个错）；限流必须退避，
+ * 否则固定 3 连发会把自己正在等的窗口越推越远。
+ */
+const RETRY_BUDGET: Record<TtsErrorClass, { attempts: number; backoffMs: number[] }> = {
+  voice_unavailable: { attempts: 0, backoffMs: [] },
+  local_engine_missing: { attempts: 0, backoffMs: [] },
+  rate_limited: { attempts: 2, backoffMs: [2000, 6000] },
+  handshake_failed: { attempts: 1, backoffMs: [500] },
+};
+
+/** 纯函数：从错误文本判类别（消息原文来自 ws / child_process，格式稳定） */
+export function classifyTtsError(message: string): TtsErrorClass {
+  if (message.includes("No audio data received")) return "voice_unavailable";
+  if (message.includes("429")) return "rate_limited";
+  if (message.includes("spawn say") || message.includes("say 合成结果为空")) {
+    return "local_engine_missing";
+  }
+  return "handshake_failed";
+}
+
+/** 面向用户的失败原因：说清该做什么，而不是笼统一句「合成失败」 */
+export function ttsUserMessage(cls: TtsErrorClass, raw: string): string {
+  switch (cls) {
+    case "voice_unavailable":
+      return `该音色在当前配音端点不可用（${raw}）；可在「配音音色」页测一次，或换已上架的音色`;
+    case "rate_limited":
+      return `配音服务限流，退避重试后仍未通过（${raw}），请稍后重试`;
+    case "local_engine_missing":
+      return `本地音色需要宿主机 say 命令，当前运行环境不可用（${raw}）`;
+    default:
+      return `配音端点连接失败（${raw}）`;
+  }
+}
+
+/** 带类别的合成失败：路由据此决定文案与日志字段，不再只透传字符串 */
+export class TtsError extends Error {
+  constructor(
+    readonly cls: TtsErrorClass,
+    message: string,
+  ) {
+    super(message);
+    this.name = "TtsError";
+  }
+}
+
+/** 合成（按音色自动分发引擎；重试预算按失败类别决定） */
 export async function synthesizeSpeech(
   text: string,
   voice = DEFAULT_VOICE,
@@ -82,29 +140,22 @@ export async function synthesizeSpeech(
   if (isMacVoice(voice)) {
     return synthesizeWithSay(text, voice, rate);
   }
-  try {
-    return await synthesizeOnce(text, voice, rate);
-  } catch (err) {
-    logger.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "tts 首次合成失败，重试",
-    );
-    for (let attempt = 0; attempt < 2; attempt++) {
-      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-      try {
-        return await synthesizeOnce(text, voice, rate);
-      } catch (retryErr) {
-        logger.warn(
-          {
-            err: retryErr instanceof Error ? retryErr.message : String(retryErr),
-            attempt: attempt + 1,
-          },
-          "tts 重试失败",
-        );
-      }
+  let cls: TtsErrorClass | null = null;
+  let raw = "";
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await synthesizeOnce(text, voice, rate);
+    } catch (err) {
+      raw = err instanceof Error ? err.message : String(err);
+      cls ??= classifyTtsError(raw);
+      logger.warn({ err: raw, attempt, ttsErrorClass: cls }, "tts 合成失败");
+      const budget = RETRY_BUDGET[cls];
+      if (attempt >= budget.attempts) break;
+      await new Promise((r) => setTimeout(r, budget.backoffMs[attempt] ?? 0));
     }
-    throw err;
   }
+  const kind: TtsErrorClass = cls ?? "handshake_failed";
+  throw new TtsError(kind, ttsUserMessage(kind, raw));
 }
 
 function synthesizeOnce(text: string, voice = DEFAULT_VOICE, rate = 1): Promise<Buffer> {

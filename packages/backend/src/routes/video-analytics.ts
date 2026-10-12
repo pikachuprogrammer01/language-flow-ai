@@ -5,7 +5,8 @@ import { contents, videoAnalytics } from "../db/schema";
 import { API_TAGS } from "../lib/api-convention";
 import { apiError, internalError } from "../lib/api-error";
 import { logger } from "../lib/logger";
-import { allVoiceIds, isBgmAllowed, isVoiceAllowed } from "../lib/tts-catalog";
+import { isBgmAllowed } from "../lib/tts-catalog";
+import { isVoiceKnown, knownVoiceIds } from "../services/tts-voice.service";
 
 const idSchema = z.object({ contentId: z.string().min(1).max(32) });
 const batchQuerySchema = z.object({ ids: z.string().min(1).max(4000) });
@@ -223,7 +224,11 @@ async function writeAnalyticsAndCanonical(
     if (!content) return { kind: "missing" };
 
     const currentVoiceId = asString(asRecord(content.voice).id);
-    if (body.voice !== undefined && body.voice !== currentVoiceId && !isVoiceAllowed(body.voice)) {
+    if (
+      body.voice !== undefined &&
+      body.voice !== currentVoiceId &&
+      !(await isVoiceKnown(body.voice))
+    ) {
       return { kind: "voice-rejected" };
     }
     const currentBgm = asString(asRecord(content.style).bgm) ?? "";
@@ -306,7 +311,7 @@ videoAnalyticsRoute.openapi(patchRoute, async (c) => {
         apiError("VOICE_NOT_ALLOWED", "音色不在允许列表", {
           field: "voice",
           received: body.voice,
-          allowed: allVoiceIds(),
+          allowed: await knownVoiceIds(),
           hint: "GET /api/tts/voices",
         }),
         400,

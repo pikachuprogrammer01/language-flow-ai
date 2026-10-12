@@ -21,11 +21,15 @@
 技术栈      Hono 4 · Drizzle ORM · MySQL 8.4 · Vue 3.5 + Tailwind CSS 4 · Playwright + FFmpeg 8 · Biome · Vitest 3 · zod
 LLM 配置    Ollama 本地（qwen2.5:7b，纯本地离线方案 2026-08-17 用户决策），配置在 packages/backend/.env
             （LLM_BASE_URL/LLM_API_KEY/LLM_MODEL；.env 已被 gitignore，密钥不入库）
-文档版本    SPEC V2.0 · docs/ 01-15（05 已废弃由 15 取代）· PROGRESS 持续更新
+文档版本    SPEC V2.0 · docs/ 01-21（05 已废弃由 15 取代；18-19 发布数据一致性；20-21 质量与运维门禁）· PROGRESS 持续更新
 常用命令    pnpm dev（本地前后端）· pnpm docker:test（测试栈）· pnpm docker:up（生产，不构建）
             pnpm docker:release / docker:rollback <tag> / docker:version（MUST：生产版本只有用户明确要求时才能 release）
             pnpm test / pnpm lint / pnpm typecheck · pnpm e2e（真实测试栈 E2E，需先 docker:test）/ pnpm e2e:full（全链路含 Ollama 生成，手动触发不进 hooks）
             pnpm --filter backend db:generate / db:migrate / db:seed（词库 seed-data/cet_words.csv）
+            pnpm docker:backup（生产库+成片备份，末尾自动演一次真恢复）/ docker:backup:verify / docker:audit（生产只读对账）
+            pnpm docker:gate（七步质量门禁，不发布）· pnpm --filter backend test:invariants（真库不变量，需测试库 :3307 在跑）
+            MUST：docker:release 先强制备份再过七步门禁，任一步红则不切 APP_VERSION；备份段不可跳，质量段只允许 GATE_SKIP=1 显式跳过并留痕
+            MUST：任何可能改动生产数据的动作（修复脚本 --apply、灌库、覆盖测试库）之前先 docker:backup，且确认恢复演练通过
 ```
 
 ---

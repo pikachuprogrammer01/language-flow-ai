@@ -19,7 +19,7 @@ vi.mock("./cet.service", () => ({
 }));
 
 import { randomWords, validateWords } from "./cet.service";
-import { generateSceneWordContent } from "./content.service";
+import { ContentRejectedError, generateSceneWordContent } from "./content.service";
 import { chatCompletion, extractJson } from "./llm.service";
 
 const chatCompletionMock = vi.mocked(chatCompletion);
@@ -318,6 +318,31 @@ describe("generateSceneWordContent", () => {
     await expect(generateSceneWordContent({ topic: "科技创业", level: "CET4" })).rejects.toThrow(
       "内容生成未通过验收",
     );
+  });
+
+  it("三轮都被同一个原因拒：报文里只列一次，并给出可执行的下一步", async () => {
+    const offTopic = withTopic(STORY_JSON, "森林露营");
+    chatCompletionMock.mockResolvedValue(offTopic);
+
+    let message = "";
+    try {
+      await generateSceneWordContent({ topic: "科技创业", level: "CET4" });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toContain("内容生成未通过验收");
+    expect(message).toContain("已重试 3 轮");
+    // 同一条原因重复三遍会把真正的提示挤出屏幕（也让人误以为是三个不同问题）
+    expect(message.match(/主题偏离/g)).toHaveLength(1);
+    expect(message).toContain("可直接重试或换个主题再试");
+  });
+
+  it("验收失败是 ContentRejectedError：路由据此回原因，其它异常仍走通用消息", async () => {
+    const offTopic = withTopic(STORY_JSON, "森林露营");
+    chatCompletionMock.mockResolvedValue(offTopic);
+    await expect(
+      generateSceneWordContent({ topic: "科技创业", level: "CET4" }),
+    ).rejects.toBeInstanceOf(ContentRejectedError);
   });
 
   it("LLM 输出非法 JSON 时反馈重试并最终失败", async () => {

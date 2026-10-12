@@ -2,7 +2,8 @@
  * 真实 MySQL 集成测试（migration 0005 效应验证，非 mock）
  * 仅在 TEST_DATABASE_URL（或 DATABASE_URL）提供时运行，否则整体跳过（pre-push 单测不触发）。
  * 覆盖：TX7 FK ON DELETE CASCADE 级联删；TX8 publish_at datetime 越过 2038 往返。
- * 运行：TEST_DATABASE_URL=mysql://dev:dev@localhost:3306/language_flow_test pnpm --filter backend test:integration
+ * 运行（连接串必须是测试实例 :3307，**:3306 是生产实例**，本文件会真建连接并 INSERT）：
+ *   TEST_DATABASE_URL=mysql://dev:dev@localhost:3307/language_flow pnpm --filter backend test:integration
  */
 import { randomUUID } from "node:crypto";
 import type { Connection, RowDataPacket } from "mysql2/promise";

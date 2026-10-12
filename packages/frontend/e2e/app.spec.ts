@@ -56,11 +56,17 @@ test.describe("新建页向导", () => {
     // 清空主题 → 点步进器 02：应被拦截（主题必填）
     await page.locator("#topic").fill("");
     await page.locator('button[title="点击跳转到「AI 生成」"]').click();
-    await expect(page.getByText("请先填写/选择视频主题")).toBeVisible();
+    // 钉可见的那条 toast：toast 组件还会在 sr-only 活动区域放一份同文案节点，
+    // 直接 getByText 会撞 strict mode（整跑时偶发假红，2026-10-04 实测）
+    await expect(
+      page.getByRole("listitem").filter({ hasText: "请先填写/选择视频主题" }),
+    ).toBeVisible();
     // 恢复主题 → 点步进器 04：应被拦截（未生成内容）
     await page.locator("#topic").fill("森林探险");
     await page.locator('button[title="点击跳转到「渲染确认」"]').click();
-    await expect(page.getByText("请先在 02 AI 生成 步骤生成内容")).toBeVisible();
+    await expect(
+      page.getByRole("listitem").filter({ hasText: "请先在 02 AI 生成 步骤生成内容" }),
+    ).toBeVisible();
     // 拦截即不跳步：仍停留在内容设置面板
     await expect(page.getByRole("heading", { name: "选择模板" })).toBeVisible();
     expect(errors).toEqual([]);

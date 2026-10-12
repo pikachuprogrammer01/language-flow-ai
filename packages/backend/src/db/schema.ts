@@ -16,7 +16,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/mysql-core";
-import { METRIC_SOURCE_TYPES } from "../lib/analytics-taxonomy";
+import { METRIC_SOURCE_TYPES, PUBLISH_TIME_SOURCES } from "../lib/analytics-taxonomy";
 
 // ── 视频内容表 ──
 export const contents = mysqlTable(
@@ -126,6 +126,11 @@ export const publishRecords = mysqlTable(
     platformVideoId: varchar("platform_video_id", { length: 100 }),
     publishTitle: varchar("publish_title", { length: 255 }),
     publishTime: datetime("publish_time", { mode: "date" }),
+    /**
+     * publish_time 的来处（NULL = 旧记录无法判定，不倒推造一个来源）。
+     * 决定导入的平台真实时间能否覆盖它：LOCAL_GENERATED 可覆盖，USER_EDITED 不可。
+     */
+    publishTimeSource: mysqlEnum("publish_time_source", PUBLISH_TIME_SOURCES),
     coverUrl: varchar("cover_url", { length: 500 }),
     publishStatus: mysqlEnum("publish_status", ["scheduled", "published", "deleted"])
       .notNull()
@@ -343,12 +348,61 @@ export const recommendations = mysqlTable(
     accepted: int("accepted"),
     /** 采纳后新建的内容 id（采用后效果对比的接入点） */
     appliedToContentId: varchar("applied_to_content_id", { length: 32 }),
+    /**
+     * 产出本建议的因子快照（analysis_result.id）。
+     * NULL = 本列引入前的历史建议，证据链断在这里就如实说「无快照」，不回推一个快照凑证据。
+     */
+    analysisResultId: int("analysis_result_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   },
   (table) => [
     index("idx_recommendations_type").on(table.recommendationType),
     index("idx_recommendations_applied").on(table.appliedToContentId),
+    index("idx_recommendations_analysis").on(table.analysisResultId),
+  ],
+);
+
+// ── 推荐采纳回路表（docs/22 §4.2，批次二） ──
+// 「建议 → 用户采纳 → 页面预填 → 用户最终提交参数 → 新内容」必须逐步可回放：
+// 只有建议值而没有最终值，就无法回答「你到底按建议做了没有、做完效果如何」。
+// 纪律：这些字段一律不进 ContentDTO（核心 14 字段冻结）。
+export const recommendationApplications = mysqlTable(
+  "recommendation_applications",
+  {
+    id: varchar("id", { length: 32 }).primaryKey(),
+    /**
+     * 来源建议 id。与 match_decision.matched_video_id、recommendations.applied_to_content_id
+     * 同一惯例：**不加外键**。generateRecommendations() 会删掉未处理的旧建议，
+     * 加了级联 FK 就会连带抹掉用户已经采纳过的事实——采纳史比建议行本身活得久。
+     */
+    recommendationId: varchar("recommendation_id", { length: 32 }).notNull(),
+    /**
+     * 生成成功后绑定的内容 id；生成失败保持 NULL。
+     * 与 recommendations.applied_to_content_id 同样**不加 FK**：这是审计表——
+     * 内容被删不等于「用户没采纳过」，级联删除会把采纳史抹成假阴性。
+     * 是否绑定过以 applied_at 为准，与内容行还在不在无关。
+     */
+    contentId: varchar("content_id", { length: 32 }),
+    /** 建议给出的值（来自 recommendations.recommendation 快照） */
+    suggestedParams: json("suggested_params").notNull(),
+    /** 点「使用推荐参数创建」时装入创建页的预填值（用户还没改之前的形态） */
+    prefillParams: json("prefill_params").notNull(),
+    /** 用户最终提交给生成链路的值；未生成为 NULL（绝不拿建议值冒充最终值） */
+    finalParams: json("final_params"),
+    /** 本条采纳针对的 canonical 目标指标 */
+    targetMetric: varchar("target_metric", { length: 64 }).notNull(),
+    /** 证据链锚点：产出该建议的因子快照（可空 = 历史建议无快照） */
+    analysisResultId: int("analysis_result_id"),
+    acceptedAt: timestamp("accepted_at").notNull().defaultNow(),
+    /** 成功绑定内容的时间；NULL = 采纳了但没生成成功 */
+    appliedAt: timestamp("applied_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    index("idx_recommendation_applications_rec").on(table.recommendationId),
+    index("idx_recommendation_applications_content").on(table.contentId),
   ],
 );
 
@@ -380,6 +434,43 @@ export const experiments = mysqlTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   },
   (table) => [index("idx_experiments_status").on(table.status)],
+);
+
+/**
+ * 实验分配表（docs/22 §4.3，批次三）：变体在**生成之前**由操作者显式选定，
+ * 评估时以这张表为事实来源，而不是事后从两组 contentIds 里凑。
+ * 第一版只有 operator_selected——不做随机分配（需求 §二十：没有随机分流的基础设施就不假装 A/B）。
+ */
+export const experimentAssignments = mysqlTable(
+  "experiment_assignments",
+  {
+    id: varchar("id", { length: 32 }).primaryKey(),
+    /**
+     * 不加外键：`experiments.id` 在这两个库里的排序规则不一致（测试库是历史灌库留下的
+     * utf8mb4_0900_ai_ci，新建表默认 utf8mb4_unicode_ci），FK 能否建起来取决于库的往事，
+     * 等于给发布日埋彩票。存在性由服务层校验（createExperimentAssignment 先查实验），
+     * 且实验本身没有删除路径，级联用不上。与 recommendation_applications 同一处置。
+     */
+    experimentId: varchar("experiment_id", { length: 32 }).notNull(),
+    /** 生成成功后绑定；NULL = 分配了但没生成成功（这正是要看得见的事实，不抹掉） */
+    contentId: varchar("content_id", { length: 32 }),
+    variant: mysqlEnum("variant", ["A", "B"]).notNull(),
+    assignmentMethod: mysqlEnum("assignment_method", ["operator_selected"])
+      .notNull()
+      .default("operator_selected"),
+    /** 分配时页面给出的实际参数（服务端按变体标签记录，不接受前端回传实验事实） */
+    assignedParams: json("assigned_params").notNull(),
+    /** 生成提交时的最终参数（用户可能改；与 assignedParams 分列，避免拿分配值冒充实际值） */
+    finalParams: json("final_params"),
+    assignedAt: timestamp("assigned_at").notNull().defaultNow(),
+    boundAt: timestamp("bound_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    index("idx_experiment_assignments_exp_variant").on(table.experimentId, table.variant),
+    index("idx_experiment_assignments_content").on(table.contentId),
+  ],
 );
 
 // ══ 以下为平台数据导入·四步精准匹配表（docs/17 §数据导入，migration 0008）══
@@ -545,3 +636,29 @@ export const matchDecision = mysqlTable(
   },
   (table) => [index("idx_match_decision_batch").on(table.batchId, table.matchStatus)],
 );
+
+// ── 配音音色目录（docs/24：运营可上下架，改数据即生效不改代码）──
+export const ttsVoices = mysqlTable("tts_voices", {
+  /** Edge 音色名（zh-CN-XiaoxiaoNeural）或本地音色名（Tingting） */
+  id: varchar("id", { length: 64 }).primaryKey(),
+  /** 界面显示名（晓晓（女·温暖）） */
+  label: varchar("label", { length: 64 }).notNull(),
+  gender: varchar("gender", { length: 8 }).notNull(),
+  /** edge = 微软朗读端点；local = 宿主机 say（容器内不可用） */
+  engine: mysqlEnum("engine", ["edge", "local"]).notNull().default("edge"),
+  /** 1=上架（出现在下拉、允许合成）0=下架；存量内容引用的音色不受下架影响 */
+  enabled: int("enabled").notNull().default(1),
+  /** 最近一次「测一次」时间，NULL=从未实测 */
+  lastCheckAt: timestamp("last_check_at", { mode: "date" }),
+  lastCheckStatus: mysqlEnum("last_check_status", [
+    "ok",
+    "no_audio",
+    "rate_limited",
+    "handshake_failed",
+    "error",
+  ]),
+  /** 实测细节：成功为音频时长秒数，失败为服务端原因原文 */
+  lastCheckDetail: varchar("last_check_detail", { length: 200 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+});

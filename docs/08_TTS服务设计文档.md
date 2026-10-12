@@ -30,7 +30,7 @@ packages/backend/src/routes/tts.ts      ← Zod 校验（template 枚举、conte
         ▼
 packages/backend/src/services/tts.service.ts
         │  1. buildTtsText() 按模板拼接朗读文本（纯函数，三模板规则见 §七）
-        │  2. 建立 WebSocket 连接 speech.platform.bing.com
+        │  2. 建立 WebSocket 连接 api.msedgeservices.com
         │  3. 发送 speech.config（音频格式配置）
         │  4. 发送 SSML 合成请求
         │  5. 接收二进制音频分片，拼接为 MP3 Buffer
@@ -117,8 +117,9 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 
 ## 四、Edge TTS 协议要点（实现细节）
 
-- **端点**：`wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4`
-- **握手头**：`Origin: https://www.bing.com` + Chrome 120 Edge UA（绕过服务端校验）
+- **端点**：`wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=6A5AA1D4EAFF4E9FB37E23D68491D6F4`
+  （旧主机 `speech.platform.bing.com/.../edge/v1` 自 2026-10 起对合成 WebSocket 返回 403，音色列表仍在旧主机；对齐 edge-tts PR #491）
+- **握手头**：`Origin: chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold` + `Cookie: muid=<16 字节 hex>` + Edge 143 UA，并带 `Sec-MS-GEC` / `Sec-MS-GEC-Version` 查询签名
 - **消息 1（speech.config）**：`X-Timestamp` + `Content-Type: application/json; charset=utf-8` + `Path: speech.config`，body 为 JSON：
   ```json
   {
@@ -145,8 +146,9 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 
 ## 五、音色映射表
 
-> **现状（2026-09-20）**：权威音色目录已收敛到 `backend/src/lib/tts-catalog.ts`（Edge 8 + Mac 本地 3），
-> `GET /api/tts/voices` 与发布设置白名单校验共用同一份；voice 直接传目录 id（即 Edge 音色名 / Mac 音色名）。
+> **现状（2026-10-12）**：权威音色目录是数据库表 **`tts_voices`**（`services/tts-voice.service`），
+> `GET /api/tts/voices`、合成前置校验与发布设置白名单共用同一份；voice 直接传目录 id
+> （即 Edge 音色名 / Mac 音色名）。`lib/tts-catalog.ts` 现在只保留 BGM 素材校验。
 > 下表为早期抽象 ID 方案的历史背景，新链路不再经过该映射。
 
 业务层 `VoiceConfig.id`（ContentDTO 字段，稳定契约）→ Edge TTS 音色名（调用 tts 接口前转换）：
@@ -165,6 +167,27 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 
 **BGM 校验同源**：合法 BGM 引用集 = `uploads/bgm/` 目录实际文件（与 `/api/files?type=bgm`、前端选择器同源）；
 引用形如 `/files/bgm/<filename>`，空/null 表示无 BGM，防路径穿越（`isBgmAllowed`）。
+
+### 5.1 音色上下架与失败分类（docs/24）
+
+音色可用性会变（微软 2026-10 迁移合成端点后，8 个 Edge 音色里 3 个不再回音频），所以上下架
+做成数据而非代码：「配音音色」页（`/tts-voices`）可上下架、可「测一次」，结论写回
+`tts_voices.last_check_*`。两条口径：
+
+- **下架 ≠ 非法**：`knownVoiceIds()` 含已下架项，发布配置仍能回显与重配历史音色；
+  `selectableVoices()` 才受 `enabled` 与运行平台过滤（容器无 `say`，本地音色不出现在可选列表）
+- 已下架 / 本环境用不了的音色在合成入口直接 **400 `VOICE_UNAVAILABLE`**，不打远端
+
+失败按类别决定重试预算（`classifyTtsError` 纯函数，日志字段 `ttsErrorClass`）：
+
+| 类别 | 识别 | 重试 |
+|------|------|------|
+| `voice_unavailable` | 握手成功但零音频帧结束 | 0 次（重试只是白等 7 秒） |
+| `rate_limited` | HTTP 429 | 退避 2s、6s，最多 2 次 |
+| `handshake_failed` | 403 / 5xx / 超时 / 网络 | 1 次（500ms） |
+| `local_engine_missing` | 容器内选到本地音色 | 0 次 |
+
+限流时固定连发会把自己正在等的窗口越推越远，这是 429 单独退避而不是沿用统一重试的原因。
 
 ---
 
