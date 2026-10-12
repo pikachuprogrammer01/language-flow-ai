@@ -100,6 +100,45 @@ export async function listVoices() {
   return data;
 }
 
+/** 音色管理条目（GET /api/tts/voices 的 all 字段） */
+export interface ManagedVoice {
+  checkDetail: string | null;
+  checkedAt: string | null;
+  enabled: boolean;
+  engine: "edge" | "local";
+  checkStatus: "ok" | "no_audio" | "rate_limited" | "handshake_failed" | "error" | null;
+  gender: string;
+  id: string;
+  name: string;
+}
+
+/** 上架 / 下架配音音色（docs/24：下架只影响新合成，存量内容不受影响） */
+export async function setVoiceEnabled(voiceId: string, enabled: boolean): Promise<void> {
+  const { error, response } = await client.PATCH("/api/tts/voices/{id}", {
+    params: { path: { id: voiceId } },
+    body: { enabled },
+  });
+  if (error || !response.ok) {
+    const detail = (error as { error?: string } | null)?.error;
+    throw new Error(detail ?? `${enabled ? "上架" : "下架"}失败（HTTP ${response.status}）`);
+  }
+}
+
+/** 实测某音色能否出音频（已下架也可测）；测不出来同样返回结论，不当作请求失败 */
+export async function probeVoice(voiceId: string): Promise<{
+  detail: string;
+  status: "ok" | "no_audio" | "rate_limited" | "handshake_failed" | "error";
+}> {
+  const { data, error, response } = await client.POST("/api/tts/voices/{id}/probe", {
+    params: { path: { id: voiceId } },
+  });
+  if (error || !response.ok || !data) {
+    const detail = (error as { error?: string } | null)?.error;
+    throw new Error(detail ?? `实测失败（HTTP ${response.status}）`);
+  }
+  return { detail: data.detail, status: data.status };
+}
+
 /** 主题推荐（本地模型生成候选，用户确认后生成；PRD §10.1.2） */
 export async function suggestTopics(body: { hint?: string }) {
   const { data, error, response } = await client.POST("/api/topics/suggest", { body });
