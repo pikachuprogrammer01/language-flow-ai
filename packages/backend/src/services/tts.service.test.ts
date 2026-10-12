@@ -15,7 +15,7 @@ const { wsInstances, execFileMock } = vi.hoisted(() => ({
 class FakeWS extends EventEmitter {
   sent: string[] = [];
   closed = false;
-  constructor() {
+  constructor(readonly url: string) {
     super();
     wsInstances.push(this);
   }
@@ -40,8 +40,8 @@ class FakeWS extends EventEmitter {
 }
 
 vi.mock("ws", () => ({
-  default: vi.fn(function create() {
-    return new FakeWS();
+  default: vi.fn(function create(url: string): FakeWS {
+    return new FakeWS(url);
   }),
 }));
 // promisify(execFile) 依赖 nodejs.util.promisify.custom 才能拿到 { stdout }；显式实现该符号
@@ -95,6 +95,21 @@ describe("synthesizeSpeech — Edge TTS 路径", () => {
     expect(ws.sent[1]).toContain("Path:ssml");
     expect(ws.sent[1]).toContain('rate="+20%"');
     expect(ws.sent[1]).toContain("&lt;world&gt; &amp; &apos;quote&apos;");
+  });
+
+  it("端点守卫：合成走 api.msedgeservices.com + Ocp-Apim-Subscription-Key（旧主机自 2026-10 起 403）", async () => {
+    const p = synthesizeSpeech("x", "zh-CN-XiaoxiaoNeural");
+    wsAt(0).completeWith("AUDIO");
+    await expect(p).resolves.toEqual(Buffer.from("AUDIO"));
+    const url = new URL(wsAt(0).url);
+    expect(url.host).toBe("api.msedgeservices.com");
+    expect(url.pathname).toBe("/tts/cognitiveservices/websocket/v1");
+    expect(url.searchParams.get("Ocp-Apim-Subscription-Key")).toBe(
+      "6A5AA1D4EAFF4E9FB37E23D68491D6F4",
+    );
+    expect(url.searchParams.has("TrustedClientToken")).toBe(false);
+    expect(url.searchParams.get("Sec-MS-GEC")).toMatch(/^[0-9A-F]{64}$/);
+    expect(url.searchParams.get("Sec-MS-GEC-Version")).toMatch(/^1-\d+\.\d+\.\d+\.\d+$/);
   });
 
   it("全 3 次尝试均无音频：抛 No audio data（重试预算用尽）", async () => {

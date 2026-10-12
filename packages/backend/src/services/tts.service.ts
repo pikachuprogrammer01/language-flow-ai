@@ -9,12 +9,13 @@ import WebSocket, { type RawData } from "ws";
 import { logger } from "../lib/logger";
 
 // Edge TTS — 微软公开的浏览器朗读接口
-// 来源: https://github.com/rany2/edge-tts（2026-08 master）
+// 来源: https://github.com/rany2/edge-tts（2026-08 master；403 修复对齐 PR #491）
 // 服务端要求：Sec-MS-GEC 时间戳签名（hex 大写、向下取整到 5 分钟）+ Cookie muid，
 // 缺失或算法不符返回 403
 
-const EDGE_TTS_BASE_URL =
-  "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
+// 2026-10 起旧主机 speech.platform.bing.com 对合成 WebSocket 一律 403（音色列表仍可用），
+// Edge 155 改走 api.msedgeservices.com，同一 token 换用 Ocp-Apim-Subscription-Key 传
+const EDGE_TTS_BASE_URL = "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1";
 const EDGE_TTS_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 // 与 edge-tts master 对齐：Chromium 143
 const SEC_MS_GEC_VERSION = "1-143.0.3650.75";
@@ -31,7 +32,7 @@ function buildEdgeTtsUrl(): string {
     .digest("hex")
     .toUpperCase();
   return (
-    `${EDGE_TTS_BASE_URL}?TrustedClientToken=${EDGE_TTS_TOKEN}` +
+    `${EDGE_TTS_BASE_URL}?Ocp-Apim-Subscription-Key=${EDGE_TTS_TOKEN}` +
     `&ConnectionId=${randomUUID()}` +
     `&Sec-MS-GEC=${secMsGec}` +
     `&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}`

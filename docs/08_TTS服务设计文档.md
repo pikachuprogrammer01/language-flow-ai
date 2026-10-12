@@ -30,7 +30,7 @@ packages/backend/src/routes/tts.ts      ← Zod 校验（template 枚举、conte
         ▼
 packages/backend/src/services/tts.service.ts
         │  1. buildTtsText() 按模板拼接朗读文本（纯函数，三模板规则见 §七）
-        │  2. 建立 WebSocket 连接 speech.platform.bing.com
+        │  2. 建立 WebSocket 连接 api.msedgeservices.com
         │  3. 发送 speech.config（音频格式配置）
         │  4. 发送 SSML 合成请求
         │  5. 接收二进制音频分片，拼接为 MP3 Buffer
@@ -117,8 +117,9 @@ GET /files/audio/:filename（routes/files.ts，校验路径穿越后返回音频
 
 ## 四、Edge TTS 协议要点（实现细节）
 
-- **端点**：`wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4`
-- **握手头**：`Origin: https://www.bing.com` + Chrome 120 Edge UA（绕过服务端校验）
+- **端点**：`wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=6A5AA1D4EAFF4E9FB37E23D68491D6F4`
+  （旧主机 `speech.platform.bing.com/.../edge/v1` 自 2026-10 起对合成 WebSocket 返回 403，音色列表仍在旧主机；对齐 edge-tts PR #491）
+- **握手头**：`Origin: chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold` + `Cookie: muid=<16 字节 hex>` + Edge 143 UA，并带 `Sec-MS-GEC` / `Sec-MS-GEC-Version` 查询签名
 - **消息 1（speech.config）**：`X-Timestamp` + `Content-Type: application/json; charset=utf-8` + `Path: speech.config`，body 为 JSON：
   ```json
   {
