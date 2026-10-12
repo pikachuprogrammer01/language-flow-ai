@@ -788,7 +788,7 @@
           "配音"
         ],
         "operationId": "listVoices",
-        "summary": "可用配音列表（音色/性别）",
+        "summary": "可用配音列表（音色/性别；附管理页所需的全量目录与实测状态）",
         "responses": {
           "200": {
             "description": "配音列表",
@@ -802,30 +802,270 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "gender": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "gender",
+                          "id",
+                          "name"
+                        ]
+                      }
+                    },
+                    "default": {
+                      "type": "string"
+                    },
+                    "all": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "gender": {
+                            "type": "string"
+                          },
                           "id": {
                             "type": "string"
                           },
                           "name": {
                             "type": "string"
                           },
-                          "gender": {
-                            "type": "string"
+                          "checkDetail": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "checkedAt": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "engine": {
+                            "type": "string",
+                            "enum": [
+                              "edge",
+                              "local"
+                            ]
                           }
                         },
                         "required": [
+                          "gender",
                           "id",
                           "name",
-                          "gender"
+                          "checkDetail",
+                          "checkedAt",
+                          "enabled",
+                          "engine"
                         ]
                       }
-                    },
-                    "default": {
-                      "type": "string"
                     }
                   },
                   "required": [
                     "voices",
                     "default"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tts/voices/{id}": {
+      "patch": {
+        "tags": [
+          "配音"
+        ],
+        "operationId": "setVoiceEnabled",
+        "summary": "上架 / 下架配音音色（下架只影响新合成，存量内容不受影响）",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已更新",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "voice": {
+                      "type": "object",
+                      "properties": {
+                        "gender": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "checkDetail": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "checkedAt": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "engine": {
+                          "type": "string",
+                          "enum": [
+                            "edge",
+                            "local"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "gender",
+                        "id",
+                        "name",
+                        "checkDetail",
+                        "checkedAt",
+                        "enabled",
+                        "engine"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "voice"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "音色不在目录中",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tts/voices/{id}/probe": {
+      "post": {
+        "tags": [
+          "配音"
+        ],
+        "operationId": "probeVoice",
+        "summary": "实测某个音色能否出音频（含已下架音色），结果写回目录供判断上下架",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "实测结论（status 非 ok 时同样返回 200：测不出来就是结果）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "no_audio",
+                        "rate_limited",
+                        "handshake_failed",
+                        "error"
+                      ]
+                    },
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "detail"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "音色不在目录中",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
                   ]
                 }
               }
