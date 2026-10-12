@@ -427,8 +427,13 @@ POST /api/cet/random-words
 
 ### 5.2 TTS 服务
 
-TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-content`（ContentArray 拼接合成，场景内容用）。
-`GET /api/tts/voices` 返回混合音色列表（Edge 8 + Mac 本地 3：婷婷/阿欣/美佳）与默认音色；词性缩写不朗读（释义前缀剥离，2026-08-18 用户确认）。
+TTS 提供两个合成端点：`generate`（底层，已发布契约）与 `from-content`（ContentArray 拼接合成，场景内容用）。
+`GET /api/tts/voices` 返回当前环境**可选**音色与默认音色，并附全量目录（含已下架项与最近实测结论）。
+音色目录是数据库表 `tts_voices`（docs/24），上下架在「配音音色」页完成，不需要改代码或发版。
+词性缩写不朗读（释义前缀剥离，2026-08-18 用户确认）。
+
+已下架或本环境用不了的音色在合成入口就被拒：**400 + `code: VOICE_UNAVAILABLE`**，不打远端——
+这类失败是参数不合法，不是服务坏了，返回 500 会让重试与告警都指错方向。
 
 #### 5.2.1 POST /api/tts/generate — 底层文本合成
 
@@ -508,6 +513,21 @@ TTS 提供两个端点：`generate`（底层，已发布契约）与 `from-conte
 
 > 注：后端不校验 voice 是否为合法 Edge 音色名（仅校验类型），
 > 非法音色名由 Edge TTS 服务端拒绝时返回 500。
+
+#### 5.2.3 音色目录管理（docs/24）
+
+| 方法 | 路径 | 契约 |
+|---|---|---|
+| GET | `/api/tts/voices` | `{ voices: [{id,name,gender}], default, all?: [{...同上, engine, enabled, checkedAt, checkStatus, checkDetail}] }`；`voices` 只含「已上架且本环境真能用」的项（容器无 `say` 时本地音色不出现） |
+| PATCH | `/api/tts/voices/{id}` | 请求 `{ enabled: boolean }` → 200 `{ voice }`；目录里没有该音色 → 404 `VOICE_NOT_FOUND` |
+| POST | `/api/tts/voices/{id}/probe` | 用固定短句实测该音色能否出音频（**已下架也可测**，否则无法判断能不能重新上架）；结论写回目录并返回 `{ status, detail }`，测不出来同样 200——测不出来就是结果 |
+
+`status` 取值：`ok` / `no_audio`（端点不提供该音色）/ `rate_limited` / `handshake_failed` / `error`。
+探测产物写系统临时目录、ffprobe 出时长后即删，不在 uploads 留孤儿文件。
+
+**合成失败的重试预算按类别区分**（`classifyTtsError` 纯函数）：`voice_unavailable` 与
+`local_engine_missing` 不重试；`rate_limited`（HTTP 429）退避 2s、6s 最多 2 次；
+其余（403 / 超时 / 网络）重试 1 次。固定连发在限流时只会把自己等的窗口越推越远。
 
 ### 5.3 视频渲染服务
 
@@ -1045,6 +1065,29 @@ Production Feature 落库（需求 §五A）：生产可直取字段从 ContentD
 | assigned_at / bound_at | TIMESTAMP | 分配时间 / 绑定时间（bound_at 非空即已绑定，再绑 409） |
 
 索引：`(experiment_id, variant)`、`content_id`。
+
+---
+
+### 10.20 配音音色目录表：tts_voices（migration 0013）
+
+音色清单从 `lib/tts-catalog` 的硬编码数组搬进这张表，因为可用性是外部端点决定的、会变的
+事实（docs/24）：2026-10-12 微软把合成 WebSocket 从 `speech.platform.bing.com` 迁到
+`api.msedgeservices.com` 后，8 个 Edge 音色里 3 个不再回音频。留在代码里意味着每下架一个音色
+都要走一次生产发布。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | VARCHAR(64) PK | Edge 音色名（`zh-CN-XiaoxiaoNeural`）或本地音色名（`Tingting`） |
+| label / gender | VARCHAR(64) / VARCHAR(8) | 界面显示名与性别 |
+| engine | ENUM('edge','local') | `local` = 宿主机 `say`，**容器内永远不可用**，由服务层按平台过滤 |
+| enabled | INT NOT NULL DEFAULT 1 | 1=上架。下架只影响新合成，不改历史数据 |
+| last_check_at / last_check_status | TIMESTAMP NULL / ENUM NULL | 「测一次」的时间与结论（`ok`/`no_audio`/`rate_limited`/`handshake_failed`/`error`）；NULL=从未实测 |
+| last_check_detail | VARCHAR(200) NULL | 成功记时长与字节数，失败记服务端原因原文 |
+
+无外键：`contents.voice` 存的是历史值（生产库里是 `female_01` 这类旧口径），不为它建约束。
+
+两条口径写死在服务层（`services/tts-voice.service`）：**下架 ≠ 非法**——`knownVoiceIds()`
+含已下架项，发布配置因此仍可回显与重配历史音色；`selectableVoices()` 才受 `enabled` 与平台过滤。
 
 ---
 
