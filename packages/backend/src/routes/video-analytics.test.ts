@@ -11,11 +11,14 @@ const { VALID_VOICES } = vi.hoisted(() => ({
   VALID_VOICES: new Set(["zh-CN-XiaoxiaoNeural", "zh-CN-XiaoyiNeural", "zh-CN-YunxiNeural"]),
 }));
 vi.mock("../lib/tts-catalog", () => ({
-  allVoiceIds: () => [...VALID_VOICES],
-  isVoiceAllowed: (voice: string) => VALID_VOICES.has(voice),
   // 真实语义：null/空串 = 无 BGM 允许；非空在测试环境无对应素材文件 → 拒绝
   isBgmAllowed: (ref: string | null | undefined) => ref === null || ref === undefined || ref === "",
   listBgmFiles: () => [],
+}));
+// 音色目录已搬家到 tts_voices 表（docs/24）：单测不打库，白名单口径在此模拟
+vi.mock("../services/tts-voice.service", () => ({
+  isVoiceKnown: async (voice: string) => VALID_VOICES.has(voice),
+  knownVoiceIds: async () => [...VALID_VOICES],
 }));
 
 type ContentRow = {

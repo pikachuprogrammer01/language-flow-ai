@@ -636,3 +636,29 @@ export const matchDecision = mysqlTable(
   },
   (table) => [index("idx_match_decision_batch").on(table.batchId, table.matchStatus)],
 );
+
+// ── 配音音色目录（docs/24：运营可上下架，改数据即生效不改代码）──
+export const ttsVoices = mysqlTable("tts_voices", {
+  /** Edge 音色名（zh-CN-XiaoxiaoNeural）或本地音色名（Tingting） */
+  id: varchar("id", { length: 64 }).primaryKey(),
+  /** 界面显示名（晓晓（女·温暖）） */
+  label: varchar("label", { length: 64 }).notNull(),
+  gender: varchar("gender", { length: 8 }).notNull(),
+  /** edge = 微软朗读端点；local = 宿主机 say（容器内不可用） */
+  engine: mysqlEnum("engine", ["edge", "local"]).notNull().default("edge"),
+  /** 1=上架（出现在下拉、允许合成）0=下架；存量内容引用的音色不受下架影响 */
+  enabled: int("enabled").notNull().default(1),
+  /** 最近一次「测一次」时间，NULL=从未实测 */
+  lastCheckAt: timestamp("last_check_at", { mode: "date" }),
+  lastCheckStatus: mysqlEnum("last_check_status", [
+    "ok",
+    "no_audio",
+    "rate_limited",
+    "handshake_failed",
+    "error",
+  ]),
+  /** 实测细节：成功为音频时长秒数，失败为服务端原因原文 */
+  lastCheckDetail: varchar("last_check_detail", { length: 200 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+});

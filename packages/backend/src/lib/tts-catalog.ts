@@ -1,55 +1,13 @@
 /**
- * 配音音色 / BGM 素材权威目录（F6 单一校验来源）
- * 音色枚举从 routes/tts.ts 迁入此处，tts 路由与 video-analytics 校验共用同一份；
+ * BGM 素材目录校验（F6 单一来源）
  * BGM 允许集 = uploads/bgm 目录实际文件（与 /api/files?type=bgm、前端 BGM 选择同源）。
+ *
+ * 音色目录已搬家到数据库表 tts_voices + services/tts-voice.service（docs/24）：
+ * 上下架要能在界面完成，不能每改一次音色就走一次生产发布。
  */
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-
-export interface VoiceCatalogItem {
-  id: string;
-  name: string;
-  gender: string;
-}
-
-/** Mac 本地音色（say 可用中文音色：Tingting 普通话；Sinji/Meijia 粤语） */
-export const MAC_VOICES: VoiceCatalogItem[] = [
-  { id: "Tingting", name: "婷婷（普通话·本地）", gender: "女" },
-  { id: "Sinji", name: "阿欣（粤语·本地）", gender: "女" },
-  { id: "Meijia", name: "美佳（粤语·本地）", gender: "女" },
-];
-
-/** 常用中文配音（edge-tts 支持；PRD §10.1.1 配音可选，2026-08-17 整理） */
-export const TTS_VOICES: VoiceCatalogItem[] = [
-  { id: "zh-CN-XiaoxiaoNeural", name: "晓晓（女·温暖）", gender: "女" },
-  { id: "zh-CN-XiaoyiNeural", name: "晓伊（女·活泼）", gender: "女" },
-  { id: "zh-CN-YunxiNeural", name: "云希（男·阳光）", gender: "男" },
-  { id: "zh-CN-YunjianNeural", name: "云健（男·浑厚）", gender: "男" },
-  { id: "zh-CN-YunyangNeural", name: "云扬（男·新闻）", gender: "男" },
-  { id: "zh-CN-XiaochenNeural", name: "晓辰（女·温柔）", gender: "女" },
-  { id: "zh-CN-XiaohanNeural", name: "晓涵（女·知性）", gender: "女" },
-  { id: "zh-CN-XiaomengNeural", name: "晓梦（女·少年感）", gender: "女" },
-];
-
 import { UPLOADS_DIR } from "./uploads-path";
-
-/** 全部合法音色 id（edge-tts + Mac 本地），供 select 列表与后端白名单校验共用 */
-export function allVoiceIds(): string[] {
-  return [...TTS_VOICES, ...MAC_VOICES].map((v) => v.id);
-}
-
-/**
- * 当前运行环境可用音色列表：Mac 本地音色依赖宿主机 say 命令，
- * 非 darwin（Linux/容器）无 say——不出列表，避免“选了无法合成且报错难懂”；
- * 白名单（allVoiceIds）不变：存量数据遗留的本地音色仍可回显/重配。
- */
-export function availableVoices(platform: NodeJS.Platform = process.platform): VoiceCatalogItem[] {
-  return platform === "darwin" ? [...TTS_VOICES, ...MAC_VOICES] : [...TTS_VOICES];
-}
-
-export function isVoiceAllowed(voiceId: string): boolean {
-  return allVoiceIds().includes(voiceId);
-}
 
 /** uploads/bgm 下现有素材文件名（目录不存在时返回空，不抛） */
 export function listBgmFiles(): string[] {
